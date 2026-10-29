@@ -173,7 +173,10 @@ fun TodayDashboard(app: UltimateApp) {
                 }
             }
         }
-        f?.let { Nudges.build(it, ids) }?.take(3)?.forEachIndexed { i, n ->
+        // One suggestion at a time keeps Home calm; the rest are a tap away.
+        val nudges = f?.let { Nudges.build(it, ids) }.orEmpty().take(3)
+        var allNudges by remember { mutableStateOf(false) }
+        (if (allNudges) nudges else nudges.take(1)).forEachIndexed { i, n ->
             Row(
                 Modifier.fillMaxWidth().appear("n-${n.id}", seen, i + 5).pressScale(0.98f).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.tertiaryContainer)
                     .clickable {
@@ -189,6 +192,10 @@ fun TodayDashboard(app: UltimateApp) {
                 Text(n.action, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onTertiaryContainer)
             }
         }
+        if (!allNudges && nudges.size > 1) Text(
+            "${nudges.size - 1} more suggestion" + if (nudges.size > 2) "s" else "", Modifier.clip(RoundedCornerShape(8.dp)).clickable { allNudges = true }.padding(horizontal = 6.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+        )
     }
 }
 

@@ -25,7 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -108,7 +108,7 @@ private fun Tabs(app: UltimateApp, route: Route, active: Boolean) {
                 NavigationBarItem(route == Route.Library, { shell.showLibrary() }, { BouncyIcon(Icons.Rounded.VideoLibrary, route == Route.Library) }, label = { Text("Library") })
                 NavigationBarItem(
                     route == Route.Activity, shell::showActivity,
-                    { BadgedBox(badge = { if (active) Badge() }) { BouncyIcon(Icons.Rounded.Terminal, route == Route.Activity) } },
+                    { BadgedBox(badge = { if (active) Badge() }) { BouncyIcon(Icons.Rounded.History, route == Route.Activity) } },
                     label = { Text("Activity") },
                 )
             }
