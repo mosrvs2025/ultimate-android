@@ -47,6 +47,7 @@ android {
         }
         // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
         create("ultimateplus") {
+            proguardFile("src/ultimateplus/java/app/ultimate/ssh/mina-rules.pro")
             dimension = "edition"
             applicationId = if (providers.gradleProperty("companionBuild").orNull == "true") "app.ultimate.companion" else "app.ultimate.plus"
             resValue("string", "app_name", if (providers.gradleProperty("companionBuild").orNull == "true") "Ultimate Companion" else "Ultimate+")
@@ -220,15 +221,26 @@ android {
         compose = true
         buildConfig = true
     }
-    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // Keep MINA's license notices and combine its filesystem-provider registrations.
+        resources.merges += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE", "META-INF/NOTICE", "META-INF/services/**")
+    }
 }
 
 // Editions without the AI assistant get a stub, so the code that calls Anthropic exists only in Ultimate+.
 android.sourceSets {
+    // SSH tests live in the requested common test directory but compile only for Ultimate+.
+    (getByName("test").java as org.gradle.api.tasks.util.PatternFilterable).exclude("app/ultimate/ssh/**")
+    getByName("testUltimateplus").java.srcDir("src/test/java/app/ultimate/ssh")
     listOf("ultimate", "studio", "traffic", "squeeze", "audio", "pluck").forEach { getByName(it).java.srcDir("src/noai/java") }
 }
 
 dependencies {
+    "ultimateplusImplementation"("org.apache.sshd:sshd-core:2.20.1")
+    "ultimateplusImplementation"("org.apache.sshd:sshd-sftp:2.20.1")
+    // Ed25519 support on Android releases without Java's native EdEC implementation.
+    "ultimateplusImplementation"("net.i2p.crypto:eddsa:0.3.0")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.work:work-runtime-ktx:2.10.0")

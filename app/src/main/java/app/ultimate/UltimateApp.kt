@@ -68,6 +68,7 @@ class UltimateApp : Application() {
 
     val tools: List<Tool> by lazy {
         buildList {
+            if (BuildConfig.FLAVOR == "ultimateplus") add(Class.forName("app.ultimate.ssh.SshTool").getConstructor(android.content.Context::class.java).newInstance(this@UltimateApp) as Tool)
             if (BuildConfig.HAS_CHECKUP) add(app.ultimate.checkup.CheckupTool(checkupManager))
             if (BuildConfig.HAS_STUDIO) add(StudioTool(studioManager))
             if (BuildConfig.HAS_RECORDER) add(app.ultimate.recorder.RecorderTool(recorder))
