@@ -2,7 +2,7 @@
 
 One Android app that holds a growing set of small, offline tools. No ads, no analytics, no accounts. The manifest has no `INTERNET` permission, so the app cannot reach the network.
 
-This is an independent app in this repository's `ultimate-android/` directory, unrelated to REA. It supersedes the earlier standalone `squeeze-android/` and `pluck-android/` projects, whose code now lives here as tools.
+This repository is the standalone home for Ultimate. The Android project lives at the repository root. REA remains a separate reverse-engineering tool. It supersedes the earlier standalone `squeeze-android/` and `pluck-android/` projects, whose code now lives here as tools.
 
 ## Tools
 
@@ -98,4 +98,13 @@ Add videos, select a clip, trim/split or reorder it, then choose Looks, Titles o
 
 Drafts reference original files rather than bundling them. Deleting/moving originals or revoking document access can prevent reopening/exporting; failures are shown rather than silently dropping clips. Preview may have brief boundary gaps; the exported composition is continuous. HDR exports are tone-mapped to SDR. Phone-specific codec/GPU behavior still requires device testing. This build does not include automatic captions, AI generation, multi-video overlays, keyframes or transitions.
 
-See `docs/app-investigations/capcut-19.4.0.md` at the repository root for artifact evidence, independent implementation choices and the next useful inputs.
+See [`docs/app-investigations/capcut-19.4.0.md` in REA](https://github.com/mosrvs2025/rea/blob/881c51029336c93a9212529e62ad685fc80b91ea/docs/app-investigations/capcut-19.4.0.md) for artifact evidence, independent implementation choices and the next useful inputs.
+
+
+## Repository migration
+
+Imported from `mosrvs2025/rea`, branch `claude/android-app-redesign-nrs3yt`, commit `881c510`. The original history and investigation evidence remain in REA. Use this repository for future Ultimate feature branches; bring any later Ultimate changes from REA here before merging concurrent work. No REA source was deleted.
+
+Build from the root with JDK 17, Gradle 8.9 and Android SDK 35. `main` is the integration branch; the initial import and SSH work are on `codex/ultimate-ssh` for review.
+
+GitHub secrets do not move between repositories. Before publishing updates, configure the existing permanent signing key here; a locally debug-signed build cannot update an APK signed with the previous release key. Companion deployment and rolling release publication remain in REA until deliberately migrated.
