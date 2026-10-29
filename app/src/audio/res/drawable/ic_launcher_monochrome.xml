@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- waveform bars -->
+    <path android:fillColor="#000000" android:pathData="M32,48 h5 a2.5,2.5 0 0 1 2.5,2.5 v7 a2.5,2.5 0 0 1 -2.5,2.5 h-5 a2.5,2.5 0 0 1 -2.5,-2.5 v-7 a2.5,2.5 0 0 1 2.5,-2.5 z" />
+    <path android:fillColor="#000000" android:pathData="M43,38 h5 a2.5,2.5 0 0 1 2.5,2.5 v27 a2.5,2.5 0 0 1 -2.5,2.5 h-5 a2.5,2.5 0 0 1 -2.5,-2.5 v-27 a2.5,2.5 0 0 1 2.5,-2.5 z" />
+    <path android:fillColor="#000000" android:pathData="M54,30 h5 a2.5,2.5 0 0 1 2.5,2.5 v43 a2.5,2.5 0 0 1 -2.5,2.5 h-5 a2.5,2.5 0 0 1 -2.5,-2.5 v-43 a2.5,2.5 0 0 1 2.5,-2.5 z" />
+    <path android:fillColor="#000000" android:pathData="M65,40 h5 a2.5,2.5 0 0 1 2.5,2.5 v23 a2.5,2.5 0 0 1 -2.5,2.5 h-5 a2.5,2.5 0 0 1 -2.5,-2.5 v-23 a2.5,2.5 0 0 1 2.5,-2.5 z" />
+    <path android:fillColor="#000000" android:pathData="M76,46 h5 a2.5,2.5 0 0 1 2.5,2.5 v11 a2.5,2.5 0 0 1 -2.5,2.5 h-5 a2.5,2.5 0 0 1 -2.5,-2.5 v-11 a2.5,2.5 0 0 1 2.5,-2.5 z" />
+</vector>

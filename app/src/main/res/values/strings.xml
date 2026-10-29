@@ -1,0 +1,4 @@
+<resources>
+    <string name="channel_progress">Work in progress</string>
+    <string name="channel_done">Finished work</string>
+</resources>
