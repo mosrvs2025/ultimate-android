@@ -20,6 +20,6 @@ QR scanning decodes an image from Android's picker locally. Live camera scanning
 
 JVM integration tests start real loopback SSH/SFTP clients and cover approved and rejected authentication, exec streams and exit codes, shared-storage reads/writes, traversal/symlink rejection, disconnect/reconnect, forwarding rejection, stable/corrupt host identity and atomic approval validation. They exercise the same pure-Java engine; they do not establish Android service behavior, notification rendering or device compatibility. Test on a phone before enabling this in a release.
 
-Current local results: 218 unit tests passed (9 SSH integration tests); `lintUltimateplusRelease` passed with no findings in the SSH package. `assembleUltimateplusRelease` passed with R8 enabled, and the APK manifest and DEX retain the private SSH service and reflective tool entrypoint. No Android device was attached for runtime testing.
+Current local results after the terminal/orb migration: 228 unit tests passed (9 SSH integration tests); `lintUltimateplusRelease` passed with no findings in the SSH package. `assembleUltimateplusRelease` passed with R8 enabled, and the APK manifest and DEX retain the private SSH service and reflective tool entrypoint. No Android device was attached for runtime testing.
 
 `assembleUltimateRelease` also passed with R8 enabled. Inspection confirmed that the offline APK contains no INTERNET permission, SSH manifest components, SSH classes or MINA classes.

@@ -27,6 +27,8 @@ class MainActivity : ComponentActivity() {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus && BuildConfig.HAS_CLIPS) ultimate.clips.captureNow("opened")
         // A newer APK downloaded while Ultimate was closed is offered the next time it opens.
+        // The orb comes back whenever Ultimate is opened, if it was left on.
+        if (hasFocus && BuildConfig.HAS_ORB) app.ultimate.orb.OrbService.resume(this)
         if (hasFocus && BuildConfig.HAS_FILES) Thread { runCatching { app.ultimate.files.UpdateWatcher.find(this)?.let { app.ultimate.files.UpdateWatcher.notify(this, it) } } }.start()
     }
 

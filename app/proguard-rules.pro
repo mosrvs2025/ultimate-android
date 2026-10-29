@@ -8,3 +8,6 @@
 -if class app.ultimate.audio.engine.AudioConverter
 -keep class javax.sound.** { *; }
 -dontwarn javax.sound.**
+
+# Termux's terminal starts the shell through JNI; the native library looks these up by name.
+-keep class com.termux.terminal.JNI { *; }

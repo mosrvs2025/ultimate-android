@@ -26,7 +26,7 @@ signed APK with readable diagnostic stacks. Successful builds replace the two ro
 `Ultimate-Companion.apk` and `SHA256SUMS.txt`. No APKs enter Git history. Temporary
 Actions artifacts expire after seven days. Download URL stays the same:
 
-https://github.com/mosrvs2025/rea/releases/download/ultimate-companion-preview/Ultimate-Companion.apk
+https://github.com/mosrvs2025/ultimate-android/releases
 
 The workflow needs `COMPANION_KEYSTORE_BASE64` and `COMPANION_KEYSTORE_PASSWORD`.
 Do not replace the signing key: later companion APKs must use the same key to
@@ -42,3 +42,7 @@ in Actions. Real-device camera orientation, playback handoff, file-transfer
 interruption, and lifecycle behavior still need phone verification. Export
 diagnostics now preserve exception details and distinguish a saved output from
 a failed follow-up step; the reported device export error has not been reproduced.
+
+The previous preview remains in REA releases. To publish new previews here, configure the existing permanent COMPANION signing secrets and run the manual Ultimate Companion APK workflow. No new release is published by the migration itself.
+
+The manual workflow asks for a version code higher than all prior Companion releases because repository run counters restart after migration.
