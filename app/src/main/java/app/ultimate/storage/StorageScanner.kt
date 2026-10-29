@@ -37,30 +37,43 @@ class StorageScanner(private val context: Context) {
         val biggest = PriorityQueue<BigFile>(compareBy { it.bytes })
         val forgotten = PriorityQueue<BigFile>(compareBy { it.bytes })
         val now = System.currentTimeMillis()
-        var count = 0
-        val skip = setOf(File(rootDir, "Android/data").path, File(rootDir, "Android/obb").path)
-        rootDir.walkTopDown().onEnter { it.path !in skip }.onFail { _, _ -> }.forEach { f ->
-            if (!f.isFile) return@forEach
-            val bytes = f.length(); val kind = FileModel.kindOf(f)
+        // Android's index lists everything in seconds; walking every folder is only the fallback (it can take minutes).
+        val items = app.ultimate.files.MediaIndex.load(context, progress) ?: walk(rootDir, progress)
+        val prefix = rootDir.path.trimEnd('/') + "/"
+        items.forEach { item ->
+            val path = item.file.path
+            if (!path.startsWith(prefix)) return@forEach
+            val bytes = item.bytes; val kind = item.kind
             byKind[kind] = (byKind[kind] ?: 0) + bytes
             // Add the size to every folder on the way down from the root.
-            val rel = f.parentFile?.relativeTo(rootDir)?.path.orEmpty()
             var node = root
             node.bytes += bytes; node.files++
-            if (rel.isNotEmpty() && rel != ".") rel.split(File.separatorChar).forEach { part ->
+            val parts = path.substring(prefix.length).split('/')
+            for (part in parts.dropLast(1)) {
                 node = node.children.getOrPut(part) { Folder(part, node.path + File.separator + part) }
                 node.bytes += bytes; node.files++
             }
             node.own += bytes
-            val big = BigFile(f.path, f.name, bytes, f.lastModified(), kind)
-            biggest.add(big); if (biggest.size > 60) biggest.poll()
-            if (bytes > 50_000_000 && now - f.lastModified() > 365 * 86_400_000L) { forgotten.add(big); if (forgotten.size > 40) forgotten.poll() }
-            if (++count % 2000 == 0) progress(count)
+            val big = BigFile(path, parts.last(), bytes, item.modified, kind)
+            if (biggest.size < 60 || bytes > biggest.peek()!!.bytes) { biggest.add(big); if (biggest.size > 60) biggest.poll() }
+            if (bytes > 50_000_000 && now - item.modified > 365 * 86_400_000L) { forgotten.add(big); if (forgotten.size > 40) forgotten.poll() }
         }
         val stat = StatFs(Environment.getDataDirectory().path)
         val apps = runCatching { apps() }.getOrNull()
         val trend = Trend.add(load(), now, stat.totalBytes - stat.availableBytes).also(::save)
         return StorageReport(now, stat.totalBytes, stat.availableBytes, root, byKind, biggest.sortedByDescending { it.bytes }, forgotten.sortedByDescending { it.bytes }, apps, trend)
+    }
+
+    /** The slow way, when the index can't be read: look at every file. */
+    private fun walk(rootDir: File, progress: (Int) -> Unit): List<app.ultimate.files.Item> {
+        val skip = setOf(File(rootDir, "Android/data").path, File(rootDir, "Android/obb").path)
+        val out = ArrayList<app.ultimate.files.Item>()
+        rootDir.walkTopDown().onEnter { it.path !in skip }.onFail { _, _ -> }.forEach { f ->
+            if (!f.isFile) return@forEach
+            out += app.ultimate.files.Item(f, f.length(), f.lastModified(), FileModel.kindOfName(f.name))
+            if (out.size % 1000 == 0) progress(out.size)
+        }
+        return out
     }
 
     /** App, data and cache sizes per launchable app; needs usage access, otherwise null. */
