@@ -34,6 +34,10 @@
     <!-- The floating orb draws over other apps once the user allows it. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- Rules: start again after a restart, change Do Not Disturb when the user allows it, and watch the phone while any rule needs it. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+
     <application android:requestLegacyExternalStorage="true">
         <activity android:name=".ssh.SshKeyScanActivity" android:exported="false" />
         <service android:name=".ssh.SshForegroundService" android:exported="false" android:foregroundServiceType="specialUse">
@@ -147,6 +151,18 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
+        <service
+            android:name=".rules.RulesService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Watches the charger, headphones, battery and Wi-Fi so the user's own rules can run" />
+        </service>
+        <receiver android:name=".rules.RulesBootReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
         <service
             android:name=".send.SendService"
             android:exported="false"

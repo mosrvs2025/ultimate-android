@@ -13,8 +13,8 @@ android {
         minSdk = 29
         targetSdk = 35
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 32
-        versionName = "1.28.1"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 33
+        versionName = "1.29.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -46,6 +46,7 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "true")
             buildConfigField("boolean", "HAS_TERMINAL", "true")
             buildConfigField("boolean", "HAS_ORB", "true")
+            buildConfigField("boolean", "HAS_RULES", "true")
         }
         // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
         create("ultimateplus") {
@@ -73,6 +74,7 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "true")
             buildConfigField("boolean", "HAS_TERMINAL", "true")
             buildConfigField("boolean", "HAS_ORB", "true")
+            buildConfigField("boolean", "HAS_RULES", "true")
         }
         create("studio") {
             dimension = "edition"
@@ -98,6 +100,7 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
         }
         create("traffic") {
             dimension = "edition"
@@ -123,6 +126,7 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
         }
         create("squeeze") {
             dimension = "edition"
@@ -148,6 +152,7 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
         }
         create("audio") {
             dimension = "edition"
@@ -173,6 +178,7 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
         }
         create("pluck") {
             dimension = "edition"
@@ -198,6 +204,7 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
         }
     }
 
@@ -292,6 +299,7 @@ dependencies {
     // Robolectric runs Android framework code on the JVM, for tests that start real services and windows (the floating orb).
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.work:work-testing:2.10.0")
 }
 
 // Robolectric's Android framework jar comes through Gradle (and its proxy settings) instead of Robolectric's own downloader.

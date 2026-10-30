@@ -311,7 +311,7 @@ internal fun toolSections(tools: List<app.ultimate.core.Tool>): List<Pair<String
         "Create" to listOf("studio", "squeeze", "audio", "recorder", "photos", "prompter"),
         "Phone" to listOf("files", "storage", "cleanup", "inbox", "clips", "checkup", "pluck", "sensors", "sound-meter"),
         "Network" to listOf("traffic", "lan", "send"),
-        "Smart" to listOf("orb", "recipes", "screentime", "terminal"),
+        "Smart" to listOf("rules", "recipes", "orb", "screentime", "terminal"),
     )
     val placed = families.values.flatten().toSet()
     return (families.map { (name, ids) -> name to ids.mapNotNull { id -> tools.firstOrNull { it.id == id } } } + ("More" to tools.filter { it.id !in placed }))
