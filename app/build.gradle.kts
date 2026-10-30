@@ -12,9 +12,10 @@ android {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 32
-        versionName = "1.28.1"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 33
+        versionName = "1.28.2"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -292,6 +293,11 @@ dependencies {
     // Robolectric runs Android framework code on the JVM, for tests that start real services and windows (the floating orb).
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
 // Robolectric's Android framework jar comes through Gradle (and its proxy settings) instead of Robolectric's own downloader.

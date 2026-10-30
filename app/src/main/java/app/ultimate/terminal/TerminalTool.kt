@@ -19,6 +19,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.material.icons.rounded.Keyboard
+import androidx.compose.material3.Button
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -81,7 +87,8 @@ class TerminalTool(private val app: UltimateApp, val manager: TerminalManager) :
     @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = TerminalScreen(app, manager, onExit)
 }
 
-private val EXTRA_KEYS = listOf("ESC", "TAB", "CTRL", "ALT", "←", "↓", "↑", "→", "/", "-", "|", "~", "HOME", "END")
+private val EXTRA_KEYS = listOf("ESC", "TAB", "CTRL", "ALT", "PASTE", "ENTER")
+private val NAV_KEYS = listOf("←", "↓", "↑", "→", "HOME", "END", "/", "-", "|", "~")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,35 +99,54 @@ private fun TerminalScreen(app: UltimateApp, m: TerminalManager, onExit: () -> U
     m.changes.collectAsStateWithLifecycle().value
     val ctrl by m.ctrl.collectAsStateWithLifecycle()
     val alt by m.alt.collectAsStateWithLifecycle()
+    val error by m.error.collectAsStateWithLifecycle()
     var asking by remember { mutableStateOf(false) }
-    var fontPx by remember { mutableStateOf(context.getSharedPreferences("terminal", Context.MODE_PRIVATE).getInt("font", (13 * context.resources.displayMetrics.scaledDensity).toInt())) }
+    var fontPx by remember { mutableStateOf(context.getSharedPreferences("terminal", Context.MODE_PRIVATE).getInt("font", (13 * context.resources.displayMetrics.scaledDensity).toInt()).coerceIn(18, 80)) }
     LaunchedEffect(Unit) { if (m.sessions.value.isEmpty()) m.open() }
 
     Scaffold(topBar = {
-        TopAppBar(title = {
-            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                sessions.forEachIndexed { i, s ->
-                    val on = s == current
-                    Row(Modifier.padding(end = 6.dp).clip(RoundedCornerShape(10.dp)).background(if (on) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-                        .clickable { m.select(s) }.padding(start = 10.dp, end = 2.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(s.title?.takeIf { it.isNotBlank() }?.take(14) ?: "Shell ${i + 1}", style = MaterialTheme.typography.labelLarge, fontWeight = if (on) FontWeight.Bold else null)
-                        Icon(Icons.Rounded.Close, "Close", Modifier.padding(start = 4.dp).clip(RoundedCornerShape(8.dp)).clickable { m.close(s) }.padding(2.dp).width(16.dp))
-                    }
-                }
-                IconButton({ m.open() }) { Icon(Icons.Rounded.Add, "New shell") }
-            }
-        }, navigationIcon = { ToolBackButton(onExit) }, actions = {
-            IconButton({ asking = true }) { Icon(Icons.Rounded.AutoAwesome, "Describe a command") }
+        TopAppBar(title = { Text("Terminal") }, navigationIcon = { ToolBackButton(onExit) }, actions = {
+            IconButton({ m.view?.let { showKeyboard(it) } }, enabled = current?.isRunning == true) { Icon(Icons.Rounded.Keyboard, "Show keyboard") }
+            IconButton({ asking = true }) { Icon(Icons.Rounded.AutoAwesome, "Command suggestions") }
             ShellActions()
         })
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().imePadding().background(Color.Black)) {
+            Row(Modifier.fillMaxWidth().background(Color(0xFF1B1B1F)), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+                    sessions.forEachIndexed { i, s ->
+                        val on = s == current
+                        Row(Modifier.clip(RoundedCornerShape(8.dp)).background(if (on) Color(0xFF3B3B44) else Color.Transparent)
+                            .clickable(role = Role.Tab) { m.select(s) }.semantics { selected = on }, verticalAlignment = Alignment.CenterVertically) {
+                            Text(s.title?.takeIf { it.isNotBlank() }?.take(18) ?: "Shell ${i + 1}", Modifier.padding(start = 12.dp), color = Color.White)
+                            IconButton({ m.close(s) }) { Icon(Icons.Rounded.Close, "Close shell ${i + 1}", tint = Color.White) }
+                        }
+                    }
+                }
+                IconButton({ m.open() }) { Icon(Icons.Rounded.Add, "New shell", tint = Color.White) }
+            }
+            error?.let { message ->
+                Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.errorContainer).padding(12.dp)) {
+                    Text(message, color = MaterialTheme.colorScheme.onErrorContainer)
+                    Row { TextButton({ m.open() }) { Text("Retry") }; TextButton({ m.dismissError() }) { Text("Dismiss") } }
+                }
+            }
+            if (current == null) {
+                Column(Modifier.weight(1f).fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.Center) {
+                    Text("Run Android shell commands here. Type help for phone commands.", color = Color.White)
+                    Button({ m.open() }) { Text("Start shell") }
+                }
+            } else {
+            if (current?.isRunning == false) {
+                Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Shell exited (${current?.exitStatus})", Modifier.weight(1f))
+                    TextButton({ m.open() }) { Text("New shell") }
+                }
+            }
             AndroidView(
                 factory = { ctx ->
-                    TerminalView(ctx, null).apply {
+                    createTerminalView(ctx, fontPx).apply {
                         setTerminalViewClient(viewClient(m, this, fontPx) { px -> fontPx = px; ctx.getSharedPreferences("terminal", Context.MODE_PRIVATE).edit().putInt("font", px).apply() })
-                        setTypeface(Typeface.MONOSPACE)
-                        setTextSize(fontPx)
                         isFocusable = true; isFocusableInTouchMode = true
                         setBackgroundColor(android.graphics.Color.BLACK)
                         m.view = this
@@ -133,18 +159,29 @@ private fun TerminalScreen(app: UltimateApp, m: TerminalManager, onExit: () -> U
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             )
             DisposableEffect(Unit) { onDispose { m.view = null } }
+            }
+            DisposableEffect(Unit) { onDispose { m.ctrl.value = false; m.alt.value = false } }
+            listOf(EXTRA_KEYS, NAV_KEYS).forEach { keys ->
             Row(Modifier.fillMaxWidth().background(Color(0xFF1B1B1F)).horizontalScroll(rememberScrollState()).padding(vertical = 4.dp, horizontal = 4.dp)) {
-                EXTRA_KEYS.forEach { k ->
+                keys.forEach { k ->
                     val lit = (k == "CTRL" && ctrl) || (k == "ALT" && alt)
                     Text(k, Modifier.padding(horizontal = 2.dp).pressScale(0.9f).clip(RoundedCornerShape(8.dp)).background(if (lit) MaterialTheme.colorScheme.primary else Color(0xFF2B2B31))
-                        .clickable { extraKey(m, k) }.padding(horizontal = 12.dp, vertical = 9.dp),
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { selected = lit }
+                        .clickable(enabled = current?.isRunning == true, role = Role.Button) { extraKey(m, k) }.padding(horizontal = 8.dp, vertical = 14.dp),
                         color = if (lit) MaterialTheme.colorScheme.onPrimary else Color.White, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelLarge)
                 }
+            }
             }
         }
     }
 
     if (asking) AskSheet(onPick = { cmd, run -> asking = false; m.type(cmd, run); m.view?.let { showKeyboard(it) } }) { asking = false }
+}
+
+/** Termux requires a text size before any typeface changes; the constructor leaves its renderer null. */
+internal fun createTerminalView(context: Context, fontPx: Int): TerminalView = TerminalView(context, null).apply {
+    setTextSize(fontPx.coerceIn(18, 80))
+    setTypeface(Typeface.MONOSPACE)
 }
 
 private fun showKeyboard(v: TerminalView) {
@@ -156,6 +193,8 @@ private fun extraKey(m: TerminalManager, k: String) {
     val v = m.view ?: return
     val s = v.currentSession ?: return
     when (k) {
+        "PASTE" -> m.client.onPasteTextFromClipboard(s)
+        "ENTER" -> s.write("\r")
         "CTRL" -> m.ctrl.value = !m.ctrl.value
         "ALT" -> m.alt.value = !m.alt.value
         "ESC" -> v.handleKeyCode(KeyEvent.KEYCODE_ESCAPE, 0)
