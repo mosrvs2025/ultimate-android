@@ -79,9 +79,18 @@ import kotlinx.coroutines.withContext
 private class Setup(val title: String, val why: String, val granted: Boolean, val open: Intent)
 
 /** Version, what changed, what the app is allowed to do, crashes and how to send them: everything about the build in your hand. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(app: UltimateApp, onClose: () -> Unit) {
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        BackHandler(onBack = onClose)
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { AboutContent(app, onClose) }
+    }
+}
+
+/** The screen itself, without the window it opens in, so it can also be drawn on its own. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun AboutContent(app: UltimateApp, onClose: () -> Unit) {
     val context = LocalContext.current
     var tick by remember { mutableIntStateOf(0) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
@@ -96,80 +105,75 @@ fun AboutScreen(app: UltimateApp, onClose: () -> Unit) {
     val details = AboutInfo.details(edition, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong(), BuildConfig.BUILD_TYPE, Build.VERSION.RELEASE, Build.VERSION.SDK_INT,
         "${Build.MANUFACTURER} ${Build.MODEL}", app.tools.map { it.title }, internet, crashes.take(3).map { AboutInfo.crashLine(it, relativeTime(it.at)) })
 
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        BackHandler(onBack = onClose)
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Scaffold(topBar = { TopAppBar(title = { Text("About and settings") }, navigationIcon = { IconButton(onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { pad ->
-                LazyColumn(Modifier.padding(pad), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    item {
-                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                            Text(edition, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            Text("Build ${BuildConfig.VERSION_CODE} · ${BuildConfig.BUILD_TYPE}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            info?.let { Text("Installed ${relativeTime(it.first)}" + if (it.second > it.first + 60_000) " · updated ${relativeTime(it.second)}" else "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer) }
+    Scaffold(topBar = { TopAppBar(title = { Text("About and settings") }, navigationIcon = { IconButton(onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { pad ->
+        LazyColumn(Modifier.padding(pad), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            item {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(edition, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text("Build ${BuildConfig.VERSION_CODE} · ${BuildConfig.BUILD_TYPE}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    info?.let { Text("Installed ${relativeTime(it.first)}" + if (it.second > it.first + 60_000) " · updated ${relativeTime(it.second)}" else "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer) }
+                }
+            }
+            item {
+                update?.let { u ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.tertiaryContainer).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Version ${u.versionName} is downloaded", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                            Text("Ready to install over this one. Your data stays.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
                         }
+                        Button({ context.startActivity(Intent(context, UpdateInstallActivity::class.java).putExtra("path", u.file.path)) }) { Text("Install") }
                     }
-                    item {
-                        update?.let { u ->
-                            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.tertiaryContainer).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("Version ${u.versionName} is downloaded", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                                    Text("Ready to install over this one. Your data stays.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                                }
-                                Button({ context.startActivity(Intent(context, UpdateInstallActivity::class.java).putExtra("path", u.file.path)) }) { Text("Install") }
-                            }
-                        } ?: if (BuildConfig.HAS_FILES) Text("I look for newer builds you've downloaded and offer to install them here and in a notification.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) else Unit
+                } ?: if (BuildConfig.HAS_FILES) Text("I look for newer builds you've downloaded and offer to install them here and in a notification.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) else Unit
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton({ copy(context, "Ultimate details", details); Toast.makeText(context, "Copied. Paste it into a message.", Toast.LENGTH_SHORT).show() }, Modifier.weight(1f)) {
+                        Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Copy details")
                     }
-                    item {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton({ copy(context, "Ultimate details", details); Toast.makeText(context, "Copied. Paste it into a message.", Toast.LENGTH_SHORT).show() }, Modifier.weight(1f)) {
-                                Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Copy details")
-                            }
-                            OutlinedButton({ showReport = true }, Modifier.weight(1f)) { Text("Usage report") }
-                        }
-                    }
-                    item { Section("What's new") }
-                    items(Changelog.recent(BuildConfig.VERSION_NAME)) { e ->
-                        Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
-                            Text(e.version + if (e.version == BuildConfig.VERSION_NAME) "  ·  this one" else "", fontWeight = FontWeight.SemiBold)
-                            e.notes.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        }
-                    }
-                    if (setup.isNotEmpty()) {
-                        item { Section("Setup · ${setup.count { it.granted }} of ${setup.size} allowed") }
-                        items(setup) { s ->
-                            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(enabled = !s.granted) { runCatching { context.startActivity(s.open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(if (s.granted) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked, if (s.granted) "Allowed" else "Not allowed", tint = if (s.granted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) { Text(s.title, fontWeight = FontWeight.Medium); Text(s.why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                if (!s.granted) TextButton({ runCatching { context.startActivity(s.open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }) { Text("Allow") }
-                            }
-                        }
-                    }
-                    item { Section("Privacy") }
-                    item {
-                        Text(
-                            if (internet) "This edition is allowed to use the internet, only for what you turn on: sharing with your computer, SSH, network tools and AI with your own key. No ads, no analytics, no accounts."
-                            else "This edition has no internet permission, so it cannot send anything anywhere. Everything stays on this phone. No ads, no analytics, no accounts.",
-                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    item { Section("Tools in this edition · ${app.tools.size}") }
-                    item { Text(app.tools.joinToString(" · ") { it.title }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    item { Section(if (crashes.isEmpty()) "Crashes · none" else "Recent crashes") }
-                    if (crashes.isNotEmpty()) {
-                        items(crashes.take(5)) { c -> Text(AboutInfo.crashLine(c, relativeTime(c.at)) + "  (v${c.version})", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.error) }
-                        item { TextButton({ app.insights.clearCrashes(); tick++ }) { Text("Clear the list") } }
-                    }
-                    item { Section("Open-source parts") }
-                    item {
-                        Text(
-                            "Jetpack Compose, AndroidX, Media3 and CameraX (Apache 2.0) · Termux terminal view and emulator (Apache 2.0) · Apache MINA SSHD (Apache 2.0, Ultimate+) · ZXing (Apache 2.0) · jump3r (LGPL)",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    OutlinedButton({ showReport = true }, Modifier.weight(1f)) { Text("Usage report") }
+                }
+            }
+            item { Section("What's new") }
+            items(Changelog.recent(BuildConfig.VERSION_NAME)) { e ->
+                Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                    Text(e.version + if (e.version == BuildConfig.VERSION_NAME) "  ·  this one" else "", fontWeight = FontWeight.SemiBold)
+                    e.notes.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+            if (setup.isNotEmpty()) {
+                item { Section("Setup · ${setup.count { it.granted }} of ${setup.size} allowed") }
+                items(setup) { s ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(enabled = !s.granted) { runCatching { context.startActivity(s.open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(if (s.granted) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked, if (s.granted) "Allowed" else "Not allowed", tint = if (s.granted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) { Text(s.title, fontWeight = FontWeight.Medium); Text(s.why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        if (!s.granted) TextButton({ runCatching { context.startActivity(s.open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }) { Text("Allow") }
                     }
                 }
+            }
+            item { Section("Privacy") }
+            item {
+                Text(
+                    if (internet) "This edition is allowed to use the internet, only for what you turn on: sharing with your computer, SSH, network tools and AI with your own key. No ads, no analytics, no accounts."
+                    else "This edition has no internet permission, so it cannot send anything anywhere. Everything stays on this phone. No ads, no analytics, no accounts.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            item { Section("Tools in this edition · ${app.tools.size}") }
+            item { Text(app.tools.joinToString(" · ") { it.title }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            item { Section(if (crashes.isEmpty()) "Crashes · none" else "Recent crashes") }
+            if (crashes.isNotEmpty()) {
+                items(crashes.take(5)) { c -> Text(AboutInfo.crashLine(c, relativeTime(c.at)) + "  (v${c.version})", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.error) }
+                item { TextButton({ app.insights.clearCrashes(); tick++ }) { Text("Clear the list") } }
+            }
+            item { Section("Open-source parts") }
+            item {
+                Text(
+                    "Jetpack Compose, AndroidX, Media3 and CameraX (Apache 2.0) · Termux terminal view and emulator (Apache 2.0) · Apache MINA SSHD (Apache 2.0, Ultimate+) · ZXing (Apache 2.0) · jump3r (LGPL)",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

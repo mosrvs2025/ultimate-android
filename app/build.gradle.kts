@@ -16,8 +16,8 @@ android {
         minSdk = 29
         targetSdk = 35
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 36
-        versionName = "1.31.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 37
+        versionName = "1.31.1"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -304,6 +304,9 @@ dependencies {
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("androidx.work:work-testing:2.10.0")
     testImplementation("androidx.compose.ui:ui-test-junit4")
+    // Renders real screens to PNG in the simulator for the README (run with -Pscreenshots).
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.43.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.43.0")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
@@ -323,4 +326,6 @@ tasks.withType<Test>().configureEach {
     dependsOn(robolectricJars)
     systemProperty("robolectric.offline", "true")
     systemProperty("robolectric.dependency.dir", layout.buildDirectory.dir("robolectric").get().asFile.path)
+    // `-Pscreenshots` renders the README screenshots into docs/screenshots; otherwise those tests skip themselves.
+    if (project.hasProperty("screenshots")) systemProperty("screenshots.dir", rootProject.layout.projectDirectory.dir("docs/screenshots").asFile.path)
 }

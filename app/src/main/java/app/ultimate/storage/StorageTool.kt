@@ -119,6 +119,9 @@ class StorageTool(private val app: UltimateApp) : Tool {
     /** The last scan, kept while the app runs so reopening is instant; refreshed when older than ten minutes. */
     var last: StorageReport? = null
     @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = StorageScreen(app, this, onExit)
+
+    /** The same screen as if "All files access" were granted, with the report already in [last]; for rendering screenshots. */
+    @Composable internal fun ScreenWithAccess(onExit: () -> Unit) = StorageScreen(app, this, onExit, assumeAccess = true)
 }
 
 val KIND_COLORS = mapOf(
@@ -132,11 +135,11 @@ private val SYSTEM_COLOR = Color(0xFF9E9E9E)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Unit) {
+internal fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Unit, assumeAccess: Boolean = false) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var access by remember { mutableStateOf(hasAllFiles(context)) }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { access = hasAllFiles(context) }
+    var access by remember { mutableStateOf(assumeAccess || hasAllFiles(context)) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { access = assumeAccess || hasAllFiles(context) }
     var report by remember { mutableStateOf(tool.last) }
     var scanned by remember { mutableStateOf<Int?>(null) }
     var path by remember { mutableStateOf(listOf<Folder>()) }
@@ -286,10 +289,14 @@ private fun Overview(r: StorageReport, selected: FileKind?, onKind: (FileKind) -
     val week = Trend.change(r.trend, r.at)
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(formatBytes(r.used), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("  used of ${formatBytes(r.total)}", Modifier.padding(bottom = 4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.weight(1f))
-            Text("${formatBytes(r.free)} free", Modifier.padding(bottom = 4.dp), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+            Column(Modifier.weight(1f)) {
+                Text(formatBytes(r.used), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text("used of ${formatBytes(r.total)}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(formatBytes(r.free), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                Text("free", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         Canvas(Modifier.fillMaxWidth().height(22.dp).clip(RoundedCornerShape(11.dp))) {
             drawRect(Color.Gray.copy(alpha = 0.18f))
