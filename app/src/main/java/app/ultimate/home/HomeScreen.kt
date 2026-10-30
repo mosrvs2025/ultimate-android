@@ -11,6 +11,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.DropdownMenu
@@ -89,9 +91,19 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
     var showSavings by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     if (showSavings) SavingsSheet(app.tools, all, onOpen = { t, i -> showSavings = false; openItem(app, t, i) }) { showSavings = false }
 
-    // Two columns: every tool, the space-saved hero and the latest results fit on one screen. An odd last tool takes the full row.
+    val runningIds = running.map { it.first.workId }.toSet()
+    val revision by app.insights.revision.collectAsStateWithLifecycle()
+    val favorites = remember(runningIds, revision) {
+        HomeLayout.constellation(app.tools.map { it.id }.filter { it != "orb" }, app.insights.recentOpens(), runningIds, System.currentTimeMillis())
+            .mapNotNull { id -> app.tools.firstOrNull { it.id == id } }
+    }
+    val pending = remember(revision) { app.insights.pendingTools() }
+    val prefs = remember { app.getSharedPreferences("home", android.content.Context.MODE_PRIVATE) }
+    var folded by remember { mutableStateOf(prefs.getStringSet("expanded", emptySet()).orEmpty()) }
+
+    // Four columns: favorites take two each, every other tool one, and headers, search and results the full row.
     LazyVerticalGrid(
-        GridCells.Fixed(2), Modifier.padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        GridCells.Fixed(4), Modifier.padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -100,29 +112,41 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
                 Hero(saved, all.size) { app.insights.count("home.savings"); app.tools.firstOrNull { it.id == "storage" }?.let { app.shell.open(it) } ?: run { showSavings = true } }
             }
         }
+        item(key = "command-surface", span = { GridItemSpan(maxLineSpan) }) {
+            LivingSurface(app, favorites, runningIds)
+        }
         item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
-        item(span = { GridItemSpan(maxLineSpan) }) { TodayDashboard(app) }
+        if (pending.isNotEmpty()) item(key = "unfinished", span = { GridItemSpan(maxLineSpan) }) {
+            Column {
+                Text("Needs another look", style = MaterialTheme.typography.titleSmall)
+                pending.mapNotNull { id -> app.tools.firstOrNull { it.id == id } }.forEach { tool ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton({ shell.open(tool) }, Modifier.weight(1f)) { Text("${tool.title} · unfinished job") }
+                        TextButton({ app.insights.clearPending(tool.id) }) { Text("Clear") }
+                    }
+                }
+            }
+        }
         if (running.isNotEmpty()) items(running, key = { "run-${it.first.workId}" }, span = { GridItemSpan(maxLineSpan) }) { (source, snap) ->
             RunningBanner(source, snap, app.tools.firstOrNull { it.id == source.workId }, onView = { app.tools.firstOrNull { it.id == source.workId }?.let(shell::open) })
         }
-        // Grouped so the grid reads as a few families instead of one long wall of tiles.
+        item(span = { GridItemSpan(maxLineSpan) }) { TodayDashboard(app) }
+        // Every tool, small and in fixed places, in families you can fold away; the fold is remembered.
         var order = 0
         toolSections(app.tools).forEach { (section, tools) ->
             val headerAt = order
+            val isFolded = section !in folded
             item(key = "section-$section", span = { GridItemSpan(maxLineSpan) }) {
-                Text(
-                    section, Modifier.animateItem().appear("section-$section", seen, headerAt).padding(start = 4.dp, top = 6.dp),
-                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold,
-                )
+                SectionHeader(section, tools.size, isFolded, Modifier.animateItem().appear("section-$section", seen, headerAt)) {
+                    folded = if (isFolded) folded + section else folded - section
+                    prefs.edit().putStringSet("expanded", folded).apply()
+                    app.insights.count("home.fold.$section")
+                }
             }
             val base = ++order
             order += tools.size
-            itemsIndexed(tools, key = { _, t -> t.id }, span = { i, _ -> if (tools.size % 2 == 1 && i == tools.lastIndex) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { i, tool ->
-                ToolTile(
-                    Modifier.animateItem().appear(tool.id, seen, base + i), tool, wide = tools.size % 2 == 1 && tool === tools.last(),
-                    active = running.any { it.first.workId == tool.id }, stop = app.work.sources.firstOrNull { it.workId == tool.id }?.takeIf { src -> running.any { it.first === src } },
-                    onLibrary = { shell.showLibraryOf(tool.id) }, onClick = { shell.open(tool) },
-                )
+            if (!isFolded) itemsIndexed(tools, key = { _, t -> t.id }, span = { _, _ -> GridItemSpan(1) }) { i, tool ->
+                CompactTile(Modifier.animateItem().appear(tool.id, seen, base + i), tool, active = tool.id in runningIds, onLibrary = { shell.showLibraryOf(tool.id) }, onClick = { shell.open(tool) })
             }
         }
         if (recent.isNotEmpty()) {
@@ -161,6 +185,45 @@ private fun RunningBanner(source: WorkSource, snap: WorkSnapshot, tool: Tool?, o
             )
         }
         TextButton(source::cancelWork) { Text(source.cancelLabel) }
+    }
+}
+
+/** A family's name with how many tools it holds; tap to fold it away or open it again. */
+@Composable
+private fun SectionHeader(name: String, count: Int, folded: Boolean, modifier: Modifier, onToggle: () -> Unit) {
+    val turn by androidx.compose.animation.core.animateFloatAsState(if (folded) -90f else 0f, label = "fold")
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClickLabel = if (folded) "Show $name" else "Fold $name", onClick = onToggle).padding(start = 4.dp, top = 8.dp, bottom = 4.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+        Text("  $count", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+        Spacer(Modifier.weight(1f))
+        Icon(Icons.Rounded.ExpandMore, if (folded) "Folded" else "Open", Modifier.size(20.dp).graphicsLayer { rotationZ = turn }, tint = MaterialTheme.colorScheme.outline)
+    }
+}
+
+/** Icon and name only: the whole app fits in a glance, and each tool stays in the same place. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CompactTile(modifier: Modifier, tool: Tool, active: Boolean, onLibrary: () -> Unit, onClick: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
+    val container by androidx.compose.animation.animateColorAsState(if (active) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerLow, label = "compact")
+    Box(modifier) {
+        Column(
+            Modifier.fillMaxWidth().pressScale(0.93f).clip(RoundedCornerShape(18.dp)).background(container)
+                .combinedClickable(onClick = onClick, onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); menu = true })
+                .padding(vertical = 10.dp, horizontal = 2.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(Modifier.size(40.dp).clip(RoundedCornerShape(13.dp)).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+                Icon(tool.icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+            Text(tool.title, Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp), style = MaterialTheme.typography.labelSmall, maxLines = 2, minLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center, overflow = TextOverflow.Ellipsis)
+        }
+        DropdownMenu(menu, { menu = false }) {
+            DropdownMenuItem({ Text("Open ${tool.title}") }, { menu = false; onClick() }, leadingIcon = { Icon(tool.icon, null) })
+            DropdownMenuItem({ Text("Its results in Library") }, { menu = false; onLibrary() }, leadingIcon = { Icon(Icons.Rounded.VideoLibrary, null) })
+        }
     }
 }
 
@@ -254,8 +317,8 @@ internal fun toolSections(tools: List<app.ultimate.core.Tool>): List<Pair<String
     val families = linkedMapOf(
         "Create" to listOf("studio", "squeeze", "audio", "recorder", "photos", "prompter"),
         "Phone" to listOf("files", "storage", "cleanup", "inbox", "clips", "checkup", "pluck", "sensors", "sound-meter"),
-        "Network" to listOf("traffic", "lan", "send"),
-        "Smart" to listOf("orb", "recipes", "screentime", "terminal"),
+        "Network" to listOf("hosts", "ssh", "traffic", "lan", "send"),
+        "Smart" to listOf("rules", "recipes", "orb", "screentime", "terminal"),
     )
     val placed = families.values.flatten().toSet()
     return (families.map { (name, ids) -> name to ids.mapNotNull { id -> tools.firstOrNull { it.id == id } } } + ("More" to tools.filter { it.id !in placed }))

@@ -27,7 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Android
-import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -172,16 +172,12 @@ data class ShellNav(
 
 val LocalShellNav = androidx.compose.runtime.staticCompositionLocalOf<ShellNav?> { null }
 
-/** Library and Activity buttons for a tool's top bar. */
+/** Library and Activity buttons for a tool's top bar: icons only, so tools with their own actions never run out of room. */
 @Composable
 fun ShellActions() {
     val nav = LocalShellNav.current ?: return
-    androidx.compose.material3.IconButton(nav.openActivity) { Icon(androidx.compose.material.icons.Icons.Rounded.Terminal, "Activity") }
-    androidx.compose.material3.TextButton(nav.openLibrary) {
-        Icon(androidx.compose.material.icons.Icons.Rounded.VideoLibrary, null, Modifier.size(20.dp))
-        androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
-        androidx.compose.material3.Text("Library")
-    }
+    androidx.compose.material3.IconButton(nav.openActivity) { Icon(Icons.Rounded.History, "Activity") }
+    androidx.compose.material3.IconButton(nav.openLibrary) { Icon(Icons.Rounded.VideoLibrary, "Library") }
 }
 
 /** The tool's own back arrow, unless this build is the tool on its own. */

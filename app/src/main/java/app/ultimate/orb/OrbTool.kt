@@ -75,6 +75,7 @@ private fun OrbScreen(onExit: () -> Unit) {
     val context = LocalContext.current
     var allowed by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var on by remember { mutableStateOf(OrbService.on(context)) }
+    val crashed = remember { OrbService.crashed(context) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         allowed = Settings.canDrawOverlays(context); on = OrbService.on(context)
         // Coming back from the permission screen with it granted finishes what the switch started.
@@ -103,6 +104,7 @@ private fun OrbScreen(onExit: () -> Unit) {
                     } else OrbService.set(context, want)
                 })
             }
+            if (crashed) Text("The orb stopped unexpectedly last time, so it was turned off. Turn it on to try again.", color = MaterialTheme.colorScheme.error)
             if (!allowed) Button({ context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))) }) { Text("Allow display over other apps") }
             Text("How it works", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             listOf(

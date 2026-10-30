@@ -4,7 +4,9 @@ import android.app.Notification
 import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import app.ultimate.BuildConfig
 import app.ultimate.UltimateApp
+import app.ultimate.rules.Event as RuleEvent
 
 /**
  * Android hands every posted notification to this service once the user turns on notification access for Ultimate. It keeps
@@ -51,6 +53,7 @@ class NotificationCatcher : NotificationListenerService() {
             if (LogRules.skip(sbn.packageName, packageName, ongoing, title, body, log.excluded)) return
             val app = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }.getOrDefault(sbn.packageName)
             log.add(sbn.packageName, app, sbn.postTime, title, body, e.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString(), sbn.key)
+            if (BuildConfig.HAS_RULES) (application as UltimateApp).rules.fire(RuleEvent.Notification(sbn.packageName, app, title, body))
             if (System.currentTimeMillis() - lastTrim > 3_600_000L) { lastTrim = System.currentTimeMillis(); log.trim() }
         }
     }

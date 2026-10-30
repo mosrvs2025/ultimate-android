@@ -7,11 +7,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class EntryOrigin { SURFACE, ORB_LEFT, ORB_RIGHT, OTHER }
+
 sealed interface Route {
     data object Home : Route
     data object Library : Route
     data object Activity : Route
-    data class InTool(val tool: Tool, val launch: ToolLaunch) : Route
+    data class InTool(val tool: Tool, val launch: ToolLaunch, val origin: EntryOrigin = EntryOrigin.OTHER) : Route
 }
 
 /** Files shared into the app that more than one tool could handle; the user picks. */
@@ -23,6 +25,12 @@ class Shell(private val tools: List<Tool>, private val insights: app.ultimate.in
     val route: StateFlow<Route> = _route.asStateFlow()
     private val _incoming = MutableStateFlow<Incoming?>(null)
     val incoming: StateFlow<Incoming?> = _incoming.asStateFlow()
+    private var openedAt = 0L
+    var lastVisitMs: Long = Long.MAX_VALUE
+        private set
+    private fun finishVisit() {
+        if (_route.value is Route.InTool) lastVisitMs = (android.os.SystemClock.elapsedRealtime() - openedAt).coerceAtLeast(0L)
+    }
     private var lastTopLevel: Route = Route.Home
 
     fun showHome() = top(Route.Home)
@@ -52,17 +60,25 @@ class Shell(private val tools: List<Tool>, private val insights: app.ultimate.in
     fun showActivity() = top(Route.Activity)
 
     private fun top(route: Route) {
+        finishVisit()
         insights?.left()
         lastTopLevel = route
         _route.value = route
     }
 
     fun open(tool: Tool, launch: ToolLaunch = ToolLaunch()) {
+        openFrom(tool, EntryOrigin.OTHER, launch)
+    }
+
+    fun openFrom(tool: Tool, origin: EntryOrigin, launch: ToolLaunch = ToolLaunch()) {
+        finishVisit()
         insights?.entered(tool.id)
-        _route.value = Route.InTool(tool, launch)
+        openedAt = android.os.SystemClock.elapsedRealtime()
+        _route.value = Route.InTool(tool, launch, origin)
     }
 
     fun exitTool() {
+        finishVisit()
         insights?.left()
         _route.value = lastTopLevel
     }

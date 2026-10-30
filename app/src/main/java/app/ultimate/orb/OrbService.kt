@@ -1,5 +1,7 @@
 package app.ultimate.orb
 
+import app.ultimate.home.HomeLayout
+
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Service
@@ -110,7 +112,8 @@ data class OrbAction(val key: String, val label: String, val icon: ImageVector, 
  * with the job's progress as a ring, and a card peeks out of it when something finishes.
  */
 class OrbService : Service() {
-    private val app get() = application as UltimateApp
+    /** Null only in tests that run the orb without the full app. */
+    private val app get() = application as? UltimateApp
     private val wm by lazy { getSystemService(WindowManager::class.java) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val owner = OverlayOwner()
@@ -136,14 +139,16 @@ class OrbService : Service() {
     override fun onCreate() {
         super.onCreate()
         if (!Settings.canDrawOverlays(this)) { stopSelf(); return }
+        prefs.edit().putBoolean("starting", true).commit()
         owner.start()
-        showOrb()
-        watchWork()
+        val shown = runCatching { showOrb(); watchWork() }
+        if (shown.isFailure) { set(this, false); stopSelf(); return }
+        scope.launch { delay(4_000); prefs.edit().putBoolean("starting", false).apply() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         intent?.getStringExtra(EXTRA_PEEK)?.let { showPeek(it, null) }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
@@ -190,6 +195,8 @@ class OrbService : Service() {
         val content = compose { OrbFace(progress, busy, nearTarget, dropHover) }
         // A frame takes every touch itself (Compose would measure drags against a window that moves with the finger).
         val frame = object : FrameLayout(this) { override fun onInterceptTouchEvent(ev: MotionEvent?) = true }
+        // Compose looks for its lifecycle from the window's root view, so the frame carries it too, not just the ComposeView.
+        frame.setViewTreeLifecycleOwner(owner); frame.setViewTreeSavedStateRegistryOwner(owner); frame.setViewTreeViewModelStoreOwner(owner)
         frame.addView(content)
         frame.setOnTouchListener(OrbTouch())
         frame.setOnDragListener { _, e -> onDrag(e) }
@@ -274,19 +281,23 @@ class OrbService : Service() {
     // ---- Bloom: the tools around the orb ----
 
     private fun actions(): List<OrbAction> {
-        val ids = app.tools.map { it.id }.toSet()
+        val tools = app?.tools.orEmpty()
+        val ids = tools.map { it.id }.toSet()
         val all = listOf(
             OrbAction("home", "Ultimate", Icons.Rounded.AutoAwesome, null),
-            OrbAction("clips", "Clipboard", app.tools.firstOrNull { it.id == "clips" }?.icon ?: Icons.Rounded.AutoAwesome, "clips"),
-            OrbAction("recorder", "Record", app.tools.firstOrNull { it.id == "recorder" }?.icon ?: Icons.Rounded.AutoAwesome, "recorder"),
-            OrbAction("terminal", "Terminal", app.tools.firstOrNull { it.id == "terminal" }?.icon ?: Icons.Rounded.AutoAwesome, "terminal"),
-            OrbAction("storage", "Storage", app.tools.firstOrNull { it.id == "storage" }?.icon ?: Icons.Rounded.AutoAwesome, "storage"),
-            OrbAction("send", "Computer", app.tools.firstOrNull { it.id == "send" }?.icon ?: Icons.Rounded.AutoAwesome, "send"),
-            OrbAction("inbox", "Notifications", app.tools.firstOrNull { it.id == "inbox" }?.icon ?: Icons.Rounded.AutoAwesome, "inbox"),
-            OrbAction("cleanup", "Clean up", app.tools.firstOrNull { it.id == "cleanup" }?.icon ?: Icons.Rounded.AutoAwesome, "cleanup"),
+            OrbAction("clips", "Clipboard", tools.firstOrNull { it.id == "clips" }?.icon ?: Icons.Rounded.AutoAwesome, "clips"),
+            OrbAction("recorder", "Record", tools.firstOrNull { it.id == "recorder" }?.icon ?: Icons.Rounded.AutoAwesome, "recorder"),
+            OrbAction("terminal", "Terminal", tools.firstOrNull { it.id == "terminal" }?.icon ?: Icons.Rounded.AutoAwesome, "terminal"),
+            OrbAction("storage", "Storage", tools.firstOrNull { it.id == "storage" }?.icon ?: Icons.Rounded.AutoAwesome, "storage"),
+            OrbAction("send", "Computer", tools.firstOrNull { it.id == "send" }?.icon ?: Icons.Rounded.AutoAwesome, "send"),
+            OrbAction("inbox", "Notifications", tools.firstOrNull { it.id == "inbox" }?.icon ?: Icons.Rounded.AutoAwesome, "inbox"),
+            OrbAction("cleanup", "Clean up", tools.firstOrNull { it.id == "cleanup" }?.icon ?: Icons.Rounded.AutoAwesome, "cleanup"),
         ).filter { it.toolId == null || it.toolId in ids }
-        // Home stays first; the rest learn from what you tap most.
-        return listOf(all.first()) + OrbMath.byUse(all.drop(1), { it.key }) { prefs.getInt("use.$it", 0) }.take(6)
+        // Same local memory as Home; opening through the floating orb and through the app teach the same surface.
+        val running = app?.work?.sources.orEmpty().filter { it.work.value.active }.map { it.workId }.toSet()
+        val ranked = HomeLayout.constellation(all.drop(1).map { it.key }, app?.insights?.recentOpens().orEmpty(), running, System.currentTimeMillis())
+        return listOf(all.first()) + ranked.mapNotNull { id -> all.firstOrNull { it.key == id } }
+
     }
 
     private fun bloom() {
@@ -343,7 +354,7 @@ class OrbService : Service() {
     }
 
     private fun watchWork() {
-        val sources = app.work.sources
+        val sources = app?.work?.sources.orEmpty()
         if (sources.isEmpty()) return
         val last = HashMap<String, Boolean>()
         scope.launch {
@@ -369,7 +380,7 @@ class OrbService : Service() {
             dropHover.value = false
             val text = e.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
             if (text.isNotBlank()) {
-                app.clips.add(text, "Orb")
+                app?.clips?.add(text, "Orb")
                 getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Ultimate", text))
                 showPeek("Kept and copied: " + text.lines().first().take(60), "clips")
             }
@@ -387,7 +398,14 @@ class OrbService : Service() {
             if (on) runCatching { context.startService(i) } else context.stopService(i)
         }
         /** Starts the orb if it was left on; called whenever Ultimate comes to the front. */
-        fun resume(context: Context) { if (on(context) && Settings.canDrawOverlays(context)) runCatching { context.startService(Intent(context, OrbService::class.java)) } }
+        fun resume(context: Context) {
+            val prefs = context.getSharedPreferences("orb", Context.MODE_PRIVATE)
+            // The last start never got past its first seconds: it crashed, so leave the orb off rather than crash again.
+            if (prefs.getBoolean("starting", false)) { prefs.edit().putBoolean("starting", false).putBoolean("on", false).putBoolean("crashed", true).apply(); return }
+            if (on(context) && Settings.canDrawOverlays(context)) runCatching { context.startService(Intent(context, OrbService::class.java)) }
+        }
+        /** True once after the orb was switched off because it crashed. */
+        fun crashed(context: Context): Boolean = context.getSharedPreferences("orb", Context.MODE_PRIVATE).let { p -> p.getBoolean("crashed", false).also { if (it) p.edit().putBoolean("crashed", false).apply() } }
     }
 }
 
@@ -398,8 +416,10 @@ private class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelS
     override val lifecycle: Lifecycle get() = registry
     override val savedStateRegistry: SavedStateRegistry get() = saved.savedStateRegistry
     override val viewModelStore = ViewModelStore()
-    fun start() { saved.performRestore(null); registry.currentState = Lifecycle.State.RESUMED }
-    fun stop() { registry.currentState = Lifecycle.State.DESTROYED; viewModelStore.clear() }
+    private var started = false
+    fun start() { saved.performRestore(null); registry.currentState = Lifecycle.State.RESUMED; started = true }
+    // A lifecycle that never started cannot be destroyed (it throws), e.g. when the permission was missing.
+    fun stop() { if (started) registry.currentState = Lifecycle.State.DESTROYED; viewModelStore.clear() }
 }
 
 private val ORB_BRUSH = Brush.linearGradient(listOf(Color(0xFF8E7CFF), Color(0xFF4FC3F7)))

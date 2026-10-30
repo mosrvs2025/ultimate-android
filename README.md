@@ -16,6 +16,25 @@ This repository is the standalone home for Ultimate. The Android project lives a
 
 The **Library** tab lists everything any tool made, filterable by tool. The **Activity** tab shows each tool's current or last run with a live terminal log (codecs chosen, encoder names, real bitrates, speed, files written); the same log appears on every progress screen. Videos shared to Ultimate from other apps go to Squeeze or Video to audio (you choose when both apply).
 
+### Terminal and navigation
+
+Use the labeled **Terminal** bottom button to open a shell. Home, Library, Terminal
+and Activity stay available inside tools; navigation hides while the keyboard is
+open. Android Back returns to the previous tab. The floating tool picker scrolls
+on small screens.
+
+Type `help` for phone commands, or tap the command-suggestions icon. The extra key
+rows include Enter, Paste, Ctrl, Alt, Tab and cursor keys. Closing a shell ends it;
+leaving the screen keeps it while the app process remains alive. Exited shells
+retain their output until explicitly closed. New shell starts another session;
+startup failures show Retry. Commands run with Ultimate's ordinary app permissions,
+not root or ADB privileges. Shared-storage access still requires file permission.
+
+The terminal view must initialize its text size before setting the typeface;
+`TerminalViewTest` checks this launch-crash regression. `TerminalSmokeTest` runs
+real shell commands and navigation on Android, through the Terminal device smoke
+workflow. Physical Samsung testing is separate from JVM tests and APK compilation.
+
 ### Pluck details
 
 - **Clean up:** installed apps that one of our tools replaces get a badge (`✓ Replaced` or `◐ Mostly replaced`), a **Replaced** quick filter, a banner at the top of the list and a **Clean up** screen with a one-by-one uninstall flow and a back-up-first button. A replacement counts only if it is usable: built into this app, or installed as an edition (`app.ultimate`, `app.squeeze`, `app.ultimate.audio`, `app.pluck`). "Mostly" lists what the original does that ours does not, taken from the original's menus and strings, not from running it; **I don't need those** moves an app to ready. Any app can be marked as replaced by hand from its ⋮ menu. To teach it a new app, add an entry to `pluck/model/Replacements.kt`.
@@ -110,3 +129,7 @@ Build from the root with JDK 17, Gradle 8.9 and Android SDK 35. `main` is the wo
 GitHub secrets do not move between repositories. Before publishing updates, configure the existing permanent signing key here; a locally debug-signed build cannot update an APK signed with the previous release key. The companion release workflow is available here as a manual workflow; configure the COMPANION signing secrets before running it.
 
 The migration also includes Claude's terminal and floating-orb changes through REA commit `9f2c077b9a763a27ff9a79054d4696d749bee1bc`, reconciled with the SSH foreground-service manifest entry. Continue Ultimate development in this repository.
+
+### Living command surface (1.31 preview)
+
+Home now centers on an orb with nearby tools ranked from local use over the last 48 hours. Tap the orb for live shortcuts, hold a tool for its results, and use the in-tool orb to jump between recent tools, results, Home and Activity. Tilt can be switched off. Failed jobs leave a clearable reminder. See [interaction details and device-test limits](docs/LIVING_SURFACE.md).

@@ -11,6 +11,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -22,9 +24,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.AlertDialog
@@ -80,15 +88,36 @@ private fun SuiteRoot(app: UltimateApp, route: Route) {
         contentKey = { r -> if (r is Route.InTool) "tool:${r.tool.id}" else "tabs" },
         transitionSpec = {
             val intoTool = targetState is Route.InTool
-            if (intoTool) (scaleIn(tween(320, easing = EaseOutBack), initialScale = 0.9f) + fadeIn(tween(220))) togetherWith (scaleOut(tween(260), targetScale = 1.04f) + fadeOut(tween(180)))
-            else (scaleIn(tween(300), initialScale = 1.04f) + fadeIn(tween(240))) togetherWith (scaleOut(tween(240), targetScale = 0.92f) + fadeOut(tween(200)))
+            val toolRoute = (if (intoTool) targetState else initialState) as? Route.InTool
+            val origin = toolRoute?.origin ?: EntryOrigin.OTHER
+            val ms = if (!intoTool && app.shell.lastVisitMs < 8_000L) 220 else 320
+            val spec = tween<androidx.compose.ui.unit.IntOffset>(ms, easing = EaseOutCubic)
+            val entering = when (origin) {
+                EntryOrigin.ORB_LEFT -> slideInHorizontally(spec) { -it / 3 }
+                EntryOrigin.ORB_RIGHT -> slideInHorizontally(spec) { it / 3 }
+                else -> slideInVertically(spec) { it / 5 }
+            }
+            val leaving = when (origin) {
+                EntryOrigin.ORB_LEFT -> slideOutHorizontally(spec) { -it / 3 }
+                EntryOrigin.ORB_RIGHT -> slideOutHorizontally(spec) { it / 3 }
+                else -> slideOutVertically(spec) { it / 5 }
+            }
+            if (intoTool) (entering + fadeIn(tween(ms))) togetherWith (scaleOut(tween(ms), targetScale = 0.97f) + fadeOut(tween(ms)))
+            else (scaleIn(tween(ms), initialScale = 0.97f) + fadeIn(tween(ms))) togetherWith (leaving + fadeOut(tween(ms)))
         },
     ) { shown ->
         when (shown) {
-            is Route.InTool -> androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
-                // Each tool keeps its own state while the user hops between them.
-                androidx.compose.runtime.key(shown.tool.id) { shown.tool.Screen(onExit = shell::exitTool, launch = shown.launch) }
-                ToolSwitcher(app, shown.tool)
+            is Route.InTool -> {
+                BackHandler(onBack = shell::exitTool)
+                val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+                Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0), bottomBar = {
+                    if (!keyboardOpen) SuiteNavigation(app, shown, active)
+                }) { padding ->
+                    androidx.compose.foundation.layout.Box(Modifier.padding(bottom = padding.calculateBottomPadding()).consumeWindowInsets(padding).fillMaxSize()) {
+                        androidx.compose.runtime.key(shown.tool.id) { shown.tool.Screen(onExit = shell::exitTool, launch = shown.launch) }
+                        ToolSwitcher(app, shown.tool)
+                    }
+                }
             }
             else -> Tabs(app, if (route is Route.InTool) shown else route, active)
         }
@@ -102,17 +131,7 @@ private fun Tabs(app: UltimateApp, route: Route, active: Boolean) {
     val shell = app.shell
     BackHandler(enabled = route != Route.Home, onBack = shell::showHome)
     Scaffold(
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(route == Route.Home, shell::showHome, { BouncyIcon(Icons.Rounded.Home, route == Route.Home) }, label = { Text("Home") })
-                NavigationBarItem(route == Route.Library, { shell.showLibrary() }, { BouncyIcon(Icons.Rounded.VideoLibrary, route == Route.Library) }, label = { Text("Library") })
-                NavigationBarItem(
-                    route == Route.Activity, shell::showActivity,
-                    { BadgedBox(badge = { if (active) Badge() }) { BouncyIcon(Icons.Rounded.Terminal, route == Route.Activity) } },
-                    label = { Text("Activity") },
-                )
-            }
-        },
+        bottomBar = { SuiteNavigation(app, route, active) },
     ) { pad ->
         AnimatedContent(
             route, label = "tab",
@@ -128,6 +147,23 @@ private fun Tabs(app: UltimateApp, route: Route, active: Boolean) {
                 else -> HomeScreen(app, pad)
             }
         }
+    }
+}
+
+/** Consistent, labeled destinations, also reachable from inside a tool. */
+@Composable
+private fun SuiteNavigation(app: UltimateApp, route: Route, active: Boolean) {
+    val shell = app.shell
+    NavigationBar {
+        NavigationBarItem(route == Route.Home, shell::showHome, modifier = Modifier.testTag("nav-home"), icon = { BouncyIcon(Icons.Rounded.Home, route == Route.Home) }, label = { Text("Home") })
+        NavigationBarItem(route == Route.Library, { shell.showLibrary() }, modifier = Modifier.testTag("nav-library"), icon = { BouncyIcon(Icons.Rounded.VideoLibrary, route == Route.Library) }, label = { Text("Library") })
+        app.tools.firstOrNull { it.id == "terminal" }?.let { terminal ->
+            val selected = (route as? Route.InTool)?.tool?.id == terminal.id
+            NavigationBarItem(selected, { if (!selected) shell.open(terminal) }, modifier = Modifier.testTag("nav-terminal"), icon = { BouncyIcon(Icons.Rounded.Terminal, selected) }, label = { Text("Terminal") })
+        }
+        NavigationBarItem(route == Route.Activity, shell::showActivity, modifier = Modifier.testTag("nav-activity"),
+            icon = { BadgedBox(badge = { if (active) Badge() }) { BouncyIcon(Icons.Rounded.History, route == Route.Activity) } },
+            label = { Text("Activity") })
     }
 }
 

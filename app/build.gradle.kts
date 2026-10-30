@@ -8,13 +8,17 @@ android {
     namespace = "app.ultimate"
     compileSdk = 35
 
+    // Screens are drawn in a simulated Android in unit tests, which needs the merged manifest and resources.
+    testOptions { unitTests { isIncludeAndroidResources = true } }
+
     defaultConfig {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 29
-        versionName = "1.27.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 35
+        versionName = "1.31.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -46,13 +50,16 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "true")
             buildConfigField("boolean", "HAS_TERMINAL", "true")
             buildConfigField("boolean", "HAS_ORB", "true")
+            buildConfigField("boolean", "HAS_RULES", "true")
         }
         // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
         create("ultimateplus") {
             proguardFile("src/ultimateplus/java/app/ultimate/ssh/mina-rules.pro")
             dimension = "edition"
-            applicationId = if (providers.gradleProperty("companionBuild").orNull == "true") "app.ultimate.companion" else "app.ultimate.plus"
-            resValue("string", "app_name", if (providers.gradleProperty("companionBuild").orNull == "true") "Ultimate Companion" else "Ultimate+")
+            val orbitPreview = providers.gradleProperty("orbitPreview").orNull == "true"
+            val companion = providers.gradleProperty("companionBuild").orNull == "true"
+            applicationId = when { orbitPreview -> "app.ultimate.orbitpreview"; companion -> "app.ultimate.companion"; else -> "app.ultimate.plus" }
+            resValue("string", "app_name", when { orbitPreview -> "Ultimate Orbit Preview"; companion -> "Ultimate Companion"; else -> "Ultimate+" })
             buildConfigField("boolean", "HAS_SQUEEZE", "true")
             buildConfigField("boolean", "HAS_AUDIO", "true")
             buildConfigField("boolean", "HAS_PLUCK", "true")
@@ -73,6 +80,7 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "true")
             buildConfigField("boolean", "HAS_TERMINAL", "true")
             buildConfigField("boolean", "HAS_ORB", "true")
+            buildConfigField("boolean", "HAS_RULES", "true")
         }
         create("studio") {
             dimension = "edition"
@@ -98,6 +106,7 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
         }
         create("traffic") {
             dimension = "edition"
@@ -123,6 +132,7 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
         }
         create("squeeze") {
             dimension = "edition"
@@ -148,6 +158,7 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
         }
         create("audio") {
             dimension = "edition"
@@ -173,6 +184,7 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
         }
         create("pluck") {
             dimension = "edition"
@@ -198,6 +210,7 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
         }
     }
 
@@ -289,4 +302,32 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    // Robolectric runs Android framework code on the JVM, for tests that start real services and windows (the floating orb).
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.work:work-testing:2.10.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+// Robolectric's Android framework jar comes through Gradle (and its proxy settings) instead of Robolectric's own downloader.
+// Two versions of one artifact would collapse into the newer, so each framework jar gets its own configuration.
+val robolectricAndroid14: Configuration by configurations.creating
+val robolectricAndroid15: Configuration by configurations.creating
+dependencies {
+    robolectricAndroid14("org.robolectric:android-all-instrumented:14-robolectric-10818077-i7")
+    robolectricAndroid15("org.robolectric:android-all-instrumented:15-robolectric-12650502-i7")
+}
+val robolectricJars = tasks.register<Copy>("robolectricJars") {
+    from(robolectricAndroid14, robolectricAndroid15)
+    into(layout.buildDirectory.dir("robolectric"))
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(robolectricJars)
+    systemProperty("robolectric.offline", "true")
+    systemProperty("robolectric.dependency.dir", layout.buildDirectory.dir("robolectric").get().asFile.path)
 }

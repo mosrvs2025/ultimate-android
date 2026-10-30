@@ -59,10 +59,14 @@ class ClipStore(private val context: Context) {
     private val _clips = MutableStateFlow(load())
     val clips: StateFlow<List<Clip>> = _clips.asStateFlow()
 
+    /** Told about each newly kept copy, so rules can react to it. */
+    var onAdded: ((text: String, source: String) -> Unit)? = null
+
     fun add(text: String, source: String) {
         val next = ClipRules.add(_clips.value, text, System.currentTimeMillis(), source)
         if (next == _clips.value) return
         _clips.value = next; save()
+        onAdded?.invoke(text, source)
     }
 
     /** Reads what is on the clipboard now; works only while Ultimate is in front. Returns whether something new was kept. */
