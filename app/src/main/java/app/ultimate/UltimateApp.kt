@@ -28,7 +28,10 @@ import app.ultimate.squeeze.engine.LibraryStore
  * Wires the tools together. To add a tool: give it a package, implement [Tool], build its services here,
  * register any background work with [work], and add it to [tools].
  */
-class UltimateApp : Application() {
+class UltimateApp : Application(), androidx.work.Configuration.Provider {
+    /** Used if WorkManager's own startup hasn't run yet (it normally has), so background work never finds it missing. */
+    override val workManagerConfiguration: androidx.work.Configuration get() = androidx.work.Configuration.Builder().build()
+
     val work: WorkHub by lazy { WorkHub(this) }
     val insights: app.ultimate.insights.InsightsStore by lazy { app.ultimate.insights.InsightsStore(this, BuildConfig.VERSION_NAME) }
     val shell: Shell by lazy { Shell(tools, insights) }
@@ -71,6 +74,7 @@ class UltimateApp : Application() {
     val tools: List<Tool> by lazy {
         buildList {
             if (BuildConfig.FLAVOR == "ultimateplus") add(Class.forName("app.ultimate.ssh.SshTool").getConstructor(android.content.Context::class.java).newInstance(this@UltimateApp) as Tool)
+            if (BuildConfig.FLAVOR == "ultimateplus") add(Class.forName("app.ultimate.sshclient.HostsTool").getConstructor(android.content.Context::class.java).newInstance(this@UltimateApp) as Tool)
             if (BuildConfig.HAS_CHECKUP) add(app.ultimate.checkup.CheckupTool(checkupManager))
             if (BuildConfig.HAS_STUDIO) add(StudioTool(studioManager))
             if (BuildConfig.HAS_RECORDER) add(app.ultimate.recorder.RecorderTool(recorder))

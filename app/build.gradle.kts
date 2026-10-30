@@ -8,13 +8,16 @@ android {
     namespace = "app.ultimate"
     compileSdk = 35
 
+    // Screens are drawn in a simulated Android in unit tests, which needs the merged manifest and resources.
+    testOptions { unitTests { isIncludeAndroidResources = true } }
+
     defaultConfig {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 33
-        versionName = "1.29.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 34
+        versionName = "1.30.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -300,6 +303,8 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("androidx.work:work-testing:2.10.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
 // Robolectric's Android framework jar comes through Gradle (and its proxy settings) instead of Robolectric's own downloader.

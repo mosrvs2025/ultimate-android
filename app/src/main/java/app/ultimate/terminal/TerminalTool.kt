@@ -103,7 +103,7 @@ private fun TerminalScreen(app: UltimateApp, m: TerminalManager, onExit: () -> U
                     val on = s == current
                     Row(Modifier.padding(end = 6.dp).clip(RoundedCornerShape(10.dp)).background(if (on) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
                         .clickable { m.select(s) }.padding(start = 10.dp, end = 2.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(s.title?.takeIf { it.isNotBlank() }?.take(14) ?: "Shell ${i + 1}", style = MaterialTheme.typography.labelLarge, fontWeight = if (on) FontWeight.Bold else null)
+                        Text((m.labelOf(s) ?: s.title?.takeIf { it.isNotBlank() })?.take(14) ?: "Shell ${i + 1}", style = MaterialTheme.typography.labelLarge, fontWeight = if (on) FontWeight.Bold else null)
                         Icon(Icons.Rounded.Close, "Close", Modifier.padding(start = 4.dp).clip(RoundedCornerShape(8.dp)).clickable { m.close(s) }.padding(2.dp).width(16.dp))
                     }
                 }

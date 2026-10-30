@@ -129,7 +129,8 @@ class FilesTool(private val app: UltimateApp) : Tool {
 
 /** Android 11+ grants a file manager "All files access"; Android 10 uses the classic storage permission with legacy storage. */
 fun hasAllFiles(context: android.content.Context) =
-    if (android.os.Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager()
+    // If the system can't answer, treat it as not granted: the screens then ask, instead of the app failing to start.
+    if (android.os.Build.VERSION.SDK_INT >= 30) runCatching { Environment.isExternalStorageManager() }.getOrDefault(false)
     else androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
 fun allFilesIntent(context: android.content.Context) =
