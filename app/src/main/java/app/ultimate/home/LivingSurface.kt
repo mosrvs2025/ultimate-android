@@ -9,6 +9,8 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -32,6 +34,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -61,6 +64,8 @@ internal fun LivingSurface(app: UltimateApp, tools: List<Tool>, running: Set<Str
     val prefs = remember { app.getSharedPreferences("instrument", Context.MODE_PRIVATE) }
     var motion by rememberSaveable { mutableStateOf(prefs.getBoolean("motion", true)) }
     val tilt = rememberInstrumentTilt(motion)
+    val fontSpace = LocalDensity.current.fontScale.coerceIn(1f, 1.5f)
+    val hasHistory = remember(tools) { app.insights.recentOpens().isNotEmpty() }
     val haptic = LocalHapticFeedback.current
     BackHandler(expanded) { expanded = false }
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp)).background(InstrumentInk).padding(12.dp)) {
@@ -78,10 +83,10 @@ internal fun LivingSurface(app: UltimateApp, tools: List<Tool>, running: Set<Str
             val compact = maxWidth < 340.dp
             val shown = tools.take(if (compact) 3 else 6)
             val sceneWidth = minOf(maxWidth, 580.dp)
-            val sceneHeight = if (compact) 330.dp else 370.dp
+            val sceneHeight = (if (compact) 330.dp else 370.dp) * fontSpace
             val focus by animateFloatAsState(if (expanded) 1f else 0f, spring(dampingRatio = 0.8f), label = "orbit-expand")
             Box(Modifier.width(sceneWidth).height(sceneHeight)
-                .combinedClickable(onClick = {}, onLongClick = { expanded = !expanded; haptic.performHapticFeedback(HapticFeedbackType.LongPress) }, onLongClickLabel = "Expand recent tools")) {
+                .pointerInput(expanded) { detectTapGestures(onLongPress = { expanded = !expanded; haptic.performHapticFeedback(HapticFeedbackType.LongPress) }) }) {
                 Canvas(Modifier.fillMaxSize()) {
                     val c = Offset(size.width / 2, size.height / 2)
                     drawCircle(Brush.radialGradient(listOf(Color(0xFF8DD7CB).copy(alpha = 0.17f), Color.Transparent), c, size.minDimension * 0.48f), size.minDimension * 0.48f, c)
@@ -125,7 +130,7 @@ internal fun LivingSurface(app: UltimateApp, tools: List<Tool>, running: Set<Str
         Text(if (expanded) "Tap a tool to begin · hold for its results" else "Tap the orb for recent tools · hold for orb settings", Modifier.align(Alignment.CenterHorizontally).padding(bottom = 6.dp), color = InstrumentLight.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
         if (expanded) {
             HorizontalDivider(color = InstrumentLight.copy(alpha = 0.15f))
-            Text("From the last 48 hours", Modifier.padding(8.dp), color = InstrumentLight, style = MaterialTheme.typography.labelMedium)
+            Text(if (hasHistory) "From the last 48 hours" else "Your starting tools", Modifier.padding(8.dp), color = InstrumentLight, style = MaterialTheme.typography.labelMedium)
             tools.take(3).forEach { tool ->
                 val headline by tool.headline.collectAsState()
                 TextButton({ app.shell.openFrom(tool, EntryOrigin.SURFACE) }, Modifier.fillMaxWidth()) {

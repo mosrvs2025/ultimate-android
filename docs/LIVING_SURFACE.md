@@ -12,7 +12,7 @@ through Claude commit `e131976` without changing Claude's branch.
   closes those shortcuts first. Hold the orb for its settings.
 - Inside a tool, the draggable orb carries that tool's icon and media/system accent.
   Tap for nearby tools, the current tool's results, Activity, Home, and a cancel
-  action when it has a live job. “All tools” opens the searchable-by-sight catalog.
+  action when it has a live job. “All tools” opens the scrollable catalog.
   Hold the floating orb to return Home. The labeled bottom navigation remains an
   accessible fallback.
 - Opening through the floating orb slides from the side it rests on. Opening from
@@ -52,3 +52,11 @@ assets, and a global replacement of bottom navigation are not implemented.
 Automated coverage includes persistence/expiry of history, time-of-day ranking,
 active-job priority, failure-reminder clearing, compact Home interaction, rendered
 Home, and orb/catalog access. Terminal device smoke tests remain available in CI.
+
+## Try without replacing an existing install
+
+`gradle -PorbitPreview=true :app:assembleUltimateplusRelease` builds a separate
+`app.ultimate.orbitpreview` app labeled **Ultimate Orbit Preview**. It starts with
+its own empty preferences and files, so it learns independently of the installed
+Ultimate/Ultimate+ app. Local builds use the debug signing fallback; the APK is a
+preview rather than a production update. Permissions are granted separately.
