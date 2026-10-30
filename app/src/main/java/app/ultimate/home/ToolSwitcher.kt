@@ -12,6 +12,9 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -82,6 +85,7 @@ private object BubblePlace {
 @Composable
 fun ToolSwitcher(app: UltimateApp, current: Tool) {
     var open by remember { mutableStateOf(false) }
+    var catalog by remember { mutableStateOf(false) }
     // After a moment of rest the bubble tucks half off the edge so it does not cover content; touching it brings it back.
     var tucked by remember { mutableStateOf(false) }
     var touched by remember { mutableStateOf(0) }
@@ -101,6 +105,10 @@ fun ToolSwitcher(app: UltimateApp, current: Tool) {
         val x = remember { Animatable(if (BubblePlace.right) w - sizePx - margin else margin) }
         val y = remember { Animatable(BubblePlace.heightFraction * h) }
 
+        androidx.compose.runtime.LaunchedEffect(w, h) {
+            x.snapTo(if (BubblePlace.right) (w - sizePx - margin).coerceAtLeast(0f) else margin.coerceAtMost((w - sizePx).coerceAtLeast(0f)))
+            y.snapTo((BubblePlace.heightFraction * h).coerceIn(0f, (h - sizePx).coerceAtLeast(0f)))
+        }
         AnimatedVisibility(open, enter = fadeIn(), exit = fadeOut()) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable(remember { MutableInteractionSource() }, null) { open = false })
         }
@@ -110,15 +118,15 @@ fun ToolSwitcher(app: UltimateApp, current: Tool) {
             exit = scaleOut() + fadeOut(),
         ) {
             BackHandler { open = false }
-            Panel(app, current, running) { open = false }
+            if (catalog) Panel(app, current, running) { open = false; catalog = false }
+            else OrbitPanel(app, current, running, onCatalog = { catalog = true }) { open = false }
         }
 
         if (!open) {
             val pressed by animateFloatAsState(if (tucked) 0.55f else 1f, label = "bubble")
             val tuck by animateFloatAsState(if (tucked) (if (BubblePlace.right) sizePx * 0.55f else -sizePx * 0.55f) else 0f, label = "tuck")
-            Surface(
-                shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, shadowElevation = 8.dp,
-                modifier = Modifier.offset { IntOffset((x.value + tuck).roundToInt(), y.value.roundToInt()) }.size(size).graphicsLayer { alpha = 0.92f * pressed }
+            InstrumentOrb(current, running.isNotEmpty(),
+                Modifier.offset { IntOffset((x.value + tuck).roundToInt(), y.value.roundToInt()) }.size(size).graphicsLayer { alpha = 0.92f * pressed }
                     .pointerInput(w, h) {
                         detectDragGestures(
                             onDragStart = { touched++ },
@@ -132,18 +140,11 @@ fun ToolSwitcher(app: UltimateApp, current: Tool) {
                         ) { change, drag ->
                             change.consume()
                             scope.launch {
-                                x.snapTo((x.value + drag.x).coerceIn(0f, w - sizePx))
-                                y.snapTo((y.value + drag.y).coerceIn(margin * 6, h - sizePx - margin * 6))
+                                x.snapTo((x.value + drag.x).coerceIn(0f, (w - sizePx).coerceAtLeast(0f)))
+                                y.snapTo((y.value + drag.y).coerceIn(0f, (h - sizePx).coerceAtLeast(0f)))
                             }
                         }
-                    }
-                    .clickable { haptics.performHapticFeedback(HapticFeedbackType.LongPress); open = true },
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Apps, "Switch tool", tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                    if (running.isNotEmpty()) Box(Modifier.align(Alignment.TopEnd).padding(8.dp).size(9.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error))
-                }
-            }
+                    }, onClick = { catalog = false; open = true }, onLongClick = { app.shell.showHome() })
         }
     }
 }
@@ -155,7 +156,7 @@ private fun Panel(app: UltimateApp, current: Tool, running: Set<String>, close: 
         Modifier.fillMaxWidth().padding(12.dp).navigationBarsPadding().shadow(24.dp, RoundedCornerShape(28.dp)),
         shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("Jump to", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp))
             app.tools.chunked(4).forEach { row ->
                 Row(Modifier.fillMaxWidth()) {
@@ -189,5 +190,37 @@ private fun Tile(icon: ImageVector, label: String, modifier: Modifier, selected:
         }
         Spacer(Modifier.height(6.dp))
         Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.width(76.dp))
+    }
+}
+
+/** The current tool stays at the center; recent tools and its results are one tap away. */
+@Composable
+private fun OrbitPanel(app: UltimateApp, current: Tool, running: Set<String>, onCatalog: () -> Unit, close: () -> Unit) {
+    val nearby = remember(current.id, running) {
+        HomeLayout.constellation(app.tools.map { it.id }.filter { it != current.id && it != "orb" }, app.insights.recentOpens(), running, System.currentTimeMillis(), 2)
+            .mapNotNull { id -> app.tools.firstOrNull { it.id == id } }
+    }
+    Surface(Modifier.fillMaxWidth().padding(12.dp).navigationBarsPadding(), shape = RoundedCornerShape(28.dp), color = InstrumentInk, contentColor = InstrumentLight) {
+        Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(current.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium)
+            val headline by current.headline.collectAsStateWithLifecycle()
+            Text(headline, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            BoxWithConstraints(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                nearby.forEachIndexed { i, t ->
+                    Tile(t.icon, t.title, Modifier.align(if (i == 0) Alignment.TopStart else Alignment.TopEnd), busy = t.id in running) { close(); app.shell.openFrom(t, if (BubblePlace.right) EntryOrigin.ORB_RIGHT else EntryOrigin.ORB_LEFT) }
+                }
+                InstrumentOrb(current, current.id in running, Modifier.size(80.dp).align(Alignment.BottomCenter), onClick = { close(); app.shell.showHome() })
+            }
+            Text("Hold the orb to return home", style = MaterialTheme.typography.labelSmall)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                androidx.compose.material3.TextButton({ close(); app.shell.showLibraryOf(current.id) }) { Text("Results", color = InstrumentLight) }
+                androidx.compose.material3.TextButton({ close(); app.shell.showActivity() }) { Text("Activity", color = InstrumentLight) }
+                androidx.compose.material3.TextButton({ close(); app.shell.showHome() }) { Text("Home", color = InstrumentLight) }
+            }
+            if (current.id in running) app.work.sources.firstOrNull { it.workId == current.id }?.let { source ->
+                androidx.compose.material3.TextButton({ source.cancelWork(); close() }) { Text("${source.cancelLabel} ${current.title}", color = instrumentAccent(current.id)) }
+            }
+            androidx.compose.material3.TextButton(onCatalog) { Text("All tools", color = instrumentAccent(current.id)) }
+        }
     }
 }

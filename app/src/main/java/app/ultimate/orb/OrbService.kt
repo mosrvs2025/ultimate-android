@@ -1,5 +1,7 @@
 package app.ultimate.orb
 
+import app.ultimate.home.HomeLayout
+
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Service
@@ -291,8 +293,11 @@ class OrbService : Service() {
             OrbAction("inbox", "Notifications", tools.firstOrNull { it.id == "inbox" }?.icon ?: Icons.Rounded.AutoAwesome, "inbox"),
             OrbAction("cleanup", "Clean up", tools.firstOrNull { it.id == "cleanup" }?.icon ?: Icons.Rounded.AutoAwesome, "cleanup"),
         ).filter { it.toolId == null || it.toolId in ids }
-        // Home stays first; the rest learn from what you tap most.
-        return listOf(all.first()) + OrbMath.byUse(all.drop(1), { it.key }) { prefs.getInt("use.$it", 0) }.take(6)
+        // Same local memory as Home; opening through the floating orb and through the app teach the same surface.
+        val running = app?.work?.sources.orEmpty().filter { it.work.value.active }.map { it.workId }.toSet()
+        val ranked = HomeLayout.constellation(all.drop(1).map { it.key }, app?.insights?.recentOpens().orEmpty(), running, System.currentTimeMillis())
+        return listOf(all.first()) + ranked.mapNotNull { id -> all.firstOrNull { it.key == id } }
+
     }
 
     private fun bloom() {
