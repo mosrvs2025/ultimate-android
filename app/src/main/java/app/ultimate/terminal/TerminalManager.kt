@@ -26,6 +26,9 @@ class TerminalManager(private val app: UltimateApp) {
     /** Bumped when a title changes or a session ends, so the tabs redraw. */
     private val _changes = MutableStateFlow(0)
     val changes: StateFlow<Int> = _changes.asStateFlow()
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+    fun dismissError() { _error.value = null }
 
     /** The on-screen terminal, while the screen is shown. */
     var view: TerminalView? = null
@@ -35,7 +38,8 @@ class TerminalManager(private val app: UltimateApp) {
     val client = object : TerminalSessionClient {
         override fun onTextChanged(s: TerminalSession) { if (view?.currentSession == s) view?.onScreenUpdated() }
         override fun onTitleChanged(s: TerminalSession) { _changes.value++ }
-        override fun onSessionFinished(s: TerminalSession) { close(s) }
+        // Keep the transcript, including exec errors and exit status, until explicitly closed.
+        override fun onSessionFinished(s: TerminalSession) { _changes.value++; view?.onScreenUpdated() }
         override fun onCopyTextToClipboard(s: TerminalSession, text: String) {
             app.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Terminal", text))
             app.clips.add(text, "Terminal")
@@ -57,7 +61,8 @@ class TerminalManager(private val app: UltimateApp) {
     }
 
     /** Starts a new shell, in shared storage when Ultimate may see it, else in its own home folder. */
-    fun open(): TerminalSession {
+    fun open(): TerminalSession? = try {
+        _error.value = null
         bridge.start()
         val home = File(bridge.dir, "home").apply { mkdirs() }
         val tmp = File(app.cacheDir, "term").apply { mkdirs() }
@@ -68,27 +73,40 @@ class TerminalManager(private val app: UltimateApp) {
             "LANG" to "en_US.UTF-8", "SHELL" to "/system/bin/sh",
             "PATH" to "/product/bin:/apex/com.android.runtime/bin:/apex/com.android.art/bin:/system_ext/bin:/system/bin:/system/xbin:/odm/bin:/vendor/bin:/vendor/xbin",
         )
-        val s = TerminalSession("/system/bin/sh", cwd, arrayOf("sh"), env.map { "${it.key}=${it.value}" }.toTypedArray(), 3000, client)
+        val s = TerminalSession("/system/bin/sh", cwd, arrayOf("sh", "-i"), env.map { "${it.key}=${it.value}" }.toTypedArray(), 3000, client)
+        // Start here, inside the error boundary, rather than later in AndroidView.onSizeChanged.
+        s.updateSize(80, 24)
         _sessions.value = _sessions.value + s
-        _current.value = s
-        return s
+        select(s)
+        s
+    } catch (e: Exception) {
+        _error.value = "Could not start the terminal: ${e.message ?: e.javaClass.simpleName}"
+        android.util.Log.e("UltimateTerminal", "Shell startup failed", e)
+        null
+    } catch (e: LinkageError) {
+        _error.value = "The terminal library could not load on this device: ${e.message}"
+        android.util.Log.e("UltimateTerminal", "Native terminal startup failed", e)
+        null
     }
 
-    fun select(s: TerminalSession) { _current.value = s }
+    fun select(s: TerminalSession) { ctrl.value = false; alt.value = false; _current.value = s }
 
     fun close(s: TerminalSession) {
         main.post {
             s.finishIfRunning()
             val left = _sessions.value - s
             _sessions.value = left
-            if (_current.value == s) _current.value = left.lastOrNull()
+            if (_current.value == s) {
+                ctrl.value = false; alt.value = false
+                _current.value = left.lastOrNull()
+            }
             _changes.value++
         }
     }
 
     /** Types [text] into the current shell; with [run] it also presses Enter. */
     fun type(text: String, run: Boolean) {
-        val s = _current.value ?: open()
+        val s = _current.value?.takeIf { it.isRunning } ?: open() ?: return
         s.write(if (run) "$text\r" else text)
     }
 }

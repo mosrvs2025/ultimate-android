@@ -18,7 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -71,7 +71,7 @@ private fun SourceCard(app: UltimateApp, source: WorkSource) {
             Box(
                 Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center,
-            ) { Icon(tool?.icon ?: Icons.Rounded.Terminal, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) }
+            ) { Icon(tool?.icon ?: Icons.Rounded.History, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(source.workTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)

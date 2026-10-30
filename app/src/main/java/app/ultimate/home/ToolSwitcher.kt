@@ -12,6 +12,9 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -33,7 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -155,7 +158,7 @@ private fun Panel(app: UltimateApp, current: Tool, running: Set<String>, close: 
         Modifier.fillMaxWidth().padding(12.dp).navigationBarsPadding().shadow(24.dp, RoundedCornerShape(28.dp)),
         shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("Jump to", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp))
             app.tools.chunked(4).forEach { row ->
                 Row(Modifier.fillMaxWidth()) {
@@ -170,7 +173,7 @@ private fun Panel(app: UltimateApp, current: Tool, running: Set<String>, close: 
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(vertical = 4.dp)) {
                 Tile(Icons.Rounded.Home, "Home", Modifier.weight(1f)) { close(); shell.showHome() }
                 Tile(Icons.Rounded.VideoLibrary, "Library", Modifier.weight(1f)) { close(); shell.showLibrary() }
-                Tile(Icons.Rounded.Terminal, "Activity", Modifier.weight(1f), busy = running.isNotEmpty()) { close(); shell.showActivity() }
+                Tile(Icons.Rounded.History, "Activity", Modifier.weight(1f), busy = running.isNotEmpty()) { close(); shell.showActivity() }
             }
         }
     }
