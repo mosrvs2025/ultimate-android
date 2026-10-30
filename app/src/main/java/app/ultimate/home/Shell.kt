@@ -24,6 +24,11 @@ class Shell(private val tools: List<Tool>, private val insights: app.ultimate.in
     private val _incoming = MutableStateFlow<Incoming?>(null)
     val incoming: StateFlow<Incoming?> = _incoming.asStateFlow()
     private var lastTopLevel: Route = Route.Home
+    private val _about = MutableStateFlow(false)
+    /** The About and settings screen, shown over whatever is open. */
+    val about: StateFlow<Boolean> = _about.asStateFlow()
+    fun showAbout() { _about.value = true }
+    fun hideAbout() { _about.value = false }
 
     fun showHome() = top(Route.Home)
     /** Which tool the Library is filtered to; null shows everything. Lives here so a tool's own shortcut can open it pre-filtered. */

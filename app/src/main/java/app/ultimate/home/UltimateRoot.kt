@@ -59,13 +59,15 @@ fun UltimateRoot(app: UltimateApp) {
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { app.insights.pause() }
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) { app.insights.resume() }
     val standalone = app.tools.size == 1
-    val nav = remember { ShellNav(standalone, openLibrary = shell::showLibraryForCurrentTool, openActivity = shell::showActivity, tools = app.tools, send = { t, uris -> shell.open(t, ToolLaunch(uris)) }) }
+    val nav = remember { ShellNav(standalone, openLibrary = shell::showLibraryForCurrentTool, openActivity = shell::showActivity, openAbout = shell::showAbout, tools = app.tools, send = { t, uris -> shell.open(t, ToolLaunch(uris)) }) }
 
     CompositionLocalProvider(LocalShellNav provides nav) {
         if (standalone) StandaloneRoot(app, route, onExitApp = { (context as? Activity)?.finish() }) else SuiteRoot(app, route)
     }
 
     incoming?.let { pending -> HandSheet(app, pending) }
+    val showAbout by shell.about.collectAsStateWithLifecycle()
+    if (showAbout) AboutScreen(app, onClose = shell::hideAbout)
 
 }
 

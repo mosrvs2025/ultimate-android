@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Android
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -165,6 +166,7 @@ data class ShellNav(
     val standalone: Boolean,
     val openLibrary: () -> Unit,
     val openActivity: () -> Unit,
+    val openAbout: () -> Unit = {},
     /** Every tool in this edition, so results can be handed from one tool to another. */
     val tools: List<Tool> = emptyList(),
     val send: (Tool, List<android.net.Uri>) -> Unit = { _, _ -> },
@@ -178,6 +180,8 @@ fun ShellActions() {
     val nav = LocalShellNav.current ?: return
     androidx.compose.material3.IconButton(nav.openActivity) { Icon(Icons.Rounded.History, "Activity") }
     androidx.compose.material3.IconButton(nav.openLibrary) { Icon(Icons.Rounded.VideoLibrary, "Library") }
+    // A one-tool app has no Home, so its version and settings open from here.
+    if (nav.standalone) androidx.compose.material3.IconButton(nav.openAbout) { Icon(Icons.Rounded.Info, "About and settings") }
 }
 
 /** The tool's own back arrow, unless this build is the tool on its own. */

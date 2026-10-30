@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.test.core.app.ApplicationProvider
 import app.ultimate.core.ToolLaunch
+import app.ultimate.home.AboutScreen
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
@@ -28,6 +29,14 @@ class ScreensSmokeTest {
         val tool = app.tools.firstOrNull { it.id == toolId } ?: return // this edition doesn't have it
         compose.setContent { MaterialTheme { tool.Screen({}, ToolLaunch()) } }
         compose.onNodeWithText(heading).assertIsDisplayed()
+    }
+
+    @Test fun aboutScreenShowsTheVersion() {
+        val app = ApplicationProvider.getApplicationContext<UltimateApp>()
+        compose.setContent { MaterialTheme { AboutScreen(app) {} } }
+        compose.onNodeWithText("About and settings").assertIsDisplayed()
+        compose.onNodeWithText("Version ${BuildConfig.VERSION_NAME}").assertIsDisplayed()
+        compose.onNodeWithText("Copy details").assertIsDisplayed()
     }
 
     @Test fun rulesScreenDraws() = show("rules", "Rules")
