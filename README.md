@@ -3,17 +3,18 @@
 One Android app that holds a growing set of tools for your own phone: edit and shrink video, see what fills your storage, keep your notification and clipboard history, run rules like "silence at night", open a terminal, and connect to your servers over SSH. No ads, no analytics, no accounts.
 
 <p align="center">
-  <img src="docs/screenshots/home.png" width="30%" alt="Home">
-  <img src="docs/screenshots/storage.png" width="30%" alt="Storage map">
-  <img src="docs/screenshots/storage-folder.png" width="30%" alt="Inside a folder: every file is a tile">
+  <img src="docs/screenshots/home.png" width="23%" alt="Home">
+  <img src="docs/screenshots/storage.png" width="23%" alt="Storage map">
+  <img src="docs/screenshots/storage-folder.png" width="23%" alt="Inside a folder: every file is a tile">
+  <img src="docs/screenshots/footprint.png" width="23%" alt="Footprint: what your phone knows about you">
 </p>
 <p align="center">
-  <img src="docs/screenshots/rules.png" width="30%" alt="Rules">
-  <img src="docs/screenshots/hosts.png" width="30%" alt="SSH hosts">
-  <img src="docs/screenshots/about.png" width="30%" alt="About and settings">
+  <img src="docs/screenshots/rules.png" width="23%" alt="Rules">
+  <img src="docs/screenshots/hosts.png" width="23%" alt="SSH hosts">
+  <img src="docs/screenshots/about.png" width="23%" alt="About and settings">
 </p>
 
-<sub>Screenshots are the app's own screens, rendered on a simulated phone with sample data (not photos of a real device). Home, Storage, inside a folder, Rules, SSH hosts, About and settings. Regenerate them with `gradle -Pscreenshots :app:testUltimateplusDebugUnitTest --tests '*ScreenshotTest'`.</sub>
+<sub>Screenshots are the app's own screens, rendered on a simulated phone with sample data (not photos of a real device). Home, Storage, inside a folder, Footprint (a sample week, since a simulator has no real usage history), Rules, SSH hosts, About and settings. Regenerate them with `gradle -Pscreenshots :app:testUltimateplusDebugUnitTest --tests '*ScreenshotTest'`.</sub>
 
 ## Download
 
@@ -34,7 +35,7 @@ APKs are release assets only; they are never committed to git.
 ## What's inside
 
 - **Create:** Studio (video editor), Squeeze (shrink video), Video to audio, Recorder, Photos, Teleprompter.
-- **Phone:** Storage (what fills your phone, by kind, folder, file and app), Clean up (duplicates, similar shots, swipe through photos), Files (browser, bin, APK installer), Notifications (a history that keeps deleted messages), Clipboard history, Checkup, Pluck (extract and inspect apps), Sensors.
+- **Phone:** Footprint (what your phone already knows about you: when you unlock, what you open, which apps can see your location or microphone, how much data they send, steps, and facts any app can read), Storage (what fills your phone, by kind, folder, file and app), Clean up (duplicates, similar shots, swipe through photos), Files (browser, bin, APK installer), Notifications (a history that keeps deleted messages), Clipboard history, Checkup, Pluck (extract and inspect apps), Sensors.
 - **Network and remote:** SSH hosts (saved servers, keys, snippets, terminal tabs), SSH and SFTP server, send files to a computer from a browser, LAN scan, Traffic inspector.
 - **Smart:** Rules (when something happens, do something, and undo it afterwards, also from a plain sentence), Recipes, Screen time, Terminal with phone commands (`battery`, `storage`, `squeeze`, `clip`, ...), a floating orb that opens your tools over any app.
 

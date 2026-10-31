@@ -311,7 +311,7 @@ private fun ShapeCard(onClick: () -> Unit) {
 internal fun toolSections(tools: List<app.ultimate.core.Tool>): List<Pair<String, List<app.ultimate.core.Tool>>> {
     val families = linkedMapOf(
         "Create" to listOf("studio", "squeeze", "audio", "recorder", "photos", "prompter"),
-        "Phone" to listOf("files", "storage", "cleanup", "inbox", "clips", "checkup", "pluck", "sensors", "sound-meter"),
+        "Phone" to listOf("files", "storage", "footprint", "cleanup", "inbox", "clips", "checkup", "pluck", "sensors", "sound-meter"),
         "Network" to listOf("hosts", "ssh", "traffic", "lan", "send"),
         "Smart" to listOf("rules", "recipes", "orb", "screentime", "terminal"),
     )

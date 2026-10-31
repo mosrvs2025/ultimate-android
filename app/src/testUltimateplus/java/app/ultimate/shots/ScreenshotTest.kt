@@ -25,6 +25,16 @@ import app.ultimate.UltimateApp
 import app.ultimate.core.ToolLaunch
 import app.ultimate.core.UltimateTheme
 import app.ultimate.files.FileKind
+import app.ultimate.footprint.Access
+import app.ultimate.footprint.AppAccess
+import app.ultimate.footprint.Evt
+import app.ultimate.footprint.FootprintReaders
+import app.ultimate.footprint.FootprintScreen
+import app.ultimate.footprint.Loaded
+import app.ultimate.footprint.NetUse
+import app.ultimate.footprint.UsageAccumulator
+import app.ultimate.footprint.UsageEvt
+import app.ultimate.footprint.UsageSummary
 import app.ultimate.home.AboutContent
 import app.ultimate.home.HomeScreen
 import app.ultimate.rules.RuleParser
@@ -151,6 +161,53 @@ class ScreenshotTest {
         show { androidx.compose.foundation.layout.Column(Modifier.wrapContentSize(androidx.compose.ui.Alignment.TopStart).testTag("frame").background(MaterialTheme.colorScheme.background).padding(16.dp)) { androidx.compose.material3.Text("All  ›  Movies  ›  Sora", color = MaterialTheme.colorScheme.primary); FolderMap(sora, { _, _ -> }, { }) } }
         compose.mainClock.advanceTimeBy(1200)
         save("storage-folder", "frame")
+    }
+
+    /** A believable week, fed through the same engine the real screen uses: work days, an evening habit, a few late nights. */
+    private fun sampleWeek(): UsageSummary {
+        val zone = java.util.TimeZone.getTimeZone("UTC"); val h = 3_600_000L; val min = 60_000L; val day = 24 * h
+        val now = 20_000L * day + 12 * h
+        val acc = UsageAccumulator(now, zone)
+        val events = ArrayList<UsageEvt>()
+        fun use(ago: Int, hour: Int, minute: Int, mins: Int, pkg: String) {
+            val t = now - ago * day - 12 * h + hour * h + minute * min
+            events += UsageEvt(t, Evt.Resumed, pkg); events += UsageEvt(t + mins * min, Evt.Paused, pkg)
+        }
+        fun session(ago: Int, hour: Int, minute: Int, mins: Int) {
+            val t = now - ago * day - 12 * h + hour * h + minute * min
+            events += UsageEvt(t, Evt.ScreenOn); events += UsageEvt(t, Evt.Unlocked)
+            events += UsageEvt(t + mins * min, Evt.ScreenOff)
+        }
+        for (ago in 0..6) {
+            session(ago, 7, 10, 25); use(ago, 7, 10, 12, "com.whatsapp"); use(ago, 7, 24, 10, "com.instagram.android")
+            session(ago, 8, 15, 20); use(ago, 8, 15, 20, "com.google.android.apps.maps")
+            repeat(5) { k -> session(ago, 9 + k, 5 + k * 7, 8); use(ago, 9 + k, 5 + k * 7, 8, if (k % 2 == 0) "com.whatsapp" else "com.google.android.gm") }
+            session(ago, 12, 30, 35); use(ago, 12, 30, 20, "com.instagram.android"); use(ago, 12, 50, 15, "com.zhiliaoapp.musically")
+            session(ago, 19, 0, 60); use(ago, 19, 0, 25, "com.google.android.youtube"); use(ago, 19, 25, 35, "com.whatsapp")
+            session(ago, 21, 0, 90); use(ago, 21, 0, 50, "com.google.android.youtube"); use(ago, 21, 50, 40, "com.instagram.android")
+            session(ago, 22, 40, 50); use(ago, 22, 40, 50, "com.zhiliaoapp.musically")
+            if (ago % 2 == 0) { session(ago, 0, 40, 40); use(ago, 0, 40, 40, "com.zhiliaoapp.musically") }
+            session(ago, 23, 45, 10)
+        }
+        events.sortedBy { it.at }.forEach(acc::add)
+        return acc.finish()
+    }
+
+    @Test fun footprint() {
+        val access = listOf(
+            AppAccess("com.instagram.android", "Instagram", false, setOf(Access.Location, Access.Camera, Access.Microphone, Access.Contacts, Access.Photos, Access.Internet)),
+            AppAccess("com.whatsapp", "WhatsApp", false, setOf(Access.Contacts, Access.Microphone, Access.Camera, Access.Photos, Access.Calls, Access.Internet)),
+            AppAccess("com.google.android.apps.maps", "Maps", true, setOf(Access.BackgroundLocation, Access.Internet)),
+            AppAccess("com.zhiliaoapp.musically", "TikTok", false, setOf(Access.Location, Access.Camera, Access.Microphone, Access.Contacts, Access.Photos, Access.AppList, Access.Internet)),
+            AppAccess("com.google.android.youtube", "YouTube", true, setOf(Access.Microphone, Access.Internet)),
+        )
+        val gb = 1_000_000_000L
+        val net = listOf(NetUse("com.google.android.youtube", 6 * gb, gb / 20), NetUse("com.zhiliaoapp.musically", 4 * gb, gb / 10), NetUse("com.instagram.android", 2 * gb, gb / 5), NetUse("com.whatsapp", gb / 2, gb / 3))
+        val facts = FootprintReaders.facts(app)
+        val loaded = Loaded(sampleWeek(), access, net, facts)
+        show { FootprintScreen(app, {}, loaded) }
+        compose.mainClock.advanceTimeBy(1500)
+        save("footprint")
     }
 
     @Test fun about() {

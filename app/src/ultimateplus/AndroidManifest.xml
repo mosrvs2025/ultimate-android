@@ -37,6 +37,8 @@
     <!-- Rules: start again after a restart, change Do Not Disturb when the user allows it, and watch the phone while any rule needs it. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- Footprint: optional step counting, only after the user taps Start. -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
     <application android:requestLegacyExternalStorage="true">
         <activity android:name=".ssh.SshKeyScanActivity" android:exported="false" />

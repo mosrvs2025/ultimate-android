@@ -96,6 +96,7 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
             if (BuildConfig.HAS_TERMINAL) add(app.ultimate.terminal.TerminalTool(this@UltimateApp, terminal))
             if (BuildConfig.HAS_ORB) add(app.ultimate.orb.OrbTool())
             if (BuildConfig.HAS_RULES) add(app.ultimate.rules.RulesTool(this@UltimateApp))
+            if (BuildConfig.HAS_FOOTPRINT) add(app.ultimate.footprint.FootprintTool(this@UltimateApp))
             if (BuildConfig.HAS_SCREENTIME) add(app.ultimate.screentime.ScreenTimeTool(this@UltimateApp))
             if (BuildConfig.HAS_SENSORS) add(app.ultimate.sensors.SensorsTool((getSystemService(SENSOR_SERVICE) as android.hardware.SensorManager).getSensorList(android.hardware.Sensor.TYPE_ALL).size))
         }
@@ -114,6 +115,7 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
         // A content trigger fires once, so it is re-armed at every start in case the last one was used up while the app was away.
         automations.watchScreenRecordings()
         if (BuildConfig.HAS_FILES) app.ultimate.files.UpdateWatcher.arm(this)
+        if (BuildConfig.HAS_FOOTPRINT) app.ultimate.footprint.StepSampler.schedule(this)
         if (BuildConfig.HAS_RULES) {
             // Copies the rules did themselves are not offered back to the rules, so a rule can never trigger itself.
             if (BuildConfig.HAS_CLIPS) clips.onAdded = { text, source -> if (source != "Rules") rules.fire(app.ultimate.rules.Event.Copied(text)) }

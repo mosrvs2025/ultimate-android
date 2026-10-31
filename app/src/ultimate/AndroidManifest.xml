@@ -21,6 +21,8 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Footprint: optional step counting, only after the user taps Start. -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <!-- The terminal's vibrate command. -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- The floating orb draws over other apps once the user allows it. -->
