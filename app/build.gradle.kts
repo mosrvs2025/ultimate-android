@@ -16,8 +16,8 @@ android {
         minSdk = 29
         targetSdk = 35
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 39
-        versionName = "1.33.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 40
+        versionName = "1.34.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -275,6 +275,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
+    // Footprint: read steps, sleep and heart rate from Health Connect, on request.
+    implementation("androidx.health.connect:connect-client:1.1.0-alpha11")
     // QR code for opening Send to computer on another phone or tablet.
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.github.termux.termux-app:terminal-view:v0.118.1")

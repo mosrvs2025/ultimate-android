@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Only asked for when the user turns on "new screen recordings"; it lets Ultimate notice them. -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <!-- Files: a file manager needs all-files access (asked for in the tool, not at install) and permission to install APKs. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -23,6 +25,13 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Footprint: optional step counting, only after the user taps Start. -->
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <!-- Footprint: read-only Health Connect access, asked one type at a time and only after the user taps the button. -->
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_DISTANCE" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <queries><package android:name="com.google.android.apps.healthdata" /></queries>
     <!-- The terminal's vibrate command. -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- The floating orb draws over other apps once the user allows it. -->
@@ -34,6 +43,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application android:requestLegacyExternalStorage="true">
+        <!-- Health Connect asks why the app wants health data, and lists it among apps with access. -->
+        <activity android:name=".footprint.HealthRationaleActivity" android:exported="true">
+            <intent-filter><action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" /></intent-filter>
+        </activity>
+        <activity-alias android:name="ViewPermissionUsageActivity" android:exported="true" android:targetActivity=".footprint.HealthRationaleActivity" android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
         <service android:name=".orb.OrbService" android:exported="false" />
         <service
             android:name=".rules.RulesService"

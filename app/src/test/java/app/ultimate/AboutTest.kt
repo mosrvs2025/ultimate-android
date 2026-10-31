@@ -33,7 +33,7 @@ class AboutTest {
 
     @Test fun theChangelogStartsAtTheCurrentVersion() {
         assertEquals(listOf("1.30.0", "1.29.0"), Changelog.recent("1.30.0", 2).map { it.version })
-        assertEquals("1.33.0", Changelog.entries.first().version)
+        assertEquals("1.34.0", Changelog.entries.first().version)
         assertEquals(Changelog.entries.first().version, Changelog.recent("9.9.9", 1).single().version) // an unknown version still shows the latest news
         assertTrue(Changelog.entries.map { it.version }.toSet().size == Changelog.entries.size)
     }

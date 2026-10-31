@@ -134,3 +134,111 @@ class FootprintMathTest {
         assertEquals(400L + 120L + 4000L, perDay[20_001L])    // 400 before the restart, 120 after it, then 4000
     }
 }
+
+class MediaTrackerTest {
+    private val min = 60_000L
+    private fun run(block: (app.ultimate.footprint.MediaTracker) -> Unit): List<app.ultimate.footprint.Played> {
+        val out = ArrayList<app.ultimate.footprint.Played>(); app.ultimate.footprint.MediaTracker(out::add).also(block); return out
+    }
+
+    @Test fun playingAndPausingAddsUpOnlyThePlayingTime() {
+        val r = run { t -> t.update(0, "yt", "Cat video", "Cats", true); t.update(5 * min, "yt", "Cat video", "Cats", false); t.update(6 * min, "yt", "Cat video", "Cats", true); t.update(9 * min, "yt", "Cat video", "Cats", false); t.end(30 * min, "yt") }
+        assertEquals(1, r.size); assertEquals(8 * min, r[0].ms); assertEquals("Cats", r[0].artist); assertEquals(0L, r[0].startedAt)
+    }
+
+    @Test fun aNewTitleEndsTheOldOne() {
+        val r = run { t -> t.update(0, "music", "Song A", "Band", true); t.update(4 * min, "music", "Song B", "Band", true); t.update(7 * min, "music", "Song B", "Band", false); t.endAll(8 * min) }
+        assertEquals(listOf("Song A" to 4 * min, "Song B" to 3 * min), r.map { it.title to it.ms })
+    }
+
+    @Test fun aLongPauseIsANewSittingAndTinyPlaysAreDropped() {
+        val r = run { t -> t.update(0, "yt", "Show", "S", true); t.update(20 * min, "yt", "Show", "S", false); t.update(60 * min, "yt", "Show", "S", true); t.update(65 * min, "yt", "Show", "S", false); t.endAll(66 * min)
+            t.update(100 * min, "yt", "Blip", "B", true); t.update(100 * min + 3_000, "yt", "Blip", "B", false); t.endAll(101 * min) }
+        assertEquals(listOf(20 * min, 5 * min), r.map { it.ms })
+        assertTrue(r.none { it.title == "Blip" })
+    }
+
+    @Test fun twoAppsAtOnceAreTrackedSeparatelyAndNothingLoadedIsIgnored() {
+        val r = run { t -> t.update(0, "a", "One", "", true); t.update(0, "b", "Two", "", true); t.update(10 * min, "a", "", "", false); t.endAll(20 * min) }
+        assertEquals(setOf("a" to 10 * min, "b" to 20 * min), r.map { it.pkg to it.ms }.toSet())
+    }
+
+    @Test fun statsRankTimeByAppAndByArtist() {
+        val list = listOf(app.ultimate.footprint.Played("yt", "x", "Chan", 0, 30 * min), app.ultimate.footprint.Played("sp", "y", "Band", 0, 50 * min), app.ultimate.footprint.Played("yt", "z", "Chan", 0, 40 * min), app.ultimate.footprint.Played("yt", "w", "", 0, 5 * min))
+        assertEquals(listOf("yt" to 75 * min, "sp" to 50 * min), app.ultimate.footprint.MediaStats.byApp(list))
+        assertEquals(listOf("Chan" to 70 * min, "Band" to 50 * min), app.ultimate.footprint.MediaStats.topArtists(list))
+    }
+}
+
+class PlaceMathTest {
+    private val utc = TimeZone.getTimeZone("UTC"); private val h = 3_600_000L; private val day = 24 * h
+    private val d0 = 20_000L * day
+    private fun shot(dayN: Int, hour: Int, lat: Double, lon: Double) = app.ultimate.footprint.Shot(d0 + dayN * day + hour * h, lat, lon)
+    // Home near Brooklyn, work near midtown (about 10 km away), a trip to Boston (about 300 km away).
+    private val shots = listOf(
+        shot(0, 23, 40.6782, -73.9442), shot(1, 23, 40.6785, -73.9440), shot(2, 22, 40.6779, -73.9445), shot(3, 1, 40.6783, -73.9441),
+        shot(1, 13, 40.7549, -73.9840), shot(2, 13, 40.7551, -73.9838),
+        shot(5, 15, 42.3601, -71.0589), shot(5, 16, 42.3603, -71.0591), shot(6, 11, 42.3605, -71.0587),
+    )
+
+    @Test fun distancesAreRight() {
+        assertEquals(3936.0, app.ultimate.footprint.PlaceMath.distanceKm(40.7128, -74.0060, 34.0522, -118.2437), 15.0) // New York to Los Angeles
+        assertEquals(0.0, app.ultimate.footprint.PlaceMath.distanceKm(10.0, 20.0, 10.0, 20.0), 1e-9)
+    }
+
+    @Test fun nearbyShotsFormOnePlace() {
+        val places = app.ultimate.footprint.PlaceMath.cluster(shots, zone = utc)
+        assertEquals(3, places.size)
+        assertEquals(listOf(4, 3, 2), places.map { it.count })
+        assertEquals(40.678, places[0].lat, 0.001)
+    }
+
+    @Test fun homeIsWherePhotosAreTakenAtNight() {
+        val places = app.ultimate.footprint.PlaceMath.cluster(shots, zone = utc)
+        val home = app.ultimate.footprint.PlaceMath.home(places)!!
+        assertEquals(40.678, home.lat, 0.001); assertEquals(4, home.nightShots)
+        // With no night photos, the busiest place wins.
+        val daytime = app.ultimate.footprint.PlaceMath.cluster(shots.filter { (it.at / h) % 24 in 8..20 }, zone = utc)
+        assertEquals(42.36, app.ultimate.footprint.PlaceMath.home(daytime)!!.lat, 0.01)
+    }
+
+    @Test fun tripsAreCountedByDayAndFarthestIsFound() {
+        val places = app.ultimate.footprint.PlaceMath.cluster(shots, zone = utc)
+        val home = app.ultimate.footprint.PlaceMath.home(places)!!
+        assertEquals(2, app.ultimate.footprint.PlaceMath.daysAway(shots, home, zone = utc)) // two days in Boston
+        val (far, km) = app.ultimate.footprint.PlaceMath.farthest(places, home)!!
+        assertEquals(42.36, far.lat, 0.01); assertEquals(300.0, km, 20.0)
+        assertNull(app.ultimate.footprint.PlaceMath.farthest(listOf(home), home))
+    }
+
+    @Test fun sentencesNameTheNumbers() {
+        val places = app.ultimate.footprint.PlaceMath.cluster(shots, zone = utc)
+        val said = app.ultimate.footprint.PlaceMath.sentences(shots, places, utc)
+        assertTrue(said.toString(), said[0].startsWith("Your photos put you in 3 different places"))
+        assertTrue(said.any { it.contains("40.68°N 73.94°W") })
+        assertTrue(said.any { it.contains("away from home on 2 days") })
+        assertEquals(emptyList<String>(), app.ultimate.footprint.PlaceMath.sentences(emptyList(), emptyList()))
+    }
+}
+
+class HealthMathTest {
+    private val days = listOf(
+        app.ultimate.footprint.HealthDay(1, 8000, 7 * 3_600_000L, 70, 52, 120),
+        app.ultimate.footprint.HealthDay(2, 12000, 8 * 3_600_000L, 72, 50, 130),
+        app.ultimate.footprint.HealthDay(3, 0, 0, null, null, null),
+    )
+    @Test fun averagesIgnoreEmptyDays() {
+        assertEquals(10000L, app.ultimate.footprint.HealthMath.avgSteps(days))
+        assertEquals(7L * 3_600_000 + 1_800_000, app.ultimate.footprint.HealthMath.avgSleepMs(days))
+        assertEquals(52, app.ultimate.footprint.HealthMath.restingBpm(days))
+        assertEquals(0L, app.ultimate.footprint.HealthMath.avgSteps(emptyList()))
+    }
+    @Test fun sentencesNameTheNumbers() {
+        val said = app.ultimate.footprint.HealthMath.sentences(days)
+        assertTrue(said.toString(), said.any { it.contains("10,000 steps a day") })
+        assertTrue(said.any { it.contains("12,000 steps") })
+        assertTrue(said.any { it.contains("7h 30m a night") })
+        assertTrue(said.any { it.startsWith("That is 2 days") })
+        assertEquals(emptyList<String>(), app.ultimate.footprint.HealthMath.sentences(emptyList()))
+    }
+}

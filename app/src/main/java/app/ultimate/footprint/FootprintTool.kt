@@ -164,6 +164,15 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
             item { Section("Your steps") }
             item { StepsCard() }
 
+            item { Section("Your body, from your health apps") }
+            item { HealthCard() }
+
+            item { Section("What you watch and listen to") }
+            item { MediaCard() }
+
+            item { Section("Where you have been") }
+            item { PlacesCard() }
+
             item { Section("Who can see what") }
             val counts = Access.values().map { a -> a to d.apps.count { a in it.access } }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<Access, Int>> { it.first.sensitive }.thenBy { it.first.ordinal })
             items(counts, key = { "a-" + it.first.name }) { (a, n) ->

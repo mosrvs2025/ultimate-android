@@ -35,7 +35,7 @@ APKs are release assets only; they are never committed to git.
 ## What's inside
 
 - **Create:** Studio (video editor), Squeeze (shrink video), Video to audio, Recorder, Photos, Teleprompter.
-- **Phone:** Footprint (what your phone already knows about you: when you unlock, what you open, which apps can see your location or microphone, how much data they send, steps, and facts any app can read), Storage (what fills your phone, by kind, folder, file and app), Clean up (duplicates, similar shots, swipe through photos), Files (browser, bin, APK installer), Notifications (a history that keeps deleted messages), Clipboard history, Checkup, Pluck (extract and inspect apps), Sensors.
+- **Phone:** Footprint (what your phone already knows about you: when you unlock, what you open, which apps can see your location or microphone, how much data they send, steps, sleep and heart rate from Health Connect, what you watch and listen to, where your photos were taken, and facts any app can read), Storage (what fills your phone, by kind, folder, file and app), Clean up (duplicates, similar shots, swipe through photos), Files (browser, bin, APK installer), Notifications (a history that keeps deleted messages), Clipboard history, Checkup, Pluck (extract and inspect apps), Sensors.
 - **Network and remote:** SSH hosts (saved servers, keys, snippets, terminal tabs), SSH and SFTP server, send files to a computer from a browser, LAN scan, Traffic inspector.
 - **Smart:** Rules (when something happens, do something, and undo it afterwards, also from a plain sentence), Recipes, Screen time, Terminal with phone commands (`battery`, `storage`, `squeeze`, `clip`, ...), a floating orb that opens your tools over any app.
 

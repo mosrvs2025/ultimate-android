@@ -20,12 +20,15 @@ class NotificationCatcher : NotificationListenerService() {
     // paused is lost.
     override fun onListenerConnected() {
         log.connected(true)
+        // What is playing (video titles, songs) is kept only if the person switched that on in Footprint.
+        if (BuildConfig.HAS_FOOTPRINT) runCatching { app.ultimate.footprint.MediaWatcher.start(applicationContext, android.content.ComponentName(this, NotificationCatcher::class.java)) }
         runCatching { activeNotifications?.forEach { onNotificationPosted(it) } }
     }
 
     // Samsung and Android can drop the listener to save battery; asking to be bound again brings it back without the user.
     override fun onListenerDisconnected() {
         log.connected(false)
+        if (BuildConfig.HAS_FOOTPRINT) runCatching { app.ultimate.footprint.MediaWatcher.stop() }
         runCatching { requestRebind(android.content.ComponentName(this, NotificationCatcher::class.java)) }
     }
 
