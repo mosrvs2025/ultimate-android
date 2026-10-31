@@ -62,3 +62,47 @@ class StorageTest {
         assertEquals(listOf("DCIM", "Camera"), chainTo(root, cam).map { it.name })
     }
 }
+
+class MapItemsTest {
+    private val gb = 1_000_000_000L
+    private fun file(folder: app.ultimate.storage.Folder, name: String, bytes: Long) =
+        app.ultimate.storage.BigFile(folder.path + "/" + name, name, bytes, 0, app.ultimate.files.FileKind.Video).also { folder.addFile(it); folder.own += bytes; folder.ownFiles++; folder.bytes += bytes }
+
+    @Test fun aFolderOfOnlyFilesShowsEachFile() {
+        val sora = app.ultimate.storage.Folder("Sora", "/Movies/Sora")
+        file(sora, "a.mp4", 600_000_000); file(sora, "b.mp4", 500_000_000); file(sora, "c.mp4", 400_000_000); file(sora, "d.mp4", 170_000_000)
+        val items = app.ultimate.storage.MapItems.of(sora)
+        assertEquals(listOf("a.mp4", "b.mp4", "c.mp4", "d.mp4"), items.map { it.label })
+        assertTrue(items.all { it.file != null && it.folder == null })
+        assertEquals(sora.bytes, items.sumOf { it.bytes })
+    }
+
+    @Test fun foldersAndFilesShareTheMapBiggestFirst() {
+        val root = app.ultimate.storage.Folder("DCIM", "/DCIM")
+        val sub = app.ultimate.storage.Folder("Camera", "/DCIM/Camera").also { it.bytes = 3 * gb; it.files = 30; root.children["Camera"] = it; root.bytes += it.bytes }
+        file(root, "big.mp4", 5 * gb); file(root, "small.jpg", gb / 100)
+        val items = app.ultimate.storage.MapItems.of(root)
+        assertEquals(listOf("big.mp4", "Camera", "small.jpg"), items.map { it.label })
+        assertEquals(sub, items[1].folder)
+    }
+
+    @Test fun manySmallFilesBecomeOneHonestTile() {
+        val f = app.ultimate.storage.Folder("Cache", "/Cache")
+        repeat(100) { file(f, "f$it", 1_000_000L + it) }
+        val items = app.ultimate.storage.MapItems.of(f, cap = 10)
+        assertEquals(10, items.size)
+        val rest = items.last()
+        assertEquals(app.ultimate.storage.MapItems.REST, rest.key)
+        assertEquals("91 smaller items", rest.label)
+        assertEquals(f.bytes, items.sumOf { it.bytes }) // the tiles always add up to the folder
+    }
+
+    @Test fun filesBeyondTheOnesKeptAreStillCounted() {
+        val f = app.ultimate.storage.Folder("Photos", "/Photos")
+        repeat(60) { file(f, "p$it", 2_000_000L + it) }
+        assertEquals(40, f.filesBySize().size)
+        val items = app.ultimate.storage.MapItems.of(f)
+        assertTrue(items.last().hidden >= 20 && items.sumOf { it.bytes } == f.bytes)
+        assertEquals(emptyList<app.ultimate.storage.MapItem>(), app.ultimate.storage.MapItems.of(app.ultimate.storage.Folder("Empty", "/Empty")))
+    }
+}

@@ -3,14 +3,17 @@
 One Android app that holds a growing set of tools for your own phone: edit and shrink video, see what fills your storage, keep your notification and clipboard history, run rules like "silence at night", open a terminal, and connect to your servers over SSH. No ads, no analytics, no accounts.
 
 <p align="center">
-  <img src="docs/screenshots/home.png" width="19%" alt="Home">
-  <img src="docs/screenshots/storage.png" width="19%" alt="Storage map">
-  <img src="docs/screenshots/rules.png" width="19%" alt="Rules">
-  <img src="docs/screenshots/hosts.png" width="19%" alt="SSH hosts">
-  <img src="docs/screenshots/about.png" width="19%" alt="About and settings">
+  <img src="docs/screenshots/home.png" width="30%" alt="Home">
+  <img src="docs/screenshots/storage.png" width="30%" alt="Storage map">
+  <img src="docs/screenshots/storage-folder.png" width="30%" alt="Inside a folder: every file is a tile">
+</p>
+<p align="center">
+  <img src="docs/screenshots/rules.png" width="30%" alt="Rules">
+  <img src="docs/screenshots/hosts.png" width="30%" alt="SSH hosts">
+  <img src="docs/screenshots/about.png" width="30%" alt="About and settings">
 </p>
 
-<sub>Screenshots are the app's own screens, rendered on a simulated phone with sample data (not photos of a real device). Home, Storage, Rules, SSH hosts, About and settings. Regenerate them with `gradle -Pscreenshots :app:testUltimateplusDebugUnitTest --tests '*ScreenshotTest'`.</sub>
+<sub>Screenshots are the app's own screens, rendered on a simulated phone with sample data (not photos of a real device). Home, Storage, inside a folder, Rules, SSH hosts, About and settings. Regenerate them with `gradle -Pscreenshots :app:testUltimateplusDebugUnitTest --tests '*ScreenshotTest'`.</sub>
 
 ## Download
 

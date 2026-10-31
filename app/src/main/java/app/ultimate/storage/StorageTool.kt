@@ -5,6 +5,16 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import kotlinx.coroutines.delay
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -145,6 +155,9 @@ internal fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Un
     var path by remember { mutableStateOf(listOf<Folder>()) }
     var kindFilter by remember { mutableStateOf<FileKind?>(null) }
     var picked by remember { mutableStateOf<BigFile?>(null) }
+    var zoomFrom by remember { mutableStateOf(TransformOrigin.Center) }
+    var allHere by remember { mutableStateOf(false) }
+    LaunchedEffect(path) { allHere = false }
     fun rescan() = scope.launch {
         scanned = 0
         val r = withContext(Dispatchers.IO) { StorageScanner(context).scan { n -> scanned = n } }
@@ -205,11 +218,22 @@ internal fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Un
                                 color = if (i == path.size) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (i == path.size) FontWeight.Bold else null)
                         }
                     }
-                    AnimatedContent(here, transitionSpec = { (scaleIn(initialScale = 0.92f) + fadeIn(tween(250))) togetherWith fadeOut(tween(150)) }, label = "map") { folder ->
-                        FolderMap(folder) { child -> if (child.children.isNotEmpty() || child.own > 0) path = path + child }
+                    // Going in zooms out of the tile you tapped; going back zooms away from it.
+                    AnimatedContent(here, transitionSpec = {
+                        val deeper = targetState.path.length > initialState.path.length
+                        if (deeper) (scaleIn(tween(340, easing = FastOutSlowInEasing), 0.3f, zoomFrom) + fadeIn(tween(220))) togetherWith (scaleOut(tween(260), 1.15f) + fadeOut(tween(160)))
+                        else (scaleIn(tween(300, easing = FastOutSlowInEasing), 1.12f) + fadeIn(tween(220))) togetherWith (scaleOut(tween(280), 0.3f, zoomFrom) + fadeOut(tween(200)))
+                    }, label = "map") { folder ->
+                        FolderMap(folder, onFolder = { child, origin -> zoomFrom = origin; path = path + child }, onFile = { picked = it })
                     }
-                    Text("Tap a tile to look inside. Bigger tile, more space.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                    Text("Tap a folder to look inside, or a file to open it. Bigger tile, more space.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
+            }
+            val hereFiles = (path.lastOrNull() ?: r.root).filesBySize()
+            if (hereFiles.isNotEmpty()) {
+                item("here-header") { Text(if (path.isEmpty()) "Files in the top folder" else "Files in ${path.last().name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+                items(hereFiles.take(if (allHere) 40 else 8), key = { "h" + it.path }) { f -> FileRow(f) { picked = f } }
+                if (hereFiles.size > 8 && !allHere) item("here-more") { TextButton({ allHere = true }) { Text("Show the biggest ${hereFiles.size}") } }
             }
             item { Text("Biggest folders", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
             items(biggestFolders(r.root).take(8), key = { "f" + it.path }) { f ->
@@ -290,11 +314,11 @@ private fun Overview(r: StorageReport, selected: FileKind?, onKind: (FileKind) -
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
-                Text(formatBytes(r.used), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(formatBytes((r.used * grow.value).toLong()), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Text("used of ${formatBytes(r.total)}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(formatBytes(r.free), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                Text(formatBytes((r.free * grow.value).toLong()), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                 Text("free", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -332,33 +356,66 @@ private fun Sparkline(values: List<Long>) {
     }
 }
 
-/** The squarified map of a folder's subfolders (and its own files as one tile); tap a tile to go inside. */
+/**
+ * The squarified map of what is in a folder: subfolders and files, tile size by bytes. Tiles grow in one after another, the
+ * pressed tile dips, and the biggest one gives a short glow every few seconds; nothing else moves, so it costs next to nothing.
+ */
 @Composable
-private fun FolderMap(folder: Folder, onOpen: (Folder) -> Unit) {
+internal fun FolderMap(folder: Folder, onFolder: (Folder, TransformOrigin) -> Unit, onFile: (BigFile) -> Unit) {
     val measurer = rememberTextMeasurer()
-    val children = folder.sortedChildren().take(24)
-    val shown = children.sumOf { it.bytes }
-    val items = children.map { Triple(it.path, it.name, it.bytes) } +
-        listOfNotNull((folder.bytes - shown).takeIf { it > 0 }?.let { Triple("__own", if (folder.own > 0 && children.size < 24) "Files here" else "Everything else", it) })
-    val tiles = remember(folder) { Treemap.layout(items) }
-    val palette = listOf(0xFF5C6BC0, 0xFF26A69A, 0xFFAB47BC, 0xFFFFA726, 0xFF42A5F5, 0xFFEC407A, 0xFF66BB6A, 0xFF8D6E63).map { Color(it) }
-    val grow = remember(folder) { Animatable(0f) }
-    LaunchedEffect(folder) { grow.animateTo(1f, tween(500, easing = FastOutSlowInEasing)) }
-    Box(Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(20.dp))) {
+    val items = remember(folder) { MapItems.of(folder) }
+    val byKey = remember(items) { items.associateBy { it.key } }
+    val tiles = remember(items) { Treemap.layout(items.map { Triple(it.key, it.label, it.bytes) }) }
+    val palette = remember { listOf(0xFF5C6BC0, 0xFF26A69A, 0xFFAB47BC, 0xFFFFA726, 0xFF42A5F5, 0xFFEC407A, 0xFF66BB6A, 0xFF8D6E63).map { Color(it) } }
+    val intro = remember(folder) { Animatable(0f) }
+    LaunchedEffect(folder) { intro.animateTo(1f, tween(700, easing = LinearEasing)) }
+    // One short glow on the biggest tile every few seconds. Between glows no frame is requested at all.
+    val glow = remember(folder) { Animatable(0f) }
+    LaunchedEffect(folder) { delay(1500); while (true) { glow.snapTo(0f); glow.animateTo(1f, tween(900)); delay(6000) } }
+    var pressed by remember(folder) { mutableIntStateOf(-1) }
+    val haptics = LocalHapticFeedback.current
+    Box(Modifier.fillMaxWidth().height(320.dp).clip(RoundedCornerShape(20.dp))) {
         Canvas(Modifier.fillMaxSize().pointerInput(tiles) {
-            detectTapGestures { p -> tiles.firstOrNull { t -> p.x / size.width in t.x..(t.x + t.w) && p.y / size.height in t.y..(t.y + t.h) }?.let { t -> children.firstOrNull { it.path == t.key }?.let(onOpen) } }
+            fun hit(p: Offset) = tiles.indexOfFirst { t -> p.x / size.width in t.x..(t.x + t.w) && p.y / size.height in t.y..(t.y + t.h) }
+            detectTapGestures(onPress = { p -> pressed = hit(p); tryAwaitRelease(); pressed = -1 }) { p ->
+                val i = hit(p); if (i < 0) return@detectTapGestures
+                val item = byKey[tiles[i].key] ?: return@detectTapGestures
+                val t = tiles[i]
+                when {
+                    item.folder != null -> { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onFolder(item.folder, TransformOrigin(t.x + t.w / 2, t.y + t.h / 2)) }
+                    item.file != null -> onFile(item.file)
+                }
+            }
         }) {
+            val n = tiles.size
+            var palettePick = 0
             tiles.forEachIndexed { i, t ->
+                val item = byKey[t.key] ?: return@forEachIndexed
+                // Each tile starts a little after the one before it.
+                val e = FastOutSlowInEasing.transform(((intro.value * (n + 5) - i) / 5f).coerceIn(0f, 1f))
                 val gap = 2.dp.toPx()
                 val tl = Offset(t.x * size.width + gap, t.y * size.height + gap)
                 val sz = Size((t.w * size.width - gap * 2).coerceAtLeast(0f), (t.h * size.height - gap * 2).coerceAtLeast(0f))
-                val base = if (t.key == "__own") Color(0xFF546E7A) else palette[i % palette.size]
-                drawRoundRect(base.copy(alpha = 0.35f + 0.5f * grow.value), tl, sz, CornerRadius(8.dp.toPx()))
-                if (sz.width > 56.dp.toPx() && sz.height > 30.dp.toPx()) {
-                    val style = TextStyle(color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    val label = measurer.measure(t.label, style, maxLines = 1, overflow = TextOverflow.Ellipsis, constraints = androidx.compose.ui.unit.Constraints(maxWidth = (sz.width - 12.dp.toPx()).toInt().coerceAtLeast(1)))
-                    drawText(label, topLeft = tl + Offset(6.dp.toPx(), 5.dp.toPx()))
-                    if (sz.height > 48.dp.toPx()) drawText(measurer.measure(formatBytes(t.bytes), TextStyle(color = Color.White.copy(alpha = 0.85f), fontSize = 11.sp)), topLeft = tl + Offset(6.dp.toPx(), 22.dp.toPx()))
+                val base = when { item.file != null -> KIND_COLORS[item.file.kind] ?: Color(0xFF78909C); item.hidden > 0 -> Color(0xFF546E7A); else -> palette[palettePick++ % palette.size] }
+                val s = (0.82f + 0.18f * e) * (if (pressed == i) 0.97f else 1f)
+                withTransform({ scale(s, s, pivot = tl + Offset(sz.width / 2, sz.height / 2)) }) {
+                    val radius = CornerRadius(10.dp.toPx())
+                    drawRoundRect(Brush.verticalGradient(listOf(base.copy(alpha = 0.92f * e), base.copy(alpha = 0.62f * e)), startY = tl.y, endY = tl.y + sz.height), tl, sz, radius)
+                    // Folders (which open) get a soft inner outline; files are plain.
+                    if (item.folder != null) drawRoundRect(Color.White.copy(alpha = 0.5f * e), tl + Offset(1.dp.toPx(), 1.dp.toPx()), Size(sz.width - 2.dp.toPx(), sz.height - 2.dp.toPx()), radius, style = Stroke(1.5.dp.toPx()))
+                    if (i == 0 && glow.value > 0f && glow.value < 1f) {
+                        val grow = glow.value * 6.dp.toPx()
+                        drawRoundRect(Color.White.copy(alpha = (1f - glow.value) * 0.6f), tl - Offset(grow, grow), Size(sz.width + grow * 2, sz.height + grow * 2), CornerRadius(10.dp.toPx() + grow), style = Stroke(2.dp.toPx()))
+                    }
+                    if (sz.width > 56.dp.toPx() && sz.height > 30.dp.toPx()) {
+                        val inset = 8.dp.toPx()
+                        val maxW = (sz.width - inset - 6.dp.toPx()).toInt().coerceAtLeast(1)
+                        drawText(measurer.measure(item.label, TextStyle(color = Color.White.copy(alpha = e), fontSize = 12.sp, fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, constraints = Constraints(maxWidth = maxW)), topLeft = tl + Offset(inset, 5.dp.toPx()))
+                        if (sz.height > 48.dp.toPx()) {
+                            val line = formatBytes(item.bytes) + (item.folder?.let { " · ${it.files} files" } ?: "")
+                            drawText(measurer.measure(line, TextStyle(color = Color.White.copy(alpha = 0.85f * e), fontSize = 11.sp), maxLines = 1, overflow = TextOverflow.Ellipsis, constraints = Constraints(maxWidth = maxW)), topLeft = tl + Offset(inset, 22.dp.toPx()))
+                        }
+                    }
                 }
             }
         }

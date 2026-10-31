@@ -34,7 +34,8 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
-        Entry("1.31.1", listOf("Storage: clearer header and sizes (158 GB instead of 158.00 GB).", "Screenshots and a release workflow for GitHub.")),
+        Entry("1.32.0", listOf("Storage: open a folder and see its files as tiles, with a zoom from the tile you tap and a short glow on the biggest one.", "Clearer header and sizes (158 GB instead of 158.00 GB).")),
+        Entry("1.31.1", listOf("Screenshots and a release workflow for GitHub.")),
         Entry("1.31.0", listOf("New About and settings screen: version, what's new, setup checklist, crashes and a copy-details button.")),
         Entry("1.30.1", listOf("Fixed the Terminal (and SSH tabs) crashing when opened.")),
         Entry("1.30.0", listOf("SSH client: saved hosts, keys, snippets, and connecting from the terminal.")),

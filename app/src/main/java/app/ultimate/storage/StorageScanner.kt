@@ -53,8 +53,9 @@ class StorageScanner(private val context: Context) {
                 node = node.children.getOrPut(part) { Folder(part, node.path + File.separator + part) }
                 node.bytes += bytes; node.files++
             }
-            node.own += bytes
+            node.own += bytes; node.ownFiles++
             val big = BigFile(path, parts.last(), bytes, item.modified, kind)
+            node.addFile(big)
             if (biggest.size < 60 || bytes > biggest.peek()!!.bytes) { biggest.add(big); if (biggest.size > 60) biggest.poll() }
             if (bytes > 50_000_000 && now - item.modified > 365 * 86_400_000L) { forgotten.add(big); if (forgotten.size > 40) forgotten.poll() }
         }

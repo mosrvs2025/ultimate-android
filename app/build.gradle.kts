@@ -16,8 +16,8 @@ android {
         minSdk = 29
         targetSdk = 35
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 37
-        versionName = "1.31.1"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 38
+        versionName = "1.32.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.

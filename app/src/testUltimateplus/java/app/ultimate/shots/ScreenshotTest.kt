@@ -4,14 +4,19 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.os.Environment
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.dp
@@ -29,6 +34,7 @@ import app.ultimate.sshclient.HostsTool
 import app.ultimate.storage.AppSize
 import app.ultimate.storage.BigFile
 import app.ultimate.storage.Folder
+import app.ultimate.storage.FolderMap
 import app.ultimate.storage.StorageReport
 import app.ultimate.storage.StorageTool
 import com.github.takahirom.roborazzi.RoborazziOptions
@@ -79,9 +85,17 @@ class ScreenshotTest {
         compose.waitForIdle()
     }
 
-    private fun save(name: String) {
+    /** Saves the whole screen, or only the part of it holding the node tagged [tag] (cropped from its measured bounds). */
+    private fun save(name: String, tag: String? = null) {
         val out = dir!!.apply { mkdirs() }.resolve("$name.png")
-        compose.onRoot().captureRoboImage(out.path, roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record, recordOptions = RoborazziOptions.RecordOptions(resizeScale = 0.5)))
+        val scale = 0.5
+        compose.onRoot().captureRoboImage(out.path, roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record, recordOptions = RoborazziOptions.RecordOptions(resizeScale = scale)))
+        if (tag != null) {
+            val box = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+            val whole = android.graphics.BitmapFactory.decodeFile(out.path)
+            val crop = android.graphics.Bitmap.createBitmap(whole, (box.left * scale).toInt(), (box.top * scale).toInt(), (box.width * scale).toInt().coerceAtMost(whole.width), (box.height * scale).toInt())
+            out.outputStream().use { crop.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        }
         println("SHOT>>> $name ${out.length()} bytes")
     }
 
@@ -125,6 +139,18 @@ class ScreenshotTest {
         ).forEach { tool.vault.saveHost(it) }
         show { tool.Screen({}, ToolLaunch()) }
         save("hosts")
+    }
+
+    /** A folder that holds only files, like Movies/Sora: the map shows each file instead of one block. */
+    @Test fun storageFolder() {
+        val sora = Folder("Sora", "/sdcard/Movies/Sora")
+        fun f(name: String, mb: Long, kind: FileKind) = BigFile(sora.path + "/" + name, name, mb * 1_000_000, System.currentTimeMillis(), kind).also { sora.addFile(it); sora.own += it.bytes; sora.ownFiles++; sora.bytes += it.bytes; sora.files++ }
+        f("sora-city-walk.mp4", 612, FileKind.Video); f("sora-ocean-4k.mp4", 431, FileKind.Video); f("sora-forest.mp4", 287, FileKind.Video)
+        f("sora-desert-loop.mp4", 150, FileKind.Video); f("storyboard.pdf", 64, FileKind.Document); f("sora-cat.mp4", 52, FileKind.Video); f("notes.txt", 1, FileKind.Document)
+        sora.children["Drafts"] = Folder("Drafts", sora.path + "/Drafts").also { it.bytes = 74_000_000; it.files = 9; sora.bytes += it.bytes }
+        show { androidx.compose.foundation.layout.Column(Modifier.wrapContentSize(androidx.compose.ui.Alignment.TopStart).testTag("frame").background(MaterialTheme.colorScheme.background).padding(16.dp)) { androidx.compose.material3.Text("All  ›  Movies  ›  Sora", color = MaterialTheme.colorScheme.primary); FolderMap(sora, { _, _ -> }, { }) } }
+        compose.mainClock.advanceTimeBy(1200)
+        save("storage-folder", "frame")
     }
 
     @Test fun about() {
