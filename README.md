@@ -1,10 +1,59 @@
 # Ultimate
 
-One Android app that holds a growing set of small, offline tools. No ads, no analytics, no accounts. The manifest has no `INTERNET` permission, so the app cannot reach the network.
+One Android app that holds a growing set of tools for your own phone: edit and shrink video, see what fills your storage, keep your notification and clipboard history, run rules like "silence at night", open a terminal, and connect to your servers over SSH. No ads, no analytics, no accounts.
 
-This repository is the standalone home for Ultimate. The Android project lives at the repository root. REA remains a separate reverse-engineering tool. It supersedes the earlier standalone `squeeze-android/` and `pluck-android/` projects, whose code now lives here as tools.
+<p align="center">
+  <img src="docs/screenshots/home.png" width="23%" alt="Home">
+  <img src="docs/screenshots/storage.png" width="23%" alt="Storage map">
+  <img src="docs/screenshots/storage-folder.png" width="23%" alt="Inside a folder: every file is a tile">
+  <img src="docs/screenshots/footprint.png" width="23%" alt="Footprint: what your phone knows about you">
+</p>
+<p align="center">
+  <img src="docs/screenshots/rules.png" width="23%" alt="Rules">
+  <img src="docs/screenshots/hosts.png" width="23%" alt="SSH hosts">
+  <img src="docs/screenshots/about.png" width="23%" alt="About and settings">
+</p>
 
-## Tools
+<sub>Screenshots are the app's own screens, rendered on a simulated phone with sample data (not photos of a real device). Home, Storage, inside a folder, Footprint (a sample week, since a simulator has no real usage history), Rules, SSH hosts, About and settings. Regenerate them with `gradle -Pscreenshots :app:testUltimateplusDebugUnitTest --tests '*ScreenshotTest'`.</sub>
+
+## Download
+
+Get the latest APKs from the **[Releases page](https://github.com/mosrvs2025/ultimate-android/releases/latest)**. Android 10 or newer.
+
+| File | What it is |
+| --- | --- |
+| **Ultimate-Plus** | Everything, including the SSH client and server, sending files to your computer, and network tools. Uses the internet permission only for those. |
+| **Ultimate** | The same tools with **no internet permission at all**: it cannot send anything anywhere. |
+| Studio, Squeeze, Video-to-Audio, Pluck, Traffic-Inspector | Single-purpose apps built from the same code. |
+
+1. Open the APK on your phone and allow installing from your browser when Android asks.
+2. Open the app and tap the gear on Home for **About and settings**: your version, what's new, and a checklist of the permissions each tool needs.
+3. Updating over an older build keeps your data when both were signed by this project's key. Each release lists that key's SHA-256 and a `SHA256SUMS.txt` to check your download.
+
+APKs are release assets only; they are never committed to git.
+
+## What's inside
+
+- **Create:** Studio (video editor), Squeeze (shrink video), Video to audio, Recorder, Photos, Teleprompter.
+- **Phone:** Footprint (what your phone already knows about you: when you unlock, what you open, which apps can see your location or microphone, how much data they send, steps, sleep and heart rate from Health Connect, what you watch and listen to, where your photos were taken, and facts any app can read), Storage (what fills your phone, by kind, folder, file and app), Clean up (duplicates, similar shots, swipe through photos), Files (browser, bin, APK installer), Notifications (a history that keeps deleted messages), Clipboard history, Checkup, Pluck (extract and inspect apps), Sensors.
+- **Network and remote:** SSH hosts (saved servers, keys, snippets, terminal tabs), SSH and SFTP server, send files to a computer from a browser, LAN scan, Traffic inspector.
+- **Smart:** Rules (when something happens, do something, and undo it afterwards, also from a plain sentence), Recipes, Screen time, Terminal with phone commands (`battery`, `storage`, `squeeze`, `clip`, ...), a floating orb that opens your tools over any app.
+
+## Privacy
+
+The offline editions have no `INTERNET` permission, so they cannot reach the network. Ultimate+ and Traffic Inspector do, for the features that need it, and only when you turn those on. SSH keys and saved passwords are stored locked with the phone's Keystore, never in the clear. The About screen reads the real permission from the installed app instead of claiming one.
+
+## Publishing a release
+
+Maintainers: a release is built and published by the **Release APKs** workflow (`.github/workflows/release.yml`), which signs every edition with the project's permanent key and attaches the APKs, checksums and the signing certificate fingerprint to a `v<versionName>` release.
+
+1. In **Settings, Secrets and variables, Actions** add `ULTIMATE_KEYSTORE_BASE64` (the keystore, base64-encoded: `base64 -w0 ultimate-release.jks`) and `ULTIMATE_KEYSTORE_PASSWORD`. The key alias is `ultimate`. Keep this key forever: a phone only accepts updates signed by the same key.
+2. Bump `versionName` and `versionCode` in `app/build.gradle.kts` and add the notes to `Changelog` in `home/AboutInfo.kt`.
+3. Run the workflow from the **Actions** tab. It runs the unit tests, builds, signs and publishes. Running it again for the same version replaces the assets.
+
+The workflow uses `gh` with the built-in `GITHUB_TOKEN`; no third-party actions publish anything.
+
+## Original tools in detail
 
 | Tool | What it does |
 | --- | --- |
@@ -48,6 +97,7 @@ One codebase builds several apps. `app/build.gradle.kts` defines an edition per 
 | Traffic Inspector | `gradle :app:assembleTrafficRelease` | `app.ultimate.traffic` |
 | Video to Audio | `gradle :app:assembleAudioRelease` | `app.ultimate.audio` |
 | Pluck | `gradle :app:assemblePluckRelease` | `app.pluck` |
+| Studio | `gradle :app:assembleStudioRelease` | `app.ultimate.studio` |
 
 A single-tool edition opens straight into that tool; its top bar links to the Library and Activity. To add an edition, copy a flavor block, set its flags, and add `src/<edition>/` resources.
 

@@ -1,0 +1,113 @@
+name: Release APKs
+# Builds every edition, signs them with the permanent Ultimate key and publishes them as GitHub Release assets.
+# APKs are release assets only; they never enter Git history. The tag is taken from versionName in app/build.gradle.kts.
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: 'Mark as a pre-release'
+        required: false
+        default: false
+        type: boolean
+permissions:
+  contents: write
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Read the version
+        id: v
+        run: |
+          name=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)
+          code=$(sed -n 's/.*COMPANION_VERSION_CODE")?.toIntOrNull() ?: \([0-9]*\).*/\1/p' app/build.gradle.kts | head -1)
+          test -n "$name" && test -n "$code" || { echo 'Could not read versionName and versionCode'; exit 1; }
+          echo "name=$name" >> "$GITHUB_OUTPUT"; echo "code=$code" >> "$GITHUB_OUTPUT"; echo "tag=v$name" >> "$GITHUB_OUTPUT"
+      - name: Restore the signing key
+        env:
+          KEYSTORE: ${{ secrets.ULTIMATE_KEYSTORE_BASE64 }}
+          PASSWORD: ${{ secrets.ULTIMATE_KEYSTORE_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE" && test -n "$PASSWORD" || { echo 'Add the ULTIMATE_KEYSTORE_BASE64 and ULTIMATE_KEYSTORE_PASSWORD repository secrets first (see README, "Publishing a release").'; exit 1; }
+          printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/ultimate.jks"
+      - name: Test and build every edition
+        env:
+          ULTIMATE_KEYSTORE_FILE: ${{ runner.temp }}/ultimate.jks
+          ULTIMATE_KEYSTORE_PASSWORD: ${{ secrets.ULTIMATE_KEYSTORE_PASSWORD }}
+          ULTIMATE_KEY_ALIAS: ultimate
+          ULTIMATE_KEY_PASSWORD: ${{ secrets.ULTIMATE_KEYSTORE_PASSWORD }}
+        run: gradle --no-daemon :app:testUltimateplusDebugUnitTest :app:testUltimateDebugUnitTest :app:testSqueezeDebugUnitTest :app:assembleRelease
+      - name: Name the files and write checksums
+        id: pack
+        run: |
+          mkdir -p dist-apk
+          v='${{ steps.v.outputs.name }}'
+          for pair in ultimateplus:Ultimate-Plus ultimate:Ultimate studio:Studio squeeze:Squeeze audio:Video-to-Audio pluck:Pluck traffic:Traffic-Inspector; do
+            flavor=${pair%%:*}; name=${pair##*:}
+            cp "app/build/outputs/apk/$flavor/release/app-$flavor-release.apk" "dist-apk/$name-$v.apk"
+          done
+          (cd dist-apk && sha256sum *.apk > SHA256SUMS.txt)
+          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          cert=$("$tools/apksigner" verify --print-certs "dist-apk/Ultimate-Plus-$v.apk" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
+          test -n "$cert" || { echo 'APK is not signed'; exit 1; }
+          echo "cert=$cert" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ultimate-${{ steps.v.outputs.name }}
+          path: dist-apk/*
+          retention-days: 14
+          if-no-files-found: error
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+          VER: ${{ steps.v.outputs.name }}
+          CERT: ${{ steps.pack.outputs.cert }}
+          PRE: ${{ inputs.prerelease }}
+        run: |
+          python3 - <<'PY' > notes.md
+          import os, re
+          ver, cert = os.environ["VER"], os.environ["CERT"]
+          src = open("app/src/main/java/app/ultimate/home/AboutInfo.kt").read()
+          m = re.search(r'Entry\("' + re.escape(ver) + r'", listOf\((.*)\)\)', src)
+          notes = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1)) if m else []
+          print("## What's new in " + ver)
+          print("\n".join("- " + n for n in notes) if notes else "- See the commit history.")
+          print("""
+          ## Which file do I want?
+          - **Ultimate-Plus**: everything, including the SSH client and server, sending files to your computer and network tools. Needs internet permission.
+          - **Ultimate**: the same tools without any internet permission. It cannot send anything anywhere.
+          - **Studio, Squeeze, Video-to-Audio, Pluck, Traffic-Inspector**: single-purpose apps.
+
+          ## Install
+          Download an APK on your phone, open it and allow installing from your browser when asked. Android 10 or newer.
+          Updating over an older build keeps your data when both were signed by this project's key.
+
+          ## Check the download
+          `SHA256SUMS.txt` lists each file's SHA-256. Every APK is signed with the certificate whose SHA-256 is:
+
+          `""" + cert + """`
+          """)
+          PY
+          flags=(); [ "$PRE" = "true" ] && flags+=(--prerelease)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file notes.md "${flags[@]}"
+          else
+            gh release create "$TAG" --title "Ultimate $VER" --notes-file notes.md --target "$GITHUB_SHA" --latest "${flags[@]}"
+          fi
+          gh release upload "$TAG" dist-apk/* --clobber

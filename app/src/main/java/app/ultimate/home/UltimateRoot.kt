@@ -25,7 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -59,13 +59,15 @@ fun UltimateRoot(app: UltimateApp) {
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { app.insights.pause() }
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) { app.insights.resume() }
     val standalone = app.tools.size == 1
-    val nav = remember { ShellNav(standalone, openLibrary = shell::showLibraryForCurrentTool, openActivity = shell::showActivity, tools = app.tools, send = { t, uris -> shell.open(t, ToolLaunch(uris)) }) }
+    val nav = remember { ShellNav(standalone, openLibrary = shell::showLibraryForCurrentTool, openActivity = shell::showActivity, openAbout = shell::showAbout, tools = app.tools, send = { t, uris -> shell.open(t, ToolLaunch(uris)) }) }
 
     CompositionLocalProvider(LocalShellNav provides nav) {
         if (standalone) StandaloneRoot(app, route, onExitApp = { (context as? Activity)?.finish() }) else SuiteRoot(app, route)
     }
 
     incoming?.let { pending -> HandSheet(app, pending) }
+    val showAbout by shell.about.collectAsStateWithLifecycle()
+    if (showAbout) AboutScreen(app, onClose = shell::hideAbout)
 
 }
 
@@ -108,7 +110,7 @@ private fun Tabs(app: UltimateApp, route: Route, active: Boolean) {
                 NavigationBarItem(route == Route.Library, { shell.showLibrary() }, { BouncyIcon(Icons.Rounded.VideoLibrary, route == Route.Library) }, label = { Text("Library") })
                 NavigationBarItem(
                     route == Route.Activity, shell::showActivity,
-                    { BadgedBox(badge = { if (active) Badge() }) { BouncyIcon(Icons.Rounded.Terminal, route == Route.Activity) } },
+                    { BadgedBox(badge = { if (active) Badge() }) { BouncyIcon(Icons.Rounded.History, route == Route.Activity) } },
                     label = { Text("Activity") },
                 )
             }

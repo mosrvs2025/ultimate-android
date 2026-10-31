@@ -4,7 +4,9 @@ import android.app.Notification
 import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import app.ultimate.BuildConfig
 import app.ultimate.UltimateApp
+import app.ultimate.rules.Event as RuleEvent
 
 /**
  * Android hands every posted notification to this service once the user turns on notification access for Ultimate. It keeps
@@ -18,12 +20,15 @@ class NotificationCatcher : NotificationListenerService() {
     // paused is lost.
     override fun onListenerConnected() {
         log.connected(true)
+        // What is playing (video titles, songs) is kept only if the person switched that on in Footprint.
+        if (BuildConfig.HAS_FOOTPRINT) runCatching { app.ultimate.footprint.MediaWatcher.start(applicationContext, android.content.ComponentName(this, NotificationCatcher::class.java)) }
         runCatching { activeNotifications?.forEach { onNotificationPosted(it) } }
     }
 
     // Samsung and Android can drop the listener to save battery; asking to be bound again brings it back without the user.
     override fun onListenerDisconnected() {
         log.connected(false)
+        if (BuildConfig.HAS_FOOTPRINT) runCatching { app.ultimate.footprint.MediaWatcher.stop() }
         runCatching { requestRebind(android.content.ComponentName(this, NotificationCatcher::class.java)) }
     }
 
@@ -51,6 +56,7 @@ class NotificationCatcher : NotificationListenerService() {
             if (LogRules.skip(sbn.packageName, packageName, ongoing, title, body, log.excluded)) return
             val app = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }.getOrDefault(sbn.packageName)
             log.add(sbn.packageName, app, sbn.postTime, title, body, e.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString(), sbn.key)
+            if (BuildConfig.HAS_RULES) (application as UltimateApp).rules.fire(RuleEvent.Notification(sbn.packageName, app, title, body))
             if (System.currentTimeMillis() - lastTrim > 3_600_000L) { lastTrim = System.currentTimeMillis(); log.trim() }
         }
     }

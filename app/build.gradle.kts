@@ -8,13 +8,16 @@ android {
     namespace = "app.ultimate"
     compileSdk = 35
 
+    // Screens are drawn in a simulated Android in unit tests, which needs the merged manifest and resources.
+    testOptions { unitTests { isIncludeAndroidResources = true } }
+
     defaultConfig {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 29
-        versionName = "1.27.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 40
+        versionName = "1.34.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -46,6 +49,8 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "true")
             buildConfigField("boolean", "HAS_TERMINAL", "true")
             buildConfigField("boolean", "HAS_ORB", "true")
+            buildConfigField("boolean", "HAS_RULES", "true")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "true")
         }
         // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
         create("ultimateplus") {
@@ -73,6 +78,8 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "true")
             buildConfigField("boolean", "HAS_TERMINAL", "true")
             buildConfigField("boolean", "HAS_ORB", "true")
+            buildConfigField("boolean", "HAS_RULES", "true")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "true")
         }
         create("studio") {
             dimension = "edition"
@@ -98,6 +105,8 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "false")
         }
         create("traffic") {
             dimension = "edition"
@@ -123,6 +132,8 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "false")
         }
         create("squeeze") {
             dimension = "edition"
@@ -148,6 +159,8 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "false")
         }
         create("audio") {
             dimension = "edition"
@@ -173,6 +186,8 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "false")
         }
         create("pluck") {
             dimension = "edition"
@@ -198,6 +213,8 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "false")
         }
     }
 
@@ -258,6 +275,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
+    // Footprint: read steps, sleep and heart rate from Health Connect, on request.
+    implementation("androidx.health.connect:connect-client:1.1.0-alpha11")
     // QR code for opening Send to computer on another phone or tablet.
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.github.termux.termux-app:terminal-view:v0.118.1")
@@ -289,4 +308,33 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    // Robolectric runs Android framework code on the JVM, for tests that start real services and windows (the floating orb).
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.work:work-testing:2.10.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    // Renders real screens to PNG in the simulator for the README (run with -Pscreenshots).
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.43.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.43.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+// Robolectric's Android framework jar comes through Gradle (and its proxy settings) instead of Robolectric's own downloader.
+// Two versions of one artifact would collapse into the newer, so each framework jar gets its own configuration.
+val robolectricAndroid14: Configuration by configurations.creating
+val robolectricAndroid15: Configuration by configurations.creating
+dependencies {
+    robolectricAndroid14("org.robolectric:android-all-instrumented:14-robolectric-10818077-i7")
+    robolectricAndroid15("org.robolectric:android-all-instrumented:15-robolectric-12650502-i7")
+}
+val robolectricJars = tasks.register<Copy>("robolectricJars") {
+    from(robolectricAndroid14, robolectricAndroid15)
+    into(layout.buildDirectory.dir("robolectric"))
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(robolectricJars)
+    systemProperty("robolectric.offline", "true")
+    systemProperty("robolectric.dependency.dir", layout.buildDirectory.dir("robolectric").get().asFile.path)
+    // `-Pscreenshots` renders the README screenshots into docs/screenshots; otherwise those tests skip themselves.
+    if (project.hasProperty("screenshots")) systemProperty("screenshots.dir", rootProject.layout.projectDirectory.dir("docs/screenshots").asFile.path)
 }

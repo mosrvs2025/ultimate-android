@@ -156,7 +156,7 @@ private fun CleanupScreen(app: UltimateApp, tool: CleanupTool, onExit: () -> Uni
     LaunchedEffect(access, rescan) {
         if (!access) return@LaunchedEffect
         progress = "Starting…"
-        overview = withContext(Dispatchers.IO) { CleanupScanner(context).scan { p -> progress = p } }
+        overview = withContext(Dispatchers.IO) { CleanupScanner(context).scan({ p -> progress = p }) { first -> overview = first } }
         progress = null
     }
     BackHandler { if (swiping != null) swiping = null else onExit() }
@@ -257,6 +257,8 @@ private fun StorageHero(o: CleanupScanner.Overview?, freed: Long, progress: Stri
                 }
             }
         }
+        // The first overview arrives in seconds; duplicates and similar shots keep being looked for meanwhile.
+        if (progress != null) Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)); Text(progress, style = MaterialTheme.typography.labelMedium) }
         if (possible > 0) Text("You could free about ${formatBytes(possible)}", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
         if (freed > 0) Text("Freed so far with Ultimate: ${formatBytes(freed)}", style = MaterialTheme.typography.bodySmall)
     }
@@ -266,7 +268,7 @@ private fun StorageHero(o: CleanupScanner.Overview?, freed: Long, progress: Stri
 private fun MonthCard(month: String, photos: List<Item>, onClick: () -> Unit) {
     val label = remember(month) { SimpleDateFormat("MMM yyyy", Locale.getDefault()).format(SimpleDateFormat("yyyy-MM", Locale.US).parse(month)!!) }
     Box(Modifier.width(140.dp).aspectRatio(0.8f).pressScale(0.95f).clip(RoundedCornerShape(20.dp)).clickable(onClick = onClick)) {
-        Thumb(photos.first().file, Modifier.fillMaxSize())
+        Thumb(photos.first().file, Modifier.fillMaxSize(), id = photos.first().mediaId)
         Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)))))
         Column(Modifier.align(Alignment.BottomStart).padding(12.dp)) {
             Text(label, color = Color.White, fontWeight = FontWeight.Bold)
@@ -276,12 +278,20 @@ private fun MonthCard(month: String, photos: List<Item>, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Thumb(f: File, modifier: Modifier, size: Int = 360) {
+private fun Thumb(f: File, modifier: Modifier, size: Int = 360, id: Long = 0) {
+    val context = LocalContext.current
     var bmp by remember(f) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(f) {
         bmp = withContext(Dispatchers.IO) {
             runCatching {
-                if (FileModel.kindOf(f) == FileKind.Video) android.media.ThumbnailUtils.createVideoThumbnail(f, android.util.Size(size, size), null)
+                val uri = when {
+                    id <= 0 -> null
+                    FileModel.kindOfName(f.name) == FileKind.Video -> android.content.ContentUris.withAppendedId(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
+                    else -> android.content.ContentUris.withAppendedId(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                }
+                // Indexed media: Android's cached thumbnail, which shows at once instead of decoding the file.
+                if (uri != null) context.contentResolver.loadThumbnail(uri, android.util.Size(size, size), null)
+                else if (FileModel.kindOf(f) == FileKind.Video) android.media.ThumbnailUtils.createVideoThumbnail(f, android.util.Size(size, size), null)
                 else android.media.ThumbnailUtils.createImageThumbnail(f, android.util.Size(size, size), null)
             }.getOrNull()
         }
@@ -304,7 +314,7 @@ private fun ReviewSheet(s: Suggestion, onSqueeze: (List<File>) -> Unit, onDelete
                 items(all.take(600), key = { it.first.file.path }) { (item, keep) ->
                     val on = item.file in chosen
                     Box(Modifier.aspectRatio(1f).clip(RoundedCornerShape(12.dp)).clickable { chosen = if (on) chosen - item.file else chosen + item.file }) {
-                        if (item.kind == FileKind.Image || item.kind == FileKind.Video) Thumb(item.file, Modifier.fillMaxSize(), 200)
+                        if (item.kind == FileKind.Image || item.kind == FileKind.Video) Thumb(item.file, Modifier.fillMaxSize(), 200, item.mediaId)
                         else Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant).padding(6.dp)) { Text(item.file.name, style = MaterialTheme.typography.labelSmall, maxLines = 4) }
                         Box(Modifier.fillMaxSize().background(if (on) Color.Black.copy(alpha = 0.35f) else Color.Transparent))
                         Icon(if (on) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked, null, Modifier.align(Alignment.TopEnd).padding(4.dp), tint = if (on) MaterialTheme.colorScheme.error else Color.White)
@@ -365,7 +375,7 @@ private fun SwipeDeck(photos: List<Item>, onDone: (List<Item>) -> Unit) {
             }
             androidx.compose.material3.LinearProgressIndicator(progress = { index.toFloat() / photos.size }, Modifier.fillMaxWidth().padding(vertical = 8.dp))
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                photos.getOrNull(index + 1)?.let { next -> Thumb(next.file, Modifier.fillMaxWidth(0.92f).aspectRatio(0.75f).graphicsLayer { scaleX = 0.94f; scaleY = 0.94f; alpha = 0.7f }.clip(RoundedCornerShape(28.dp)), 900) }
+                photos.getOrNull(index + 1)?.let { next -> Thumb(next.file, id = next.mediaId, modifier = Modifier.fillMaxWidth(0.92f).aspectRatio(0.75f).graphicsLayer { scaleX = 0.94f; scaleY = 0.94f; alpha = 0.7f }.clip(RoundedCornerShape(28.dp)), size = 900) }
                 val item = photos[index]
                 val frac = (dx.value / width).coerceIn(-1f, 1f)
                 Box(
@@ -380,7 +390,7 @@ private fun SwipeDeck(photos: List<Item>, onDone: (List<Item>) -> Unit) {
                             ) { change, drag -> change.consume(); scope.launch { dx.snapTo(dx.value + drag.x) } }
                         },
                 ) {
-                    Thumb(item.file, Modifier.fillMaxSize(), 1200)
+                    Thumb(item.file, Modifier.fillMaxSize(), 1200, item.mediaId)
                     Box(Modifier.fillMaxSize().background((if (frac > 0) Color(0xFF2E9E5B) else Color(0xFFE53935)).copy(alpha = abs(frac) * 0.35f)))
                     if (abs(frac) > 0.08f) Text(
                         if (frac > 0) "KEEP" else "LET GO", Modifier.align(if (frac > 0) Alignment.TopStart else Alignment.TopEnd).padding(20.dp).graphicsLayer { alpha = (abs(frac) * 2).coerceAtMost(1f); rotationZ = if (frac > 0) -12f else 12f }

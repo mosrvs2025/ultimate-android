@@ -33,7 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -170,7 +170,7 @@ private fun Panel(app: UltimateApp, current: Tool, running: Set<String>, close: 
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(vertical = 4.dp)) {
                 Tile(Icons.Rounded.Home, "Home", Modifier.weight(1f)) { close(); shell.showHome() }
                 Tile(Icons.Rounded.VideoLibrary, "Library", Modifier.weight(1f)) { close(); shell.showLibrary() }
-                Tile(Icons.Rounded.Terminal, "Activity", Modifier.weight(1f), busy = running.isNotEmpty()) { close(); shell.showActivity() }
+                Tile(Icons.Rounded.History, "Activity", Modifier.weight(1f), busy = running.isNotEmpty()) { close(); shell.showActivity() }
             }
         }
     }

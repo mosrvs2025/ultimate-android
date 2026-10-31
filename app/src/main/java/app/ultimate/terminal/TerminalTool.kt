@@ -1,7 +1,6 @@
 package app.ultimate.terminal
 
 import android.content.Context
-import android.graphics.Typeface
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.inputmethod.InputMethodManager
@@ -81,6 +80,21 @@ class TerminalTool(private val app: UltimateApp, val manager: TerminalManager) :
     @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = TerminalScreen(app, manager, onExit)
 }
 
+/** Tags the view with the text size last applied. */
+private const val SIZE_TAG = 0x7f0a1000
+
+/**
+ * Sets up a new terminal view. The view makes its renderer (and the monospace font) inside setTextSize, so that must come
+ * first: calling setTypeface before it reads a renderer that does not exist yet and crashes the app when the tab opens.
+ */
+internal fun TerminalView.prepare(client: TerminalViewClient, textSizePx: Int) {
+    setTerminalViewClient(client)
+    setTextSize(textSizePx)
+    setTag(SIZE_TAG, textSizePx)
+    isFocusable = true; isFocusableInTouchMode = true
+    setBackgroundColor(android.graphics.Color.BLACK)
+}
+
 private val EXTRA_KEYS = listOf("ESC", "TAB", "CTRL", "ALT", "←", "↓", "↑", "→", "/", "-", "|", "~", "HOME", "END")
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -103,7 +117,7 @@ private fun TerminalScreen(app: UltimateApp, m: TerminalManager, onExit: () -> U
                     val on = s == current
                     Row(Modifier.padding(end = 6.dp).clip(RoundedCornerShape(10.dp)).background(if (on) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
                         .clickable { m.select(s) }.padding(start = 10.dp, end = 2.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(s.title?.takeIf { it.isNotBlank() }?.take(14) ?: "Shell ${i + 1}", style = MaterialTheme.typography.labelLarge, fontWeight = if (on) FontWeight.Bold else null)
+                        Text((m.labelOf(s) ?: s.title?.takeIf { it.isNotBlank() })?.take(14) ?: "Shell ${i + 1}", style = MaterialTheme.typography.labelLarge, fontWeight = if (on) FontWeight.Bold else null)
                         Icon(Icons.Rounded.Close, "Close", Modifier.padding(start = 4.dp).clip(RoundedCornerShape(8.dp)).clickable { m.close(s) }.padding(2.dp).width(16.dp))
                     }
                 }
@@ -118,16 +132,13 @@ private fun TerminalScreen(app: UltimateApp, m: TerminalManager, onExit: () -> U
             AndroidView(
                 factory = { ctx ->
                     TerminalView(ctx, null).apply {
-                        setTerminalViewClient(viewClient(m, this, fontPx) { px -> fontPx = px; ctx.getSharedPreferences("terminal", Context.MODE_PRIVATE).edit().putInt("font", px).apply() })
-                        setTypeface(Typeface.MONOSPACE)
-                        setTextSize(fontPx)
-                        isFocusable = true; isFocusableInTouchMode = true
-                        setBackgroundColor(android.graphics.Color.BLACK)
+                        prepare(viewClient(m, this, fontPx) { px -> fontPx = px; ctx.getSharedPreferences("terminal", Context.MODE_PRIVATE).edit().putInt("font", px).apply() }, fontPx)
                         m.view = this
                     }
                 },
                 update = { v ->
-                    v.setTextSize(fontPx)
+                    // Changing the size rebuilds the renderer, so only do it when the size really changed (pinch to zoom).
+                    if (v.getTag(SIZE_TAG) != fontPx) { v.setTextSize(fontPx); v.setTag(SIZE_TAG, fontPx) }
                     current?.let { s -> if (v.currentSession != s) { v.attachSession(s); v.requestFocus() } }
                 },
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -170,7 +181,7 @@ private fun extraKey(m: TerminalManager, k: String) {
     }
 }
 
-private fun viewClient(m: TerminalManager, v: TerminalView, startPx: Int, onFont: (Int) -> Unit) = object : TerminalViewClient {
+internal fun viewClient(m: TerminalManager, v: TerminalView, startPx: Int, onFont: (Int) -> Unit) = object : TerminalViewClient {
     private var size = startPx.toFloat()
     /** Pinch to resize the text, in 10% steps. */
     override fun onScale(scale: Float): Float {

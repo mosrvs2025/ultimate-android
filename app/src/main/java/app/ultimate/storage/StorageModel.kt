@@ -7,12 +7,39 @@ class Folder(val name: String, val path: String) {
     var bytes = 0L
     var files = 0
     val children = HashMap<String, Folder>()
-    /** Bytes held directly in this folder (not in subfolders), shown as its own tile. */
+    /** Bytes held directly in this folder (not in subfolders), and how many files that is. */
     var own = 0L
+    var ownFiles = 0
+    /** The biggest files held directly in this folder (a bounded few), so the map can show what is inside. */
+    private val largest = java.util.PriorityQueue<BigFile>(compareBy { it.bytes })
+    fun addFile(f: BigFile) { largest.add(f); if (largest.size > KEEP_FILES) largest.poll() }
+    fun filesBySize(): List<BigFile> = largest.sortedByDescending { it.bytes }
     fun sortedChildren(): List<Folder> = children.values.sortedByDescending { it.bytes }
+    private companion object { const val KEEP_FILES = 40 }
 }
 
 data class BigFile(val path: String, val name: String, val bytes: Long, val modified: Long, val kind: FileKind)
+
+/** One tile of a folder's map: a subfolder, a file, or one tile standing for [hidden] smaller things. */
+data class MapItem(val key: String, val label: String, val bytes: Long, val folder: Folder? = null, val file: BigFile? = null, val hidden: Int = 0)
+
+object MapItems {
+    const val REST = "__rest"
+
+    /**
+     * What to draw for [folder]: its subfolders and its own biggest files, biggest first, at most [cap] tiles. Whatever does
+     * not get a tile of its own (small files, files past the ones kept, folders past the cap) is one last tile, so the tiles
+     * always add up to the folder's size.
+     */
+    fun of(folder: Folder, cap: Int = 28): List<MapItem> {
+        val all = (folder.children.values.map { MapItem(it.path, it.name, it.bytes, folder = it) } + folder.filesBySize().map { MapItem(it.path, it.name, it.bytes, file = it) })
+            .filter { it.bytes > 0 }.sortedByDescending { it.bytes }
+        val shown = if (all.size > cap) all.take(cap - 1) else all
+        val rest = folder.bytes - shown.sumOf { it.bytes }
+        val hidden = folder.children.size + folder.ownFiles - shown.size
+        return if (rest > 0 && hidden > 0) shown + MapItem(REST, if (hidden == 1) "1 smaller item" else "$hidden smaller items", rest, hidden = hidden) else shown
+    }
+}
 
 /** One rectangle of the storage map, in 0..1 coordinates of the map area. */
 data class Tile(val key: String, val label: String, val bytes: Long, val x: Float, val y: Float, val w: Float, val h: Float)
