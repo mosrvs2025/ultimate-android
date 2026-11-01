@@ -32,6 +32,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -72,9 +78,12 @@ internal fun LiveHero(title: String, body: String) {
     val drift by t.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = LinearEasing), RepeatMode.Reverse), label = "drift")
     val pulse by t.animateFloat(0.4f, 1f, infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
     val a = MaterialTheme.colorScheme.primaryContainer; val b = MaterialTheme.colorScheme.tertiaryContainer; val on = MaterialTheme.colorScheme.onPrimaryContainer
+    val dots = remember { List(14) { i -> Triple((i * 37 % 100) / 100f, (i * 61 % 100) / 100f, 0.5f + (i % 4) * 0.35f) } }
+    val dotColor = MaterialTheme.colorScheme.primary
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp))
             .background(Brush.linearGradient(listOf(a, b, a), start = Offset(-400f + 900f * drift, 0f), end = Offset(400f + 900f * drift, 500f)))
+            .drawBehind { dots.forEach { (x, y, r) -> drawCircle(dotColor.copy(alpha = 0.10f + 0.10f * ((drift + x) % 1f)), r * 5.dp.toPx(), Offset(((x + drift * 0.08f * r) % 1f) * size.width, ((y + drift * 0.05f) % 1f) * size.height)) } }
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -95,10 +104,11 @@ internal fun DayClock(heat: Array<LongArray>) {
     val grow = remember(heat) { Animatable(0f) }
     LaunchedEffect(heat) { grow.animateTo(1f, tween(1000, easing = FastOutSlowInEasing)) }
     var picked by remember(heat) { mutableIntStateOf(-1) }
+    val haptics = LocalHapticFeedback.current
     val shown = if (picked >= 0) picked else peak
     val color = MaterialTheme.colorScheme.primary; val dim = MaterialTheme.colorScheme.surfaceVariant; val hot = MaterialTheme.colorScheme.tertiary
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(230.dp).clickable { picked = if (shown == null) -1 else (shown + 1) % 24 }, contentAlignment = Alignment.Center) {
+        Box(Modifier.size(230.dp).clickable { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); picked = if (shown == null) -1 else (shown + 1) % 24 }, contentAlignment = Alignment.Center) {
             Canvas(Modifier.size(230.dp)) {
                 val c = center; val inner = size.minDimension * 0.24f; val outer = size.minDimension / 2f - 4.dp.toPx(); val max = (totals.maxOrNull() ?: 1L).coerceAtLeast(1L).toFloat()
                 for (h in 0 until 24) {
@@ -124,6 +134,7 @@ internal fun DayClock(heat: Array<LongArray>) {
 /** A ring split by kind of access, sweeping round once. Tap a slice's row to pick it. */
 @Composable
 internal fun AccessDonut(items: List<Pair<String, Int>>, colors: List<Color>, selected: Int, onPick: (Int) -> Unit) {
+    val haptics = LocalHapticFeedback.current
     val sweeps = remember(items) { ChartMath.sweeps(items.map { it.second }) }
     val grow = remember(items) { Animatable(0f) }
     LaunchedEffect(items) { grow.animateTo(1f, tween(1100, easing = FastOutSlowInEasing)) }
@@ -141,7 +152,7 @@ internal fun AccessDonut(items: List<Pair<String, Int>>, colors: List<Color>, se
         }
         Column(Modifier.padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items.take(6).forEachIndexed { i, (name, n) ->
-                Row(Modifier.fillMaxWidth().pressScale(0.97f).clip(RoundedCornerShape(10.dp)).clickable { onPick(if (selected == i) -1 else i) }.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().pressScale(0.97f).clip(RoundedCornerShape(10.dp)).clickable { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onPick(if (selected == i) -1 else i) }.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(10.dp).clip(CircleShape).background(colors[i % colors.size])); Text("  $name", Modifier.weight(1f), maxLines = 1, style = MaterialTheme.typography.bodySmall); Text("$n", style = MaterialTheme.typography.labelLarge)
                 }
             }
@@ -170,5 +181,58 @@ internal fun AreaChart(values: List<Long>, modifier: Modifier = Modifier.fillMax
             drawPath(path, line, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round))
         }
         if (draw.value >= 1f) drawCircle(line, 5.dp.toPx(), pt(values.size - 1))
+    }
+}
+
+
+/** A big gauge: how much the apps on this phone could see, from Quiet to Wide open. The arc sweeps round, the number counts up, and the colour warms as it climbs. */
+@Composable
+internal fun ExposureGauge(score: Int, word: String, detail: String) {
+    val haptics = LocalHapticFeedback.current
+    val shown = remember(score) { Animatable(0f) }
+    LaunchedEffect(score) {
+        shown.animateTo(score.toFloat(), spring(Spring.DampingRatioLowBouncy, Spring.StiffnessVeryLow))
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+    val track = MaterialTheme.colorScheme.surfaceVariant
+    val calm = MaterialTheme.colorScheme.primary; val warn = Color(0xFFF2A33A); val hot = MaterialTheme.colorScheme.error
+    val f = (shown.value / 100f).coerceIn(0f, 1f)
+    val arc = if (f < 0.5f) androidx.compose.ui.graphics.lerp(calm, warn, f * 2) else androidx.compose.ui.graphics.lerp(warn, hot, (f - 0.5f) * 2)
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(200.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.size(200.dp)) {
+                val w = 18.dp.toPx(); val pad = w; val sz = Size(size.width - 2 * pad, size.height - 2 * pad)
+                drawArc(track, 150f, 240f, false, Offset(pad, pad), sz, style = Stroke(w, cap = StrokeCap.Round))
+                drawArc(arc.copy(alpha = 0.25f), 150f, 240f * f, false, Offset(pad - 3.dp.toPx(), pad - 3.dp.toPx()), Size(sz.width + 6.dp.toPx(), sz.height + 6.dp.toPx()), style = Stroke(w + 6.dp.toPx(), cap = StrokeCap.Round))
+                drawArc(arc, 150f, 240f * f, false, Offset(pad, pad), sz, style = Stroke(w, cap = StrokeCap.Round))
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(Math.round(shown.value).toString(), style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = arc)
+                Text(word, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+/** A grey bar that sweeps with light, standing in for content that is loading. */
+@Composable
+internal fun Shimmer(modifier: Modifier) {
+    val t = rememberInfiniteTransition(label = "shimmer")
+    val x by t.animateFloat(-1f, 2f, infiniteRepeatable(tween(1200, easing = LinearEasing)), label = "x")
+    val base = MaterialTheme.colorScheme.surfaceVariant; val hi = MaterialTheme.colorScheme.surfaceContainerHighest
+    Box(modifier.clip(RoundedCornerShape(16.dp)).background(Brush.horizontalGradient(listOf(base, hi, base), startX = x * 600f, endX = x * 600f + 500f)))
+}
+
+/** Three bars that bounce, to show something is being listened to right now. */
+@Composable
+internal fun Equalizer(modifier: Modifier = Modifier) {
+    val t = rememberInfiniteTransition(label = "eq")
+    val a by t.animateFloat(0.2f, 1f, infiniteRepeatable(tween(520, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "a")
+    val b by t.animateFloat(1f, 0.25f, infiniteRepeatable(tween(680, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b")
+    val c by t.animateFloat(0.3f, 0.9f, infiniteRepeatable(tween(440, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "c")
+    val color = MaterialTheme.colorScheme.primary
+    Canvas(modifier.size(18.dp)) {
+        listOf(a, b, c).forEachIndexed { i, v -> val w = size.width / 5f; val h = size.height * v; drawRoundRect(color, Offset(i * 2 * w, size.height - h), Size(w, h), androidx.compose.ui.geometry.CornerRadius(w / 2)) }
     }
 }

@@ -261,3 +261,23 @@ class ChartMathTest {
         assertEquals(listOf(1f, 0.5f, 0f), y)
     }
 }
+
+class ExposureMathTest {
+    private fun app(vararg a: app.ultimate.footprint.Access, system: Boolean = false) = app.ultimate.footprint.AppAccess("p", "A", system, a.toSet())
+    @Test fun nothingSensitiveScoresZeroAndSystemAppsDoNotCount() {
+        assertEquals(0, app.ultimate.footprint.ExposureMath.score(emptyList()))
+        assertEquals(0, app.ultimate.footprint.ExposureMath.score(listOf(app(app.ultimate.footprint.Access.Camera, system = true), app(app.ultimate.footprint.Access.Internet))))
+    }
+    @Test fun scoreRisesButLevelsOff() {
+        val one = listOf(app(app.ultimate.footprint.Access.BackgroundLocation))
+        val many = List(200) { app(app.ultimate.footprint.Access.BackgroundLocation, app.ultimate.footprint.Access.Microphone) }
+        val s1 = app.ultimate.footprint.ExposureMath.score(one); val s2 = app.ultimate.footprint.ExposureMath.score(List(5) { one[0] })
+        assertTrue(s1 in 1..20); assertTrue(s2 > s1); assertEquals(100, app.ultimate.footprint.ExposureMath.score(many))
+    }
+    @Test fun wordsAndBiggest() {
+        assertEquals(listOf("Quiet", "Busy", "Open", "Wide open"), listOf(0, 30, 60, 90).map { app.ultimate.footprint.ExposureMath.word(it) })
+        val b = app.ultimate.footprint.ExposureMath.biggest(listOf(app(app.ultimate.footprint.Access.Location), app(app.ultimate.footprint.Access.Location, app.ultimate.footprint.Access.Camera)))!!
+        assertEquals(app.ultimate.footprint.Access.Location, b.first); assertEquals(2, b.second)
+        assertNull(app.ultimate.footprint.ExposureMath.biggest(emptyList()))
+    }
+}

@@ -79,3 +79,23 @@ object StepMath {
 
     fun dayStartLocal(day: Long) = day * 86_400_000L
 }
+
+/** One number for "how much could the apps on this phone see": every sensitive permission an installed app holds adds a little, the riskiest more. */
+object ExposureMath {
+    private val weight = mapOf(
+        Access.BackgroundLocation to 5.0, Access.Messages to 4.0, Access.Calls to 3.0, Access.Microphone to 3.0, Access.Contacts to 2.5, Access.Camera to 2.0,
+        Access.Location to 2.0, Access.Photos to 1.0, Access.Calendar to 1.5, Access.Body to 1.5, Access.Nearby to 1.0, Access.ScreenTime to 2.0,
+    )
+
+    /** 0 to 100, rising quickly at first then levelling off, so a few apps already show and a hundred do not all look the same. Built-in apps are not counted. */
+    fun score(apps: List<AppAccess>): Int {
+        val w = apps.filter { !it.system }.sumOf { a -> a.access.sumOf { weight[it] ?: 0.0 } }
+        return Math.round(100 * (1 - Math.exp(-w / 60.0))).toInt().coerceIn(0, 100)
+    }
+
+    fun word(score: Int) = when { score < 25 -> "Quiet"; score < 50 -> "Busy"; score < 75 -> "Open"; else -> "Wide open" }
+
+    /** The one permission that adds most, to say what to look at first. */
+    fun biggest(apps: List<AppAccess>): Pair<Access, Int>? =
+        apps.filter { !it.system }.flatMap { it.access }.filter { it in weight }.groupingBy { it }.eachCount().maxByOrNull { (a, n) -> (weight[a] ?: 0.0) * n }?.toPair()
+}

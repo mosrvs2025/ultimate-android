@@ -9,8 +9,10 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import app.ultimate.core.appear
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -116,11 +118,12 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
     val seen = remember { mutableSetOf<Any>() }
     var slice by remember { mutableIntStateOf(-1) }
     val d = data
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
     Scaffold(topBar = { TopAppBar(title = { Text("Footprint") }, navigationIcon = { ToolBackButton(onExit) }, actions = { ShellActions() }) }) { pad ->
-        LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item { LiveHero("What your phone knows about you", "Everything on this page was read from this phone, just now, and stays on it. It is what any app you let in could learn too.") }
-            if (d == null) { item { Text("Reading your phone…", color = MaterialTheme.colorScheme.onSurfaceVariant) }; return@LazyColumn }
+        LazyColumn(Modifier.padding(pad), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            item { Box(Modifier.graphicsLayer { val o = if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 600f; translationY = o * 0.45f; alpha = (1f - o / 500f).coerceIn(0f, 1f) }) { LiveHero("What your phone knows about you", "Everything on this page was read from this phone, just now, and stays on it. It is what any app you let in could learn too.") } }
+            if (d == null) { items(4) { Shimmer(Modifier.fillMaxWidth().height(if (it == 0) 120.dp else 80.dp)) }; return@LazyColumn }
 
             item {
                 val locationApps = d.apps.count { Access.Location in it.access || Access.BackgroundLocation in it.access }
@@ -132,6 +135,11 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
                     item { Stat("Apps that know where you are", locationApps.toFloat()) { Math.round(it).toString() } }
                     item { Stat("Facts any app can read", d.facts.size.toFloat()) { Math.round(it).toString() } }
                 }
+            }
+
+            item {
+                val score = ExposureMath.score(d.apps); val big = ExposureMath.biggest(d.apps)
+                Box(Modifier.appear("gauge", seen, 1)) { ExposureGauge(score, ExposureMath.word(score), big?.let { (a, n) -> "$n of your apps can see ${a.label.lowercase()}. That counts most. Tap a row below to see which." } ?: "No app you installed holds a sensitive permission.") }
             }
 
             if (d.usage == null) item {
@@ -249,7 +257,7 @@ private fun AppBar(pkg: String, label: String, fraction: Float, detail: String) 
 @Composable
 private fun Fact(f: Fact) {
     var open by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { open = !open }.padding(vertical = 6.dp)) {
+    Column(Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(14.dp)).clickable { open = !open }.padding(vertical = 6.dp).animateContentSize()) {
         Text(f.name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         Text(f.value, style = MaterialTheme.typography.bodyMedium, maxLines = if (open) 6 else 1, overflow = TextOverflow.Ellipsis)
         if (open) Text(f.why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

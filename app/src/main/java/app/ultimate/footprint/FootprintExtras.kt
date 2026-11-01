@@ -25,6 +25,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,6 +64,7 @@ internal fun MediaCard() {
     LaunchedEffect(on, tick) { list = if (on) withContext(Dispatchers.IO) { log.since(System.currentTimeMillis() - 30 * 86_400_000L) } else emptyList() }
     Column(card(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (on && access) { Equalizer(); androidx.compose.foundation.layout.Spacer(Modifier.padding(end = 8.dp)) }
             Text("Keep what I watch and listen to", Modifier.weight(1f), fontWeight = FontWeight.Medium)
             Switch(on, { on = it; log.enabled = it })
         }
@@ -130,12 +133,17 @@ internal fun PlacesCard() {
             val minLat = places.minOf { it.lat }; val maxLat = places.maxOf { it.lat }; val minLon = places.minOf { it.lon }; val maxLon = places.maxOf { it.lon }
             val dot = MaterialTheme.colorScheme.primary; val home = MaterialTheme.colorScheme.tertiary
             val homePlace = remember(places) { PlaceMath.home(places) }
+            val pop = remember(places) { Animatable(0f) }
+            LaunchedEffect(places) { pop.animateTo(1f, androidx.compose.animation.core.tween(1200, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+            val ping by androidx.compose.animation.core.rememberInfiniteTransition(label = "ping").animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800)), label = "ping")
             Canvas(Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer)) {
                 val pad = 18.dp.toPx(); val max = places.maxOf { it.count }.toFloat()
                 places.forEach { p ->
                     val x = pad + (if (maxLon > minLon) ((p.lon - minLon) / (maxLon - minLon)).toFloat() else 0.5f) * (size.width - 2 * pad)
                     val y = pad + (if (maxLat > minLat) (1 - ((p.lat - minLat) / (maxLat - minLat))).toFloat() else 0.5f) * (size.height - 2 * pad)
-                    drawCircle((if (p === homePlace) home else dot).copy(alpha = 0.75f), (4 + 10 * p.count / max).dp.toPx(), Offset(x, y))
+                    val r = (4 + 10 * p.count / max).dp.toPx() * (pop.value * 1.0f).coerceIn(0f, 1f)
+                    if (p === homePlace) drawCircle(home.copy(alpha = 0.35f * (1f - ping)), r + 22.dp.toPx() * ping, Offset(x, y))
+                    drawCircle((if (p === homePlace) home else dot).copy(alpha = 0.75f), r, Offset(x, y))
                 }
             }
             places.take(4).forEach { p ->
