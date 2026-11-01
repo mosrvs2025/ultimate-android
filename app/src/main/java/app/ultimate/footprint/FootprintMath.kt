@@ -98,4 +98,11 @@ object ExposureMath {
     /** The one permission that adds most, to say what to look at first. */
     fun biggest(apps: List<AppAccess>): Pair<Access, Int>? =
         apps.filter { !it.system }.flatMap { it.access }.filter { it in weight }.groupingBy { it }.eachCount().maxByOrNull { (a, n) -> (weight[a] ?: 0.0) * n }?.toPair()
+
+    /** The installed apps that add most to the score, with their share of it in points. */
+    fun contributors(apps: List<AppAccess>, n: Int = 6): List<Pair<AppAccess, Double>> =
+        apps.filter { !it.system }.map { a -> a to a.access.sumOf { weight[it] ?: 0.0 } }.filter { it.second > 0 }.sortedByDescending { it.second }.take(n)
+
+    /** What a single app can see that matters, riskiest first. */
+    fun risks(app: AppAccess): List<Access> = app.access.filter { it in weight }.sortedByDescending { weight[it] ?: 0.0 }
 }

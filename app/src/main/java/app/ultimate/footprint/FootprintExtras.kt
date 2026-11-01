@@ -53,7 +53,6 @@ import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
-private fun hm(ms: Long): String { val m = ms / 60_000; return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m" }
 private val card = @Composable { Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(16.dp) }
 
 /** What you watched and listened to. Off until switched on, and it needs notification access to see other apps' players. */

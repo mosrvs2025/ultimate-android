@@ -14,6 +14,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import app.ultimate.core.appear
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -101,7 +104,7 @@ class FootprintTool(private val app: UltimateApp) : Tool {
 /** Everything the screen shows. Tests hand a sample one to the screen; the app builds it from the phone. */
 internal class Loaded(val usage: UsageSummary?, val apps: List<AppAccess>, val net: List<NetUse>?, val facts: List<Fact>)
 
-private fun hm(ms: Long): String { val m = ms / 60_000; return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m" }
+internal fun hm(ms: Long): String { val m = ms / 60_000; return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m" }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -119,30 +122,46 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
     var slice by remember { mutableIntStateOf(-1) }
     val d = data
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var appSheet by remember { mutableStateOf<String?>(null) }
+    var gaugeSheet by remember { mutableStateOf(false) }
+    val marks = remember { mutableMapOf<String, Int>() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val nav = remember { listOf("Your day, as a clock" to "Day", "What you open most" to "Apps", "Data your apps sent and received this week" to "Data", "Your steps" to "Steps", "Your body, from your health apps" to "Body", "What you watch and listen to" to "Media", "Where you have been" to "Places", "Who can see what" to "Access", "Things any app can read without asking" to "Facts") }
+    fun jump(title: String) { marks[title]?.let { i -> scope.launch { listState.animateScrollToItem(i) } } }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Footprint") }, navigationIcon = { ToolBackButton(onExit) }, actions = { ShellActions() }) }) { pad ->
-        LazyColumn(Modifier.padding(pad), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item { Box(Modifier.graphicsLayer { val o = if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 600f; translationY = o * 0.45f; alpha = (1f - o / 500f).coerceIn(0f, 1f) }) { LiveHero("What your phone knows about you", "Everything on this page was read from this phone, just now, and stays on it. It is what any app you let in could learn too.") } }
+        Column(Modifier.padding(pad)) {
+        if (d != null) {
+            val shown = nav.filter { (t, _) -> when (t) { "Your day, as a clock" -> d.usage != null; "What you open most" -> d.usage?.opens?.isNotEmpty() == true; "Data your apps sent and received this week" -> d.net?.isNotEmpty() == true; else -> true } }
+            val sel by remember(shown) { androidx.compose.runtime.derivedStateOf { val at = listState.firstVisibleItemIndex; shown.indexOfLast { (t, _) -> (marks[t] ?: Int.MAX_VALUE) <= at + 1 }.coerceAtLeast(0) } }
+            SectionNav(shown.map { it.second }, sel) { jump(shown[it].first) }
+        }
+        LazyColumn(Modifier.weight(1f), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            var n = 0
+            fun row(key: Any? = null, content: @Composable androidx.compose.foundation.lazy.LazyItemScope.() -> Unit) { item(key = key, content = content); n++ }
+            fun <T> rows(list: List<T>, key: (T) -> Any, content: @Composable androidx.compose.foundation.lazy.LazyItemScope.(T) -> Unit) { items(list, key = key, itemContent = content); n += list.size }
+            fun sec(title: String) { marks[title] = n; row { Section(title) } }
+            row { Box(Modifier.graphicsLayer { val o = if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 600f; translationY = o * 0.45f; alpha = (1f - o / 500f).coerceIn(0f, 1f) }) { LiveHero("What your phone knows about you", "Everything on this page was read from this phone, just now, and stays on it. It is what any app you let in could learn too.") } }
             if (d == null) { items(4) { Shimmer(Modifier.fillMaxWidth().height(if (it == 0) 120.dp else 80.dp)) }; return@LazyColumn }
 
-            item {
+            row {
                 val locationApps = d.apps.count { Access.Location in it.access || Access.BackgroundLocation in it.access }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     d.usage?.let { u ->
-                        item { Stat("Unlocks a day", u.unlocks / u.days.toFloat()) { Math.round(it).toString() } }
-                        item { Stat("Screen time a day", u.screenMs / u.days.toFloat()) { hm(it.toLong()) } }
+                        item { Stat("Unlocks a day", u.unlocks / u.days.toFloat(), { jump("Your day, as a clock") }) { Math.round(it).toString() } }
+                        item { Stat("Screen time a day", u.screenMs / u.days.toFloat(), { jump("What you open most") }) { hm(it.toLong()) } }
                     }
-                    item { Stat("Apps that know where you are", locationApps.toFloat()) { Math.round(it).toString() } }
-                    item { Stat("Facts any app can read", d.facts.size.toFloat()) { Math.round(it).toString() } }
+                    item { Stat("Apps that know where you are", locationApps.toFloat(), { jump("Who can see what") }) { Math.round(it).toString() } }
+                    item { Stat("Facts any app can read", d.facts.size.toFloat(), { jump("Things any app can read without asking") }) { Math.round(it).toString() } }
                 }
             }
 
-            item {
+            row {
                 val score = ExposureMath.score(d.apps); val big = ExposureMath.biggest(d.apps)
-                Box(Modifier.appear("gauge", seen, 1)) { ExposureGauge(score, ExposureMath.word(score), big?.let { (a, n) -> "$n of your apps can see ${a.label.lowercase()}. That counts most. Tap a row below to see which." } ?: "No app you installed holds a sensitive permission.") }
+                Box(Modifier.appear("gauge", seen, 1).pressScale(0.98f).clip(RoundedCornerShape(28.dp)).clickable { gaugeSheet = true }) { ExposureGauge(score, ExposureMath.word(score), big?.let { (a, n) -> "$n of your apps can see ${a.label.lowercase()}. That counts most. Tap to see which apps." } ?: "No app you installed holds a sensitive permission.") }
             }
 
-            if (d.usage == null) item {
+            if (d.usage == null) row {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.tertiaryContainer).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Allow usage access to see your week", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onTertiaryContainer)
                     Text("Android keeps a log of every app you open and every time you unlock. Any app can read it once you allow this, so this is a fair look at what that means. It is read here, on the phone, and goes nowhere.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
@@ -150,56 +169,56 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
                 }
             } else {
                 val u = d.usage
-                item { Section("Your day, as a clock") }
-                item { Box(Modifier.appear("clock", seen, 1)) { DayClock(u.heat) } }
-                item { Section("Your week, hour by hour") }
-                item { HeatMap(u.heat) }
+                sec("Your day, as a clock")
+                row { Box(Modifier.appear("clock", seen, 1)) { DayClock(u.heat) } }
+                sec("Your week, hour by hour")
+                row { HeatMap(u.heat) }
                 val label = { pkg: String -> FootprintReaders.label(context, pkg) }
                 val said = Habits.sentences(u, label)
-                if (said.isNotEmpty()) item { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { said.forEach { Text("•  $it", style = MaterialTheme.typography.bodyMedium) } } }
+                if (said.isNotEmpty()) row { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { said.forEach { Text("•  $it", style = MaterialTheme.typography.bodyMedium) } } }
                 val most = u.opens.entries.sortedByDescending { it.value }.take(6)
                 if (most.isNotEmpty()) {
-                    item { Section("What you open most") }
-                    items(most, key = { "o-" + it.key }) { (pkg, n) -> AppBar(pkg, label(pkg), n.toFloat() / most.first().value, "$n opens · ${hm(u.foregroundMs[pkg] ?: 0)}") }
+                    sec("What you open most")
+                    rows(most, key = { "o-" + it.key }) { (pkg, n) -> AppBar(pkg, label(pkg), n.toFloat() / most.first().value, "$n opens · ${hm(u.foregroundMs[pkg] ?: 0)}") { appSheet = pkg } }
                 }
             }
 
             d.net?.takeIf { it.isNotEmpty() }?.let { net ->
-                item { Section("Data your apps sent and received this week") }
+                sec("Data your apps sent and received this week")
                 val top = net.take(6)
-                items(top, key = { "n-" + it.pkg }) { n -> AppBar(n.pkg, FootprintReaders.label(context, n.pkg), n.total.toFloat() / top.first().total, "${formatBytes(n.total)} · sent ${formatBytes(n.sent)}") }
+                rows(top, key = { "n-" + it.pkg }) { n -> AppBar(n.pkg, FootprintReaders.label(context, n.pkg), n.total.toFloat() / top.first().total, "${formatBytes(n.total)} · sent ${formatBytes(n.sent)}") { appSheet = n.pkg } }
             }
 
-            item { Section("Your steps") }
-            item { StepsCard() }
+            sec("Your steps")
+            row { StepsCard() }
 
-            item { Section("Your body, from your health apps") }
-            item { HealthCard() }
+            sec("Your body, from your health apps")
+            row { HealthCard() }
 
-            item { Section("What you watch and listen to") }
-            item { MediaCard() }
+            sec("What you watch and listen to")
+            row { MediaCard() }
 
-            item { Section("Where you have been") }
-            item { PlacesCard() }
+            sec("Where you have been")
+            row { PlacesCard() }
 
-            item { Section("Who can see what") }
+            sec("Who can see what")
             val counts = Access.values().map { a -> a to d.apps.count { a in it.access } }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<Access, Int>> { it.first.sensitive }.thenBy { it.first.ordinal })
-            if (counts.isNotEmpty()) item {
+            if (counts.isNotEmpty()) row {
                 val palette = listOf(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.inversePrimary, MaterialTheme.colorScheme.outline)
                 Box(Modifier.appear("donut", seen, 2)) { AccessDonut(counts.map { it.first.label to it.second }, palette, slice) { slice = it } }
             }
-            items(counts, key = { "a-" + it.first.name }) { (a, n) ->
+            rows(counts, key = { "a-" + it.first.name }) { (a, n) ->
                 Row(Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(16.dp)).clickable { showAccess = a }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) { Text(a.label, fontWeight = FontWeight.Medium); Text(a.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     Text("$n apps ›", style = MaterialTheme.typography.labelLarge, color = if (a.sensitive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
                 }
             }
 
-            item { Section("Things any app can read without asking") }
-            items(if (allFacts) d.facts else d.facts.take(6), key = { "f-" + it.name }) { f -> Fact(f) }
-            if (d.facts.size > 6 && !allFacts) item { TextButton({ allFacts = true }) { Text("Show all ${d.facts.size}") } }
+            sec("Things any app can read without asking")
+            rows(if (allFacts) d.facts else d.facts.take(6), key = { "f-" + it.name }) { f -> Fact(f) }
+            if (d.facts.size > 6 && !allFacts) row { TextButton({ allFacts = true }) { Text("Show all ${d.facts.size}") } }
 
-            item {
+            row {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("What this page can't see", fontWeight = FontWeight.SemiBold)
                     Text("Google also keeps things in your Google account: places you have been, what you searched, what you watched. This app can't read that. You can see and delete it at myactivity.google.com.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -207,8 +226,11 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
                 }
             }
         }
+        }
     }
 
+    appSheet?.let { pkg -> d?.let { AppSheet(pkg, it) { appSheet = null } } }
+    if (gaugeSheet) d?.let { GaugeSheet(it, { pkg -> gaugeSheet = false; appSheet = pkg }) { gaugeSheet = false } }
     showAccess?.let { a ->
         ModalBottomSheet(onDismissRequest = { showAccess = null }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -230,18 +252,18 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
 
 /** A big number that counts up once when it appears. */
 @Composable
-private fun Stat(label: String, value: Float, format: (Float) -> String) {
+private fun Stat(label: String, value: Float, onClick: () -> Unit, format: (Float) -> String) {
     val shown = remember(value) { Animatable(0f) }
     LaunchedEffect(value) { shown.animateTo(value, tween(900, easing = FastOutSlowInEasing)) }
-    Column(Modifier.width(140.dp).pressScale(0.96f).clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(Modifier.width(140.dp).pressScale(0.96f).clip(RoundedCornerShape(22.dp)).clickable(onClick = onClick).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(format(shown.value), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-private fun AppBar(pkg: String, label: String, fraction: Float, detail: String) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+internal fun AppBar(pkg: String, label: String, fraction: Float, detail: String, onClick: (() -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().then(if (onClick != null) Modifier.pressScale(0.98f).clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick) else Modifier), verticalAlignment = Alignment.CenterVertically) {
         AppIcon(pkg, size = 36.dp); Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(label, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -267,13 +289,24 @@ private fun Fact(f: Fact) {
 /** Seven rows (oldest on top) by 24 hours; a darker cell means more time in apps that hour. The columns appear left to right once. */
 @Composable
 private fun HeatMap(heat: Array<LongArray>) {
+    var picked by remember(heat) { mutableStateOf<Pair<Int, Int>?>(null) }
     val measurer = rememberTextMeasurer()
     val color = MaterialTheme.colorScheme.primary
     val label = MaterialTheme.colorScheme.onSurfaceVariant
     val reveal = remember(heat) { Animatable(0f) }
     LaunchedEffect(heat) { reveal.animateTo(1f, tween(800, easing = LinearEasing)) }
     val names = remember { val c = Calendar.getInstance(); List(heat.size) { ago -> (c.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -ago) }.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.SHORT, Locale.getDefault()).orEmpty() } }
-    Canvas(Modifier.fillMaxWidth().height((heat.size * 22 + 24).dp)) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val hapt = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val ring = MaterialTheme.colorScheme.tertiary
+    Column {
+    Canvas(Modifier.fillMaxWidth().height((heat.size * 22 + 24).dp).pointerInput(heat) {
+        detectTapGestures { o ->
+            val left = with(density) { 38.dp.toPx() }; val ch = with(density) { 22.dp.toPx() }; val cw = (size.width - left) / 24f
+            val row = (o.y / ch).toInt(); val h = ((o.x - left) / cw).toInt()
+            picked = if (row in heat.indices && h in 0..23) { hapt.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove); row to h } else null
+        }
+    }) {
         val left = 38.dp.toPx(); val cw = (size.width - left) / 24f; val ch = 22.dp.toPx()
         val small = TextStyle(color = label, fontSize = 10.sp)
         for (row in heat.indices) {
@@ -286,6 +319,12 @@ private fun HeatMap(heat: Array<LongArray>) {
             }
         }
         listOf(0 to "12a", 6 to "6a", 12 to "12p", 18 to "6p").forEach { (h, t) -> drawText(measurer.measure(t, small), topLeft = Offset(left + h * cw, heat.size * ch + 4.dp.toPx())) }
+        picked?.let { (row, h) -> drawRoundRect(ring, Offset(left + h * cw, row * ch), Size(cw, ch), CornerRadius(4.dp.toPx()), style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx())) }
+    }
+    androidx.compose.animation.AnimatedContent(picked, label = "heatpick") { p ->
+        val text = p?.let { (row, h) -> val ago = heat.size - 1 - row; val mins = heat[ago][h] / 60_000; "${names[ago]} ${Habits.clock(h * 60)}: " + if (mins == 0L) "you barely touched your phone" else "$mins min on your phone" } ?: "Tap any square to see that hour."
+        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+    }
     }
 }
 

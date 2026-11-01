@@ -281,3 +281,19 @@ class ExposureMathTest {
         assertNull(app.ultimate.footprint.ExposureMath.biggest(emptyList()))
     }
 }
+
+class ExposureContributorsTest {
+    private fun a(pkg: String, vararg x: app.ultimate.footprint.Access, system: Boolean = false) = app.ultimate.footprint.AppAccess(pkg, pkg, system, x.toSet())
+    @Test fun biggestAppsComeFirstAndBuiltInsAreLeftOut() {
+        val apps = listOf(
+            a("small", app.ultimate.footprint.Access.Camera),
+            a("big", app.ultimate.footprint.Access.BackgroundLocation, app.ultimate.footprint.Access.Messages),
+            a("builtin", app.ultimate.footprint.Access.BackgroundLocation, system = true),
+            a("none", app.ultimate.footprint.Access.Internet),
+        )
+        val top = app.ultimate.footprint.ExposureMath.contributors(apps)
+        assertEquals(listOf("big", "small"), top.map { it.first.pkg })
+        assertEquals(9.0, top[0].second, 0.001)
+        assertEquals(listOf(app.ultimate.footprint.Access.BackgroundLocation, app.ultimate.footprint.Access.Messages), app.ultimate.footprint.ExposureMath.risks(apps[1]))
+    }
+}

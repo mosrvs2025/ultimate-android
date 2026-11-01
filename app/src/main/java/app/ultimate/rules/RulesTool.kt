@@ -199,7 +199,7 @@ private fun RulesScreen(app: UltimateApp, onExit: () -> Unit) {
 @Composable
 private fun RuleCard(r: Rule, last: RunRecord?, appName: (String) -> String, onEnabled: (Boolean) -> Unit, onTest: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable(onClick = onEdit).padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp)) {
+    Column(Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable(onClick = onEdit).padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(r.name.ifBlank { "Rule" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
