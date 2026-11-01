@@ -9,6 +9,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import app.ultimate.core.appear
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -111,16 +113,13 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
     }
     var showAccess by remember { mutableStateOf<Access?>(null) }
     var allFacts by remember { mutableStateOf(false) }
+    val seen = remember { mutableSetOf<Any>() }
+    var slice by remember { mutableIntStateOf(-1) }
     val d = data
 
     Scaffold(topBar = { TopAppBar(title = { Text("Footprint") }, navigationIcon = { ToolBackButton(onExit) }, actions = { ShellActions() }) }) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item {
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("What your phone knows about you", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Text("Everything on this page was read from this phone, just now, and stays on it. It is what any app you let in could learn too.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                }
-            }
+            item { LiveHero("What your phone knows about you", "Everything on this page was read from this phone, just now, and stays on it. It is what any app you let in could learn too.") }
             if (d == null) { item { Text("Reading your phone…", color = MaterialTheme.colorScheme.onSurfaceVariant) }; return@LazyColumn }
 
             item {
@@ -143,6 +142,8 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
                 }
             } else {
                 val u = d.usage
+                item { Section("Your day, as a clock") }
+                item { Box(Modifier.appear("clock", seen, 1)) { DayClock(u.heat) } }
                 item { Section("Your week, hour by hour") }
                 item { HeatMap(u.heat) }
                 val label = { pkg: String -> FootprintReaders.label(context, pkg) }
@@ -175,6 +176,10 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
 
             item { Section("Who can see what") }
             val counts = Access.values().map { a -> a to d.apps.count { a in it.access } }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<Access, Int>> { it.first.sensitive }.thenBy { it.first.ordinal })
+            if (counts.isNotEmpty()) item {
+                val palette = listOf(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.inversePrimary, MaterialTheme.colorScheme.outline)
+                Box(Modifier.appear("donut", seen, 2)) { AccessDonut(counts.map { it.first.label to it.second }, palette, slice) { slice = it } }
+            }
             items(counts, key = { "a-" + it.first.name }) { (a, n) ->
                 Row(Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(16.dp)).clickable { showAccess = a }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) { Text(a.label, fontWeight = FontWeight.Medium); Text(a.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -220,7 +225,7 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
 private fun Stat(label: String, value: Float, format: (Float) -> String) {
     val shown = remember(value) { Animatable(0f) }
     LaunchedEffect(value) { shown.animateTo(value, tween(900, easing = FastOutSlowInEasing)) }
-    Column(Modifier.width(140.dp).clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(Modifier.width(140.dp).pressScale(0.96f).clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(format(shown.value), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -233,7 +238,8 @@ private fun AppBar(pkg: String, label: String, fraction: Float, detail: String) 
         Column(Modifier.weight(1f)) {
             Text(label, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Box(Modifier.padding(vertical = 3.dp).fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-                Box(Modifier.fillMaxWidth(fraction.coerceIn(0.03f, 1f)).height(6.dp).clip(RoundedCornerShape(3.dp)).background(MaterialTheme.colorScheme.primary))
+                val grown by animateFloatAsState(fraction.coerceIn(0.03f, 1f), tween(900, easing = FastOutSlowInEasing), label = "bar")
+                Box(Modifier.fillMaxWidth(grown).height(6.dp).clip(RoundedCornerShape(3.dp)).background(MaterialTheme.colorScheme.primary))
             }
             Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -295,14 +301,7 @@ private fun StepsCard() {
             else -> {
                 val list = days.entries.sortedBy { it.key }.takeLast(14)
                 Text(list.lastOrNull()?.let { "${it.value} steps today so far" } ?: "Counting… check back in a few hours.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                if (list.size >= 2) {
-                    val max = list.maxOf { it.value }.coerceAtLeast(1)
-                    val bar = MaterialTheme.colorScheme.primary
-                    Canvas(Modifier.fillMaxWidth().height(70.dp)) {
-                        val w = size.width / list.size
-                        list.forEachIndexed { i, e -> val hgt = size.height * (e.value / max.toFloat()).coerceAtLeast(0.03f); drawRoundRect(bar, Offset(i * w + 3.dp.toPx(), size.height - hgt), Size(w - 6.dp.toPx(), hgt), CornerRadius(4.dp.toPx())) }
-                    }
-                }
+                if (list.size >= 2) AreaChart(list.map { it.value })
                 TextButton({ StepSampler.stop(context, forget = true); on = false; days = emptyMap() }) { Text("Stop and forget my steps") }
             }
         }

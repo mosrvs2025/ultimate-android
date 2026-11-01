@@ -171,12 +171,7 @@ internal fun HealthCard() {
             days!!.isEmpty() -> Text("Health Connect is on, but no app has written anything in the last 30 days.", style = MaterialTheme.typography.bodyMedium)
             else -> {
                 HealthMath.sentences(days!!).forEach { Text("•  $it", style = MaterialTheme.typography.bodyMedium) }
-                val steps = days!!.takeLast(30); val max = steps.maxOf { it.steps }.coerceAtLeast(1)
-                val bar = MaterialTheme.colorScheme.primary
-                Canvas(Modifier.fillMaxWidth().height(70.dp)) {
-                    val w = size.width / steps.size
-                    steps.forEachIndexed { i, e -> val h = size.height * (e.steps / max.toFloat()).coerceAtLeast(0.03f); drawRoundRect(bar, Offset(i * w + 2.dp.toPx(), size.height - h), androidx.compose.ui.geometry.Size(w - 4.dp.toPx(), h), androidx.compose.ui.geometry.CornerRadius(3.dp.toPx())) }
-                }
+                AreaChart(days!!.takeLast(30).map { it.steps })
                 TextButton({ context.startActivity(Intent("androidx.health.ACTION_HEALTH_CONNECT_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }) { Text("Change what Ultimate can read") }
             }
         }

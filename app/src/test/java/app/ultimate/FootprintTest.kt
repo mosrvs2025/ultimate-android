@@ -242,3 +242,22 @@ class HealthMathTest {
         assertEquals(emptyList<String>(), app.ultimate.footprint.HealthMath.sentences(emptyList()))
     }
 }
+
+class ChartMathTest {
+    @Test fun hourTotalsAddTheWeek() {
+        val heat = Array(7) { d -> LongArray(24) { h -> if (h == 9) 60_000L * (d + 1) else 0L } }
+        val t = app.ultimate.footprint.ChartMath.hourTotals(heat)
+        assertEquals(24, t.size); assertEquals(60_000L * 28, t[9]); assertEquals(0L, t[3])
+        assertEquals(9, app.ultimate.footprint.ChartMath.peakHour(t))
+        assertNull(app.ultimate.footprint.ChartMath.peakHour(LongArray(24)))
+    }
+    @Test fun slicesFillTheCircleAroundGaps() {
+        val s = app.ultimate.footprint.ChartMath.sweeps(listOf(3, 1, 0), gap = 4f)
+        assertEquals(352f, s.sum(), 0.01f); assertEquals(0f, s[2], 0f); assertEquals(264f, s[0], 0.01f)
+        assertEquals(listOf(0f, 0f), app.ultimate.footprint.ChartMath.sweeps(listOf(0, 0)))
+    }
+    @Test fun lineIsScaledToTheBiggestDay() {
+        val y = app.ultimate.footprint.ChartMath.normalized(listOf(0, 5, 10))
+        assertEquals(listOf(1f, 0.5f, 0f), y)
+    }
+}
