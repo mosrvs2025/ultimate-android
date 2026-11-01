@@ -32,7 +32,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.alpha
+import app.ultimate.core.gooey
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -78,21 +79,32 @@ internal fun LiveHero(title: String, body: String) {
     val drift by t.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = LinearEasing), RepeatMode.Reverse), label = "drift")
     val pulse by t.animateFloat(0.4f, 1f, infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
     val a = MaterialTheme.colorScheme.primaryContainer; val b = MaterialTheme.colorScheme.tertiaryContainer; val on = MaterialTheme.colorScheme.onPrimaryContainer
-    val dots = remember { List(14) { i -> Triple((i * 37 % 100) / 100f, (i * 61 % 100) / 100f, 0.5f + (i % 4) * 0.35f) } }
-    val dotColor = MaterialTheme.colorScheme.primary
-    Column(
+    val orbit by t.animateFloat(0f, (2 * PI).toFloat(), infiniteRepeatable(tween(14000, easing = LinearEasing)), label = "orbit")
+    val blobColor = MaterialTheme.colorScheme.primary
+    Box(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp))
-            .background(Brush.linearGradient(listOf(a, b, a), start = Offset(-400f + 900f * drift, 0f), end = Offset(400f + 900f * drift, 500f)))
-            .drawBehind { dots.forEach { (x, y, r) -> drawCircle(dotColor.copy(alpha = 0.10f + 0.10f * ((drift + x) % 1f)), r * 5.dp.toPx(), Offset(((x + drift * 0.08f * r) % 1f) * size.width, ((y + drift * 0.05f) % 1f) * size.height)) } }
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .background(Brush.linearGradient(listOf(a, b, a), start = Offset(-400f + 900f * drift, 0f), end = Offset(400f + 900f * drift, 500f))),
     ) {
+        // Drops of colour that drift, drift together and pull apart, with the gooey effect.
+        Box(Modifier.matchParentSize().alpha(0.28f)) {
+            Canvas(Modifier.matchParentSize().gooey(12f)) {
+                val u = 1.dp.toPx()
+                for (i in 0 until 7) {
+                    val ph = orbit + i * 0.9f
+                    val x = size.width * (0.12f + 0.76f * (i / 6f)) + sin(ph * (1 + i % 3 * 0.35f)) * 70 * u
+                    val y = size.height * (0.5f + 0.32f * sin(ph * 0.8f + i)) + cos(ph) * 12 * u
+                    drawCircle(blobColor, (14 + (i % 3) * 7) * u, Offset(x, y))
+                }
+            }
+        }
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = pulse)))
             Text("  Read live from this phone", style = MaterialTheme.typography.labelMedium, color = on)
         }
         Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = on)
         Text(body, style = MaterialTheme.typography.bodyMedium, color = on)
+        }
     }
 }
 

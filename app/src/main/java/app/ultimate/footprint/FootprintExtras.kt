@@ -15,7 +15,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Size
+import app.ultimate.core.gooey
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -136,14 +140,21 @@ internal fun PlacesCard() {
             val pop = remember(places) { Animatable(0f) }
             LaunchedEffect(places) { pop.animateTo(1f, androidx.compose.animation.core.tween(1200, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
             val ping by androidx.compose.animation.core.rememberInfiniteTransition(label = "ping").animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800)), label = "ping")
-            Canvas(Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer)) {
-                val pad = 18.dp.toPx(); val max = places.maxOf { it.count }.toFloat()
-                places.forEach { p ->
-                    val x = pad + (if (maxLon > minLon) ((p.lon - minLon) / (maxLon - minLon)).toFloat() else 0.5f) * (size.width - 2 * pad)
-                    val y = pad + (if (maxLat > minLat) (1 - ((p.lat - minLat) / (maxLat - minLat))).toFloat() else 0.5f) * (size.height - 2 * pad)
-                    val r = (4 + 10 * p.count / max).dp.toPx() * (pop.value * 1.0f).coerceIn(0f, 1f)
-                    if (p === homePlace) drawCircle(home.copy(alpha = 0.35f * (1f - ping)), r + 22.dp.toPx() * ping, Offset(x, y))
-                    drawCircle((if (p === homePlace) home else dot).copy(alpha = 0.75f), r, Offset(x, y))
+            fun spot(p: Place, size: Size, pad: Float): Offset {
+                val x = pad + (if (maxLon > minLon) ((p.lon - minLon) / (maxLon - minLon)).toFloat() else 0.5f) * (size.width - 2 * pad)
+                val y = pad + (if (maxLat > minLat) (1 - ((p.lat - minLat) / (maxLat - minLat))).toFloat() else 0.5f) * (size.height - 2 * pad)
+                return Offset(x, y)
+            }
+            val max = places.maxOf { it.count }.toFloat()
+            Box(Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer)) {
+                // Places that are close on the map melt into one blob (the gooey effect).
+                Box(Modifier.matchParentSize().alpha(0.7f)) {
+                    Canvas(Modifier.matchParentSize().gooey(6f)) {
+                        places.forEach { p -> drawCircle(if (p === homePlace) home else dot, (4 + 10 * p.count / max).dp.toPx() * pop.value.coerceIn(0f, 1f), spot(p, size, 18.dp.toPx())) }
+                    }
+                }
+                Canvas(Modifier.matchParentSize()) {
+                    homePlace?.let { p -> val c = spot(p, size, 18.dp.toPx()); drawCircle(home.copy(alpha = 0.35f * (1f - ping)), (4 + 10 * p.count / max).dp.toPx() + 22.dp.toPx() * ping, c) }
                 }
             }
             places.take(4).forEach { p ->
