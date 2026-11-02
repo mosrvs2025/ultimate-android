@@ -63,6 +63,8 @@ import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowSettings
 import org.robolectric.shadows.ShadowStatFs
 import java.io.File
+import app.ultimate.inbox.Fate
+import app.ultimate.inbox.InboxInsights
 
 /**
  * Renders the app's real screens to PNG files for the README: the actual Compose code, drawn on a simulated phone with sample
@@ -208,6 +210,33 @@ class ScreenshotTest {
         show { FootprintScreen(app, {}, loaded) }
         compose.mainClock.advanceTimeBy(1500)
         save("footprint")
+    }
+
+    @Test fun inboxInsights() {
+        // Two weeks of a made-up phone: chats you open fast, a shop that won't stop, a game that nags, a few codes.
+        val log = app.notificationLog
+        val rnd = java.util.Random(7)
+        val now = System.currentTimeMillis()
+        var k = 0
+        fun ping(pkg: String, label: String, ago: Double, title: String, text: String, who: String? = null, cat: String? = null, fate: Fate, openMs: Long = 60_000) {
+            val at = now - (ago * 86_400_000L).toLong(); val key = "k${k++}"
+            log.add(pkg, label, at, title, text, null, key, cat, who)
+            if (fate != Fate.Waiting) log.markFate(key, fate, at + openMs)
+        }
+        val T = Fate.Tapped; val S = Fate.Swiped; val W = Fate.Waiting
+        for (d in 0 until 14) {
+            repeat(6) { ping("com.whatsapp", "WhatsApp", d + (8 + rnd.nextInt(14)) / 24.0, "Mom", "Did you eat?", "Mom", "msg", T, 30_000L + rnd.nextInt(60_000)) }
+            repeat(4) { ping("com.whatsapp", "WhatsApp", d + (10 + rnd.nextInt(12)) / 24.0, "Climbing crew", "Sam: who's in for Saturday?", "Climbing crew", "msg", if (rnd.nextInt(3) == 0) S else T, 600_000L + rnd.nextInt(1_200_000)) }
+            repeat(5) { ping("com.shopping.app", "ShopMart", d + (9 + rnd.nextInt(12)) / 24.0, "Flash sale ends tonight", "Up to 60% off, don't miss out", cat = null, fate = if (rnd.nextInt(20) == 0) T else S) }
+            repeat(3) { ping("com.game.puzzle", "Puzzle Quest", d + (12 + rnd.nextInt(10)) / 24.0, "Your lives are full!", "Come back and play", fate = S) }
+            repeat(3) { ping("com.slack", "Slack", d + (9 + rnd.nextInt(9)) / 24.0, "#ops", "Deploy finished", "#ops", "msg", if (rnd.nextBoolean()) T else W, 900_000) }
+            if (d % 3 == 0) ping("com.slack", "Slack", d + 2.5 / 24.0, "#alerts", "CPU above 90% on api-2", "#alerts", "msg", W)
+            if (d % 4 == 0) ping("com.google.android.gms", "Google", d + 0.5, "Google", "G-482913 is your verification code", fate = T, openMs = 8_000)
+        }
+        repeat(14) { ping("com.whatsapp", "WhatsApp", 2 + it * 0.0004, "Climbing crew", "msg $it", "Climbing crew", "msg", S) }
+        show { InboxInsights(log, 0, {}) }
+        compose.mainClock.advanceTimeBy(1500)
+        save("inbox-insights")
     }
 
     @Test fun about() {

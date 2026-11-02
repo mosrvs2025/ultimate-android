@@ -42,7 +42,7 @@ object LogRules {
  * Notification history kept in a private database on the phone. Nothing is ever sent anywhere and it is left out of the
  * usage report. Old entries are trimmed by age and count.
  */
-class NotificationLog(private val context: Context) : SQLiteOpenHelper(context, "notifications.db", null, 1) {
+class NotificationLog(private val context: Context) : SQLiteOpenHelper(context, "notifications.db", null, 2) {
     private val prefs = context.getSharedPreferences("inbox", Context.MODE_PRIVATE)
     private val _changed = MutableStateFlow(0)
     /** Bumps whenever something is added or removed, so open screens refresh. */
@@ -62,8 +62,20 @@ class NotificationLog(private val context: Context) : SQLiteOpenHelper(context, 
         db.execSQL("CREATE TABLE n (id INTEGER PRIMARY KEY AUTOINCREMENT, pkg TEXT, app TEXT, at INTEGER, title TEXT, text TEXT, convo TEXT, nkey TEXT, fp INTEGER, removed INTEGER DEFAULT 0)")
         db.execSQL("CREATE INDEX n_at ON n(at)")
         db.execSQL("CREATE INDEX n_key ON n(nkey)")
+        addInsightColumns(db)
     }
-    override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) = Unit
+
+    // Version 2 also keeps what you did with each notification (tapped, swiped, withdrawn), when it left, Android's
+    // category for it and who sent it, so Insights can tell signal from noise. Older rows simply lack these.
+    override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) { if (old < 2) addInsightColumns(db) }
+
+    private fun addInsightColumns(db: SQLiteDatabase) {
+        db.execSQL("ALTER TABLE n ADD COLUMN fate INTEGER DEFAULT 0")
+        db.execSQL("ALTER TABLE n ADD COLUMN gone INTEGER DEFAULT 0")
+        db.execSQL("ALTER TABLE n ADD COLUMN cat TEXT")
+        db.execSQL("ALTER TABLE n ADD COLUMN who TEXT")
+        db.execSQL("CREATE INDEX IF NOT EXISTS n_key ON n(nkey)") // version 1 histories made before the index may lack it
+    }
 
     /** Whether Android currently has the listener connected, and when it last caught something. */
     fun connected(on: Boolean) = prefs.edit().putBoolean("connected", on).apply()
@@ -91,17 +103,29 @@ class NotificationLog(private val context: Context) : SQLiteOpenHelper(context, 
         return readableDatabase.rawQuery("SELECT COUNT(*) FROM n WHERE at >= ?", arrayOf(start.toString())).use { it.moveToFirst(); it.getInt(0) }
     }
 
-    fun add(pkg: String, app: String, at: Long, title: String, text: String, convo: String?, key: String) {
+    fun add(pkg: String, app: String, at: Long, title: String, text: String, convo: String?, key: String, category: String? = null, who: String? = null) {
         val fp = LogRules.fingerprint(pkg, title, text)
         val db = writableDatabase
         // The same notification updated with identical content (a refresh, a re-post) is kept once.
         db.rawQuery("SELECT 1 FROM n WHERE nkey = ? AND fp = ? AND at > ? LIMIT 1", arrayOf(key, fp.toString(), (at - 6 * 3_600_000L).toString())).use { if (it.moveToFirst()) return }
         prefs.edit().putLong("lastCaught", System.currentTimeMillis()).apply()
         db.insert("n", null, ContentValues().apply {
-            put("pkg", pkg); put("app", app); put("at", at); put("title", title); put("text", text); put("convo", convo); put("nkey", key); put("fp", fp)
+            put("pkg", pkg); put("app", app); put("at", at); put("title", title); put("text", text); put("convo", convo); put("nkey", key); put("fp", fp); put("cat", category); put("who", who)
         })
         _changed.value++
     }
+
+    /** A notification left the shade: record how (tapped, swiped, withdrawn) and when, on every row of it still waiting. */
+    fun markFate(key: String, fate: Fate, at: Long) {
+        writableDatabase.execSQL("UPDATE n SET fate = ?, gone = ? WHERE nkey = ? AND fate = 0", arrayOf<Any>(fate.code, at, key))
+        if (fate == Fate.Withdrawn) markRemovedByApp(key) else _changed.value++
+    }
+
+    /** Everything kept since [from], oldest first, for Insights. */
+    fun since(from: Long, limit: Int = 20_000): List<Rec> =
+        readableDatabase.rawQuery("SELECT pkg, app, at, title, text, who, cat, fate, gone, removed FROM n WHERE at >= ? ORDER BY at LIMIT $limit", arrayOf(from.toString())).use { c ->
+            buildList { while (c.moveToNext()) add(Rec(c.getString(0), c.getString(1), c.getLong(2), c.getString(3).orEmpty(), c.getString(4).orEmpty(), c.getString(5), c.getString(6), Fate.of(c.getInt(7)), c.getLong(8), c.getInt(9) == 1)) }
+        }
 
     /** The app withdrew its own notification (not the user swiping it away): often a deleted or unsent message. */
     fun markRemovedByApp(key: String) {

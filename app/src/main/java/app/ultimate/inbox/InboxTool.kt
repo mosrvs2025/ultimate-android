@@ -75,6 +75,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import app.ultimate.core.GooeySwitch
+import app.ultimate.core.GooeyTabs
 
 /** Every notification, kept and searchable, including ones an app later took back. */
 class InboxTool(private val app: UltimateApp) : Tool {
@@ -120,6 +121,7 @@ private fun InboxScreen(app: UltimateApp, onExit: () -> Unit) {
     var rows by remember { mutableStateOf<List<Logged>>(emptyList()) }
     var apps by remember { mutableStateOf<List<Triple<String, String, Int>>>(emptyList()) }
     var settings by remember { mutableStateOf(false) }
+    var tab by remember { mutableStateOf(0) }
     LaunchedEffect(query, pkg, onlyRemoved, changed) {
         if (query.isNotEmpty()) delay(200)
         rows = withContext(Dispatchers.IO) { log.search(query, pkg, onlyRemoved) }
@@ -130,7 +132,10 @@ private fun InboxScreen(app: UltimateApp, onExit: () -> Unit) {
         TopAppBar(title = { Text("Notification history") }, navigationIcon = { ToolBackButton(onExit) },
             actions = { IconButton({ settings = true }) { Icon(Icons.Rounded.Settings, "Settings") }; ShellActions() })
     }) { pad ->
-        LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(pad)) {
+        GooeyTabs(listOf("History", "Insights"), tab, { tab = it }, Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+        if (tab == 1) InboxInsights(log, changed, onShowPulledBack = { tab = 0; pkg = null; query = ""; onlyRemoved = true }, Modifier.weight(1f))
+        else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!enabled) item {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Keep every notification", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -162,6 +167,7 @@ private fun InboxScreen(app: UltimateApp, onExit: () -> Unit) {
                 if (day != lastDay) { lastDay = day; item(key = "day-$day") { Text(day, Modifier.padding(top = 12.dp, bottom = 2.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) } }
                 item(key = n.id) { Row_(n, query, onCopy = { copyText(context, n.title, listOf(n.title, n.text).filter { it.isNotBlank() }.joinToString("\n")) }, onDelete = { log.delete(n.id) }) }
             }
+        }
         }
     }
     if (settings) InboxSettings(log, apps, onDismiss = { settings = false })
