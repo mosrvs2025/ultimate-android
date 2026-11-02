@@ -84,6 +84,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.Calendar
+import app.ultimate.core.motionOn
 
 /** The phone's state as the dashboard sees it; anything unknown is null rather than zero. */
 data class Facts(
@@ -233,7 +234,7 @@ private fun ComputerCard(app: UltimateApp) {
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(state.running) { while (state.running) { delay(5_000); now = System.currentTimeMillis() } }
     val live = visitors.firstOrNull { now - it.lastSeen < 20_000 }
-    val pulse by rememberInfiniteTransition(label = "link").animateFloat(0.35f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "dot")
+    val pulse = if (motionOn()) rememberInfiniteTransition(label = "link").animateFloat(0.35f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "dot").value else 1f
     val bg = when { live != null -> MaterialTheme.colorScheme.primaryContainer; state.running -> MaterialTheme.colorScheme.secondaryContainer; else -> MaterialTheme.colorScheme.surfaceContainerLow }
     Row(
         Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(24.dp)).background(bg)

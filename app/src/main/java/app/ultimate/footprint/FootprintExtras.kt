@@ -52,6 +52,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
+import app.ultimate.core.GooeySwitch
 
 private val card = @Composable { Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(16.dp) }
 
@@ -69,7 +70,7 @@ internal fun MediaCard() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (on && access) { Equalizer(); androidx.compose.foundation.layout.Spacer(Modifier.padding(end = 8.dp)) }
             Text("Keep what I watch and listen to", Modifier.weight(1f), fontWeight = FontWeight.Medium)
-            Switch(on, { on = it; log.enabled = it })
+            GooeySwitch(on, { on = it; log.enabled = it })
         }
         if (!on) Text("Every video and song shows its title to the phone, so any app with notification access can write it all down. Switch this on and I will do the same, on this phone only, for 4 months.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         else if (!access) {
@@ -138,7 +139,7 @@ internal fun PlacesCard() {
             val homePlace = remember(places) { PlaceMath.home(places) }
             val pop = remember(places) { Animatable(0f) }
             LaunchedEffect(places) { pop.animateTo(1f, androidx.compose.animation.core.tween(1200, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
-            val ping by androidx.compose.animation.core.rememberInfiniteTransition(label = "ping").animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800)), label = "ping")
+            val ping = if (app.ultimate.core.motionOn()) androidx.compose.animation.core.rememberInfiniteTransition(label = "ping").animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800)), label = "ping").value else 0f
             fun spot(p: Place, size: Size, pad: Float): Offset {
                 val x = pad + (if (maxLon > minLon) ((p.lon - minLon) / (maxLon - minLon)).toFloat() else 0.5f) * (size.width - 2 * pad)
                 val y = pad + (if (maxLat > minLat) (1 - ((p.lat - minLat) / (maxLat - minLat))).toFloat() else 0.5f) * (size.height - 2 * pad)

@@ -75,6 +75,8 @@ import app.ultimate.core.Tool
 import app.ultimate.core.ToolLaunch
 import app.ultimate.core.formatBytes
 import kotlinx.coroutines.flow.combine
+import app.ultimate.core.GooeyProgress
+import app.ultimate.core.motionOn
 
 @Composable
 fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
@@ -163,9 +165,9 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
 /** Anything still working in the background, with the one-tap way to end it, so nothing is left running by accident. */
 @Composable
 private fun RunningBanner(source: WorkSource, snap: WorkSnapshot, tool: Tool?, onView: () -> Unit) {
-    val pulse by rememberInfiniteTransition(label = "run").animateFloat(
+    val pulse = if (motionOn()) rememberInfiniteTransition(label = "run").animateFloat(
         0.35f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "dot",
-    )
+    ).value else 1f
     Row(
         Modifier.fillMaxWidth().pressScale(0.97f).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.tertiaryContainer).clickable(onClick = onView).padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -178,6 +180,10 @@ private fun RunningBanner(source: WorkSource, snap: WorkSnapshot, tool: Tool?, o
                 snap.title + (snap.percent?.let { " · $it%" } ?: ""), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onTertiaryContainer,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
+            // The work itself, as liquid: it flows forward as the percent climbs, or drops run along it when the length is unknown.
+            val bar = Modifier.fillMaxWidth().padding(top = 6.dp).height(5.dp)
+            val ink = MaterialTheme.colorScheme.onTertiaryContainer
+            snap.percent?.let { pc -> GooeyProgress({ pc / 100f }, bar, color = ink, trackColor = ink.copy(alpha = 0.15f)) } ?: GooeyProgress(bar, color = ink, trackColor = ink.copy(alpha = 0.15f))
         }
         TextButton(source::cancelWork) { Text(source.cancelLabel) }
     }

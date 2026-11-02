@@ -53,6 +53,7 @@ import app.ultimate.core.pressScale
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import app.ultimate.core.motionOn
 
 /** Chart arithmetic, kept apart from drawing so it can be tested. */
 object ChartMath {
@@ -75,11 +76,13 @@ object ChartMath {
 /** A slow-moving gradient behind the intro card, and a dot that pulses to say it was read live. */
 @Composable
 internal fun LiveHero(title: String, body: String) {
+    // With animations turned off in Android's settings, the header holds still.
+    val motion = motionOn()
     val t = rememberInfiniteTransition(label = "hero")
-    val drift by t.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = LinearEasing), RepeatMode.Reverse), label = "drift")
-    val pulse by t.animateFloat(0.4f, 1f, infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
+    val drift = if (motion) t.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = LinearEasing), RepeatMode.Reverse), label = "drift").value else 0.3f
+    val pulse = if (motion) t.animateFloat(0.4f, 1f, infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse").value else 1f
     val a = MaterialTheme.colorScheme.primaryContainer; val b = MaterialTheme.colorScheme.tertiaryContainer; val on = MaterialTheme.colorScheme.onPrimaryContainer
-    val orbit by t.animateFloat(0f, (2 * PI).toFloat(), infiniteRepeatable(tween(14000, easing = LinearEasing)), label = "orbit")
+    val orbit = if (motion) t.animateFloat(0f, (2 * PI).toFloat(), infiniteRepeatable(tween(14000, easing = LinearEasing)), label = "orbit").value else 1f
     val blobColor = MaterialTheme.colorScheme.primary
     Box(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp))
@@ -230,8 +233,7 @@ internal fun ExposureGauge(score: Int, word: String, detail: String) {
 /** A grey bar that sweeps with light, standing in for content that is loading. */
 @Composable
 internal fun Shimmer(modifier: Modifier) {
-    val t = rememberInfiniteTransition(label = "shimmer")
-    val x by t.animateFloat(-1f, 2f, infiniteRepeatable(tween(1200, easing = LinearEasing)), label = "x")
+    val x = if (motionOn()) rememberInfiniteTransition(label = "shimmer").animateFloat(-1f, 2f, infiniteRepeatable(tween(1200, easing = LinearEasing)), label = "x").value else 0.5f
     val base = MaterialTheme.colorScheme.surfaceVariant; val hi = MaterialTheme.colorScheme.surfaceContainerHighest
     Box(modifier.clip(RoundedCornerShape(16.dp)).background(Brush.horizontalGradient(listOf(base, hi, base), startX = x * 600f, endX = x * 600f + 500f)))
 }
@@ -239,10 +241,11 @@ internal fun Shimmer(modifier: Modifier) {
 /** Three bars that bounce, to show something is being listened to right now. */
 @Composable
 internal fun Equalizer(modifier: Modifier = Modifier) {
+    val motion = motionOn()
     val t = rememberInfiniteTransition(label = "eq")
-    val a by t.animateFloat(0.2f, 1f, infiniteRepeatable(tween(520, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "a")
-    val b by t.animateFloat(1f, 0.25f, infiniteRepeatable(tween(680, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b")
-    val c by t.animateFloat(0.3f, 0.9f, infiniteRepeatable(tween(440, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "c")
+    val a = if (motion) t.animateFloat(0.2f, 1f, infiniteRepeatable(tween(520, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "a").value else 0.6f
+    val b = if (motion) t.animateFloat(1f, 0.25f, infiniteRepeatable(tween(680, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b").value else 1f
+    val c = if (motion) t.animateFloat(0.3f, 0.9f, infiniteRepeatable(tween(440, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "c").value else 0.45f
     val color = MaterialTheme.colorScheme.primary
     Canvas(modifier.size(18.dp)) {
         listOf(a, b, c).forEachIndexed { i, v -> val w = size.width / 5f; val h = size.height * v; drawRoundRect(color, Offset(i * 2 * w, size.height - h), Size(w, h), androidx.compose.ui.geometry.CornerRadius(w / 2)) }

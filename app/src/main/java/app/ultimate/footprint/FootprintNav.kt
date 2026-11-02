@@ -1,21 +1,14 @@
 package app.ultimate.footprint
 
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.size
@@ -28,55 +21,19 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.ultimate.core.AppIcon
 import app.ultimate.core.formatBytes
-import app.ultimate.core.gooey
 import app.ultimate.core.pressScale
 
 /** Chips along the top that jump to a part of the page. A pill slides to the one you are on and stretches on the way, like liquid. */
 @Composable
-internal fun SectionNav(labels: List<String>, selected: Int, onPick: (Int) -> Unit) {
-    val spots = remember(labels) { mutableStateMapOf<Int, Pair<Float, Float>>() }
-    val target = spots[selected]
-    val fast = spring<Float>(Spring.DampingRatioNoBouncy, Spring.StiffnessMedium); val slow = spring<Float>(Spring.DampingRatioNoBouncy, Spring.StiffnessLow)
-    val left by animateFloatAsState(target?.first ?: 0f, fast, label = "navL"); val width by animateFloatAsState(target?.second ?: 0f, fast, label = "navW")
-    val left2 by animateFloatAsState(target?.first ?: 0f, slow, label = "navL2"); val width2 by animateFloatAsState(target?.second ?: 0f, slow, label = "navW2")
-    val scroll = rememberScrollState()
-    LaunchedEffect(selected, target) { target?.let { scroll.animateScrollTo((it.first - 48f).toInt().coerceAtLeast(0)) } }
-    val pill = MaterialTheme.colorScheme.primary
-    Box(Modifier.fillMaxWidth().horizontalScroll(scroll).padding(horizontal = 12.dp, vertical = 6.dp)) {
-        Canvas(Modifier.matchParentSize().gooey(6f)) {
-            if (target == null) return@Canvas
-            val h = size.height
-            drawRoundRect(pill, Offset(left, 0f), Size(width, h), CornerRadius(h / 2))
-            drawRoundRect(pill, Offset(left2, 3.dp.toPx()), Size(width2, h - 6.dp.toPx()), CornerRadius(h / 2))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            labels.forEachIndexed { i, text ->
-                Text(
-                    text, Modifier.onGloballyPositioned { spots[i] = it.positionInParent().x to it.size.width.toFloat() }.clip(RoundedCornerShape(50)).clickable { onPick(i) }.padding(horizontal = 16.dp, vertical = 9.dp),
-                    style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
-                    color = if (i == selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
+internal fun SectionNav(labels: List<String>, selected: Int, onPick: (Int) -> Unit) = app.ultimate.core.GooeyTabsBar(labels, selected, onPick)
 
 /** What one app can do on this phone, how much you use it, and a way to take access away. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)

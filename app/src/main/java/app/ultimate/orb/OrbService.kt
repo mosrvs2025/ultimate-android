@@ -100,6 +100,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import app.ultimate.core.gooey
+import app.ultimate.core.motionOn
 
 /** One petal of the bloom: a tool to open (or Home, for null). */
 data class OrbAction(val key: String, val label: String, val icon: ImageVector, val toolId: String?)
@@ -417,6 +419,7 @@ private class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelS
     fun stop() { if (started) registry.currentState = Lifecycle.State.DESTROYED; viewModelStore.clear() }
 }
 
+private val PETAL = Color(0xFF26262C)
 private val ORB_BRUSH = Brush.linearGradient(listOf(Color(0xFF8E7CFF), Color(0xFF4FC3F7)))
 
 @Composable
@@ -425,8 +428,9 @@ private fun OrbFace(progress: MutableStateFlow<Float?>, busy: MutableStateFlow<B
     val working by busy.collectAsState()
     val overTarget by near.collectAsState()
     val dropping by hover.collectAsState()
-    val pulse = rememberInfiniteTransition(label = "breath")
-    val breath by pulse.animateFloat(1f, if (working) 1.07f else 1f, infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b")
+    // It breathes only while work runs (and never with animations off): an idle orb runs no frames at all, which
+    // saves battery and lets the main thread go quiet.
+    val breath = if (working && motionOn()) rememberInfiniteTransition(label = "breath").animateFloat(1f, 1.07f, infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b").value else 1f
     val scale by animateFloatAsState(if (overTarget) 0.75f else if (dropping) 1.12f else 1f, spring(Spring.DampingRatioMediumBouncy), label = "s")
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow)) }
@@ -466,19 +470,36 @@ private fun Bloom(
     val origin by windowOrigin.collectAsState()
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = scrim))
         .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClose)) {
+        // Each petal flies out from the orb on a spring, a beat after the one before; closing pulls them back in.
+        val motion = motionOn()
+        val ts = remember(actions.size) { List(actions.size) { Animatable(if (motion) 0f else 1f) } }
+        actions.indices.forEach { i -> LaunchedEffect(open) { val t = ts[i]; if (!motion) t.snapTo(if (open) 1f else 0f) else if (open) { delay(28L * i); t.animateTo(1f, spring(0.55f, 380f)) } else t.animateTo(0f, tween(180)) } }
+        // The petals' discs, drawn as one gooey layer: each buds out of the orb on a neck of liquid that thins and
+        // snaps as it flies, and is pulled back in the same way. Before Android 12 the discs are simply drawn plain.
+        Canvas(Modifier.fillMaxSize().gooey(10f)) {
+            val ocx = cx - origin.x; val ocy = cy - origin.y
+            val petal = 27.dp.toPx()
+            if (ts.any { it.value < 0.98f }) drawCircle(PETAL, orbPx / 2f - 4.dp.toPx(), Offset(ocx, ocy))
+            ts.forEachIndexed { i, t ->
+                val v = t.value; if (v <= 0.01f) return@forEachIndexed
+                val (px, py) = spots[i]
+                val x = ocx + (px - cx) * v; val y = ocy + (py - cy) * v
+                drawCircle(PETAL, petal * (0.4f + 0.6f * v.coerceIn(0f, 1f)), Offset(x, y))
+                val neck = (1f - v).coerceIn(0f, 1f)
+                if (neck > 0.05f) for (k in 1..3) { val f = k / 4f; drawCircle(PETAL, petal * 0.42f * neck, Offset(ocx + (x - ocx) * f, ocy + (y - ocy) * f)) }
+            }
+        }
         actions.forEachIndexed { i, a ->
-            // Each petal flies out from the orb on a spring, a beat after the one before; closing pulls them back in.
-            val t = remember { Animatable(0f) }
-            LaunchedEffect(open) { if (open) { delay(28L * i); t.animateTo(1f, spring(0.55f, 380f)) } else t.animateTo(0f, tween(180)) }
+            val t = ts[i]
             val (px, py) = spots[i]
             val x = cx + (px - cx) * t.value - origin.x; val y = cy + (py - cy) * t.value - origin.y
             val sizePx = with(d) { 54.dp.toPx() }
             Column(
                 Modifier.offset { IntOffset((x - sizePx).roundToInt(), (y - sizePx / 2).roundToInt()) }.width(with(d) { (sizePx * 2).toDp() })
-                    .graphicsLayer { alpha = t.value.coerceIn(0f, 1f); scaleX = 0.4f + 0.6f * t.value; scaleY = 0.4f + 0.6f * t.value },
+                    .graphicsLayer { alpha = t.value.coerceIn(0f, 1f) },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(Modifier.size(54.dp).shadow(8.dp, CircleShape).clip(CircleShape).background(Color(0xFF26262C)).clickable { onPick(a) }, contentAlignment = Alignment.Center) {
+                Box(Modifier.size(54.dp).clip(CircleShape).clickable { onPick(a) }, contentAlignment = Alignment.Center) {
                     Icon(a.icon, a.label, tint = Color.White, modifier = Modifier.size(24.dp))
                 }
                 Text(a.label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 1,
