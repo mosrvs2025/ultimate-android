@@ -65,6 +65,7 @@ import org.robolectric.shadows.ShadowStatFs
 import java.io.File
 import app.ultimate.inbox.Fate
 import app.ultimate.inbox.InboxInsights
+import androidx.compose.material.icons.Icons
 
 /**
  * Renders the app's real screens to PNG files for the README: the actual Compose code, drawn on a simulated phone with sample

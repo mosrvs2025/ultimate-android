@@ -3,9 +3,6 @@ package app.ultimate.home
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.animation.core.EaseOutCubic
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -14,7 +11,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.ui.graphics.graphicsLayer
 import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -28,12 +24,8 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,11 +37,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.UltimateApp
-import app.ultimate.core.GooeyTouches
 import app.ultimate.core.LocalShellNav
 import app.ultimate.core.ShellNav
 import app.ultimate.core.ToolLaunch
 import kotlinx.coroutines.flow.combine
+import app.ultimate.core.GooeyNavBar
+import app.ultimate.core.GooeyNavItem
 
 @Composable
 fun UltimateRoot(app: UltimateApp) {
@@ -62,11 +55,8 @@ fun UltimateRoot(app: UltimateApp) {
     val standalone = app.tools.size == 1
     val nav = remember { ShellNav(standalone, openLibrary = shell::showLibraryForCurrentTool, openActivity = shell::showActivity, openAbout = shell::showAbout, tools = app.tools, send = { t, uris -> shell.open(t, ToolLaunch(uris)) }) }
 
-    // Every tap anywhere in the app answers with a small gooey splash under the finger.
     CompositionLocalProvider(LocalShellNav provides nav) {
-        GooeyTouches(Modifier.fillMaxSize()) {
-            if (standalone) StandaloneRoot(app, route, onExitApp = { (context as? Activity)?.finish() }) else SuiteRoot(app, route)
-        }
+        if (standalone) StandaloneRoot(app, route, onExitApp = { (context as? Activity)?.finish() }) else SuiteRoot(app, route)
     }
 
     incoming?.let { pending -> HandSheet(app, pending) }
@@ -109,15 +99,12 @@ private fun Tabs(app: UltimateApp, route: Route, active: Boolean) {
     BackHandler(enabled = route != Route.Home, onBack = shell::showHome)
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                NavigationBarItem(route == Route.Home, shell::showHome, { BouncyIcon(Icons.Rounded.Home, route == Route.Home) }, label = { Text("Home") })
-                NavigationBarItem(route == Route.Library, { shell.showLibrary() }, { BouncyIcon(Icons.Rounded.VideoLibrary, route == Route.Library) }, label = { Text("Library") })
-                NavigationBarItem(
-                    route == Route.Activity, shell::showActivity,
-                    { BadgedBox(badge = { if (active) Badge() }) { BouncyIcon(Icons.Rounded.History, route == Route.Activity) } },
-                    label = { Text("Activity") },
-                )
-            }
+            // The highlight is a drop of liquid that stretches across to the tab you pick and lands with a squish.
+            GooeyNavBar(
+                listOf(GooeyNavItem("Home", Icons.Rounded.Home), GooeyNavItem("Library", Icons.Rounded.VideoLibrary), GooeyNavItem("Activity", Icons.Rounded.History, badge = active)),
+                tabIndex(route),
+                onSelect = { i -> when (i) { 0 -> shell.showHome(); 1 -> shell.showLibrary(); else -> shell.showActivity() } },
+            )
         },
     ) { pad ->
         AnimatedContent(
@@ -135,14 +122,6 @@ private fun Tabs(app: UltimateApp, route: Route, active: Boolean) {
             }
         }
     }
-}
-
-/** The selected tab's icon hops and grows a touch, so the bar answers the tap. */
-@Composable
-private fun BouncyIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean) {
-    val scale by animateFloatAsState(if (selected) 1.15f else 1f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMediumLow), label = "tabIcon")
-    val lift by animateFloatAsState(if (selected) -2f else 0f, spring(Spring.DampingRatioMediumBouncy), label = "tabLift")
-    Icon(icon, null, androidx.compose.ui.Modifier.graphicsLayer { scaleX = scale; scaleY = scale; translationY = lift * density })
 }
 
 /** A build with one tool: the tool is the home screen; Library and Activity open from its top bar. */

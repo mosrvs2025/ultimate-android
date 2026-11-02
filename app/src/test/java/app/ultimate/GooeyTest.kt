@@ -39,6 +39,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Star
 
 class GooeyMathTest {
     @Test fun motionIsOffOnlyAtZeroScale() {
@@ -59,15 +63,12 @@ class GooeyMathTest {
         (0 until 6).forEach { i -> assertEquals(Offset.Zero.getDistance(), GooeyMath.converge(i, 6, 1f, 10f).getDistance(), 1e-4f) }
     }
 
-    @Test fun tapSplashGrowsSplitsMergesAndVanishes() {
-        assertEquals(4, GooeyMath.splash(0.5f, 1f).size)
-        assertTrue(GooeyMath.splash(0f, 1f).all { it.second == 0f })                       // nothing before the tap lands
-        val out = GooeyMath.splash(0.5f, 1f)
-        assertEquals(16f, out[0].second, 1e-3f)                                            // the drop at full size
-        out.drop(1).forEach { (o, r) -> assertEquals(30f, o.getDistance(), 1e-3f); assertEquals(7f, r, 1e-3f) } // droplets flung out
-        GooeyMath.splash(0.9f, 1f).drop(1).forEach { (o, _) -> assertEquals(0f, o.getDistance(), 1e-3f) }   // and pulled back in
-        assertTrue(GooeyMath.splash(1f, 1f).all { it.second == 0f })                       // gone at the end
-        assertEquals(32f, GooeyMath.splash(0.5f, 2f)[0].second, 1e-3f)                    // scales with density
+    @Test fun movingDropStretchesAndThinsThenRestsRound() {
+        assertEquals(64f to 32f, GooeyMath.squish(64f, 32f, 0f))
+        val (w, h) = GooeyMath.squish(64f, 32f, 40f)
+        assertEquals(88f, w, 1e-3f); assertTrue(h < 32f && h > 26f)
+        assertEquals(GooeyMath.squish(64f, 32f, 40f), GooeyMath.squish(64f, 32f, -40f)) // same either way
+        assertEquals(GooeyMath.squish(64f, 32f, 96f), GooeyMath.squish(64f, 32f, 5000f))  // the stretch has a limit
     }
 
     @Test fun thumbSwellsOnlyMidway() {
@@ -100,12 +101,26 @@ class GooeyComponentsTest {
         assertEquals(listOf(true, false), changed)
     }
 
-    @Test fun tapSplashNeverTakesTheTap() {
-        var clicks = 0
-        compose.setContent { MaterialTheme { app.ultimate.core.GooeyTouches { androidx.compose.material3.Button({ clicks++ }) { androidx.compose.material3.Text("Go") } } } }
-        compose.onNodeWithText("Go").performClick(); compose.onNodeWithText("Go").performClick()
-        compose.waitForIdle()
-        assertEquals(2, clicks)
+    @Test fun bottomBarSelectsTabsAndShowsTheBadge() {
+        val picked = mutableListOf<Int>()
+        compose.setContent {
+            MaterialTheme {
+                var tab by remember { mutableIntStateOf(0) }
+                app.ultimate.core.GooeyNavBar(
+                    listOf(
+                        app.ultimate.core.GooeyNavItem("Home", Icons.Rounded.Home),
+                        app.ultimate.core.GooeyNavItem("Library", Icons.Rounded.Star),
+                        app.ultimate.core.GooeyNavItem("Activity", Icons.Rounded.Info, badge = true),
+                    ),
+                    tab, onSelect = { tab = it; picked += it },
+                )
+            }
+        }
+        compose.onNodeWithText("Home").assertIsSelected()
+        compose.onNodeWithText("Activity").performClick()
+        compose.onNodeWithText("Activity").assertIsSelected(); compose.onNodeWithText("Home").assertIsNotSelected()
+        compose.onNodeWithText("Library").performClick()
+        assertEquals(listOf(2, 1), picked)
     }
 
     @Test fun disabledSwitchDoesNothing() {

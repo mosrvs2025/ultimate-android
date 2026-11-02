@@ -59,14 +59,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.animation.core.Animatable
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.graphics.graphicsLayer
 
 /*
  * Gooey building blocks. Each one draws its moving shapes in a single Canvas with Modifier.gooey(), so shapes that
@@ -105,20 +102,12 @@ object GooeyMath {
     }
 
     /**
-     * A tap splash at time [t] (0 to 1): a drop swells under the finger, three droplets break off and fly out, then
-     * fall back in and everything shrinks away. Returns (offset from the touch, radius) pairs in units of [unit].
+     * A moving drop stretches along its path and thins a little: given how far the leading edge is ahead of the
+     * middle ([lead], any sign), returns the (width, height) of a pill that is [w] by [h] at rest.
      */
-    fun splash(t: Float, unit: Float, seed: Int = 0): List<Pair<Offset, Float>> {
-        val k = t.coerceIn(0f, 1f)
-        val core = unit * 16f * when { k < 0.3f -> k / 0.3f; k < 0.6f -> 1f; else -> (1f - k) / 0.4f }
-        // Out until 0.5, back in by 0.9: the droplets leave the drop and melt back into it.
-        val reach = unit * 30f * when { k < 0.15f -> 0f; k < 0.5f -> (k - 0.15f) / 0.35f; k < 0.9f -> (0.9f - k) / 0.4f; else -> 0f }
-        val drop = unit * 7f * when { k < 0.15f -> k / 0.15f; k < 0.85f -> 1f; else -> ((1f - k) / 0.15f) }
-        val turn = (seed % 360) * (Math.PI / 180).toFloat()
-        return listOf(Offset.Zero to core) + (0 until 3).map { i ->
-            val a = turn + (2 * Math.PI * i / 3).toFloat()
-            Offset(kotlin.math.cos(a) * reach, kotlin.math.sin(a) * reach) to drop
-        }
+    fun squish(w: Float, h: Float, lead: Float): Pair<Float, Float> {
+        val stretch = kotlin.math.abs(lead).coerceAtMost(w * 1.5f)
+        return (w + stretch * 0.6f) to (h * (1f - 0.18f * (stretch / (w * 1.5f))))
     }
 
     /** A thumb swells a little in the middle of its trip, like a drop stretched by moving: 1 at rest, up to 1 + [amount]. */
@@ -250,41 +239,62 @@ fun GooeyProgress(modifier: Modifier = Modifier, color: Color = MaterialTheme.co
     }
 }
 
-/**
- * Wraps the whole app so every tap answers with a small splash of liquid: a faint drop swells under the finger,
- * droplets break off and melt back in, and it is gone in half a second. It only watches touches (never takes them),
- * draws nothing between taps, and stays off when animations are off.
- */
-@Composable
-fun GooeyTouches(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val motion = motionOn()
-    val splashes = remember { mutableStateListOf<Splash>() }
-    val scope = rememberCoroutineScope()
-    val ink = MaterialTheme.colorScheme.primary
-    Box(modifier.then(if (!motion) Modifier else Modifier.pointerInput(Unit) {
-        var n = 0
-        awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            if (splashes.size < 4) {
-                val s = Splash(down.position, Animatable(0f), (n++ * 47) % 360)
-                splashes += s
-                scope.launch { s.t.animateTo(1f, tween(520, easing = LinearEasing)); splashes.remove(s) }
-            }
-        }
-    })) {
-        content()
-        if (splashes.isNotEmpty()) Box(Modifier.matchParentSize().alpha(0.2f)) {
-            Canvas(Modifier.matchParentSize().gooey(8f)) {
-                splashes.forEach { s -> GooeyMath.splash(s.t.value, 1.dp.toPx(), s.seed).forEach { (o, r) -> if (r > 0.5f) drawCircle(ink, r, s.at + o) } }
-            }
-        }
-    }
-}
-
-/** One tap's splash in flight. */
-class Splash(val at: Offset, val t: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>, val seed: Int)
-
 /** Shorthand used by the Footprint page and others: a gooey pill row sized for a section bar. */
 @Composable
 fun GooeyTabsBar(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) =
     GooeyTabs(labels, selected, onSelect, Modifier.padding(horizontal = 12.dp, vertical = 6.dp), scrollable = true)
+
+/** One destination in [GooeyNavBar]. [badge] puts a small dot on its icon, for example while work runs. */
+data class GooeyNavItem(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val badge: Boolean = false)
+
+/**
+ * The bottom bar. The highlight behind the selected icon is a drop of liquid: when you switch, it stretches out
+ * towards the new tab, two smaller drops hang back on necks of liquid and are pulled in after it, and it lands with
+ * a squish. The new icon hops up into it and the old one settles. With animations off it simply jumps.
+ */
+@Composable
+fun GooeyNavBar(items: List<GooeyNavItem>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    val motion = motionOn()
+    val haptics = LocalHapticFeedback.current
+    val goal = selected.toFloat()
+    // Positions are in "tab units": 0 is the middle of the first tab, 1 the second, and so on.
+    val head by animateFloatAsState(goal, moveSpec(motion, Spring.StiffnessMediumLow, Spring.DampingRatioLowBouncy), label = "navHead")
+    val mid by animateFloatAsState(goal, moveSpec(motion, Spring.StiffnessLow), label = "navMid")
+    val tail by animateFloatAsState(goal, moveSpec(motion, Spring.StiffnessVeryLow), label = "navTail")
+    val blob = MaterialTheme.colorScheme.secondaryContainer
+    androidx.compose.material3.Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 3.dp) {
+        Box(Modifier.fillMaxWidth().navigationBarsPadding().height(80.dp)) {
+            Canvas(Modifier.matchParentSize().gooey(10f)) {
+                val tab = size.width / items.size
+                val cy = 12.dp.toPx() + 16.dp.toPx()
+                fun x(p: Float) = tab * (p + 0.5f)
+                val (w, h) = GooeyMath.squish(64.dp.toPx(), 32.dp.toPx(), x(head) - x(mid))
+                drawRoundRect(blob, Offset(x(head) - w / 2, cy - h / 2), Size(w, h), CornerRadius(h / 2))
+                drawCircle(blob, 13.dp.toPx(), Offset(x(mid), cy))
+                drawCircle(blob, 9.dp.toPx(), Offset(x(tail), cy))
+            }
+            Row(Modifier.fillMaxSize()) {
+                items.forEachIndexed { i, item ->
+                    val on = i == selected
+                    val hop by animateFloatAsState(if (on) 1f else 0f, moveSpec(motion, Spring.StiffnessMediumLow, Spring.DampingRatioMediumBouncy), label = "navHop")
+                    val tint by animateColorAsState(if (on) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant, label = "navTint")
+                    Column(
+                        Modifier.weight(1f).fillMaxSize()
+                            .selectable(on, role = Role.Tab, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {
+                                if (!on) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onSelect(i)
+                            },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Spacer(Modifier.height(16.dp))
+                        Box(Modifier.size(24.dp).graphicsLayer { val s = 1f + 0.15f * hop; scaleX = s; scaleY = s; translationY = -2.dp.toPx() * hop }) {
+                            androidx.compose.material3.Icon(item.icon, null, Modifier.size(24.dp), tint = tint)
+                            if (item.badge) Box(Modifier.align(Alignment.TopEnd).size(8.dp).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.error))
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text(item.label, style = MaterialTheme.typography.labelMedium, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium, color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
