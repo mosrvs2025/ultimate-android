@@ -16,8 +16,8 @@ android {
         minSdk = 29
         targetSdk = 35
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 44
-        versionName = "1.38.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 45
+        versionName = "1.39.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -333,6 +333,9 @@ val robolectricJars = tasks.register<Copy>("robolectricJars") {
 }
 tasks.withType<Test>().configureEach {
     dependsOn(robolectricJars)
+    // Robolectric keeps a trace record for every frame drawn, and screens with looping animation draw many; the
+    // default 512 MB heap runs out partway through the suite and the next test fails with a leftover OutOfMemoryError.
+    maxHeapSize = "2g"
     systemProperty("robolectric.offline", "true")
     systemProperty("robolectric.dependency.dir", layout.buildDirectory.dir("robolectric").get().asFile.path)
     // `-Pscreenshots` renders the README screenshots into docs/screenshots; otherwise those tests skip themselves.

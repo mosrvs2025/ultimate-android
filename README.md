@@ -14,7 +14,7 @@ One Android app that holds a growing set of tools for your own phone: edit and s
   <img src="docs/screenshots/about.png" width="23%" alt="About and settings">
 </p>
 
-<sub>Screenshots are the app's own screens, rendered on a simulated phone with sample data (not photos of a real device). Home, Storage, inside a folder, Footprint (a sample week, since a simulator has no real usage history), Rules, SSH hosts, About and settings. Regenerate them with `gradle -Pscreenshots :app:testUltimateplusDebugUnitTest --tests '*ScreenshotTest'`.</sub>
+<sub>Screenshots are the app's own screens, rendered on a simulated phone with sample data (not photos of a real device). Home, Storage, inside a folder, Footprint (a sample week, since a simulator has no real usage history), Rules, SSH hosts, About and settings. The simulator cannot draw Android's blur effect, so the gooey melting (Android 12 and newer) does not show in these pictures; shapes appear as they do on older phones. Regenerate them with `gradle -Pscreenshots :app:testUltimateplusDebugUnitTest --tests '*ScreenshotTest'`.</sub>
 
 ## Download
 
