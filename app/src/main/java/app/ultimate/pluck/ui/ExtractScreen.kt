@@ -31,7 +31,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -123,7 +122,7 @@ private fun Hero(state: ExtractState) {
                 Text("Plucking", style = MaterialTheme.typography.labelLarge, color = onContainer)
                 Text("${(shown * 100).toInt()}%", style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold, color = onContainer)
                 Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(
+                GooeyProgress(
                     progress = { shown }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
                     trackColor = onContainer.copy(alpha = 0.15f),
                 )
@@ -158,7 +157,7 @@ private fun JobRow(job: ExtractJob) {
                 JobStatus.Queued -> Sub("Waiting · ${formatBytes(job.app.apkBytes)}")
                 is JobStatus.Running -> {
                     val f = if (s.total > 0) s.done.toFloat() / s.total else 0f
-                    LinearProgressIndicator(progress = { f }, Modifier.fillMaxWidth().padding(top = 6.dp).height(6.dp).clip(CircleShape))
+                    GooeyProgress(progress = { f }, Modifier.fillMaxWidth().padding(top = 6.dp).height(6.dp).clip(CircleShape), live = false)
                     Sub("${formatBytes(s.done)} of ${formatBytes(s.total)}")
                 }
                 is JobStatus.Done -> Text("${s.entry.displayName} · ${formatBytes(s.entry.bytes)}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

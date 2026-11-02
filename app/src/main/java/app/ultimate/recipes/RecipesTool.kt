@@ -36,13 +36,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -71,6 +69,8 @@ import app.ultimate.core.rememberNotificationConsent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import app.ultimate.core.GooeySwitch
+import app.ultimate.core.GooeyProgress
 
 /** Chains of tools that run in one go, and things Ultimate does on its own. */
 class RecipesTool(private val app: UltimateApp) : Tool {
@@ -111,7 +111,7 @@ private fun RecipesScreen(app: UltimateApp, onExit: () -> Unit) {
                             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(s.recipe.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                 Text("File ${s.file + 1} of ${s.files} · ${s.recipe.steps[s.step].label}")
-                                LinearProgressIndicator(progress = { (s.file * s.recipe.steps.size + s.step + 0.5f) / (s.files * s.recipe.steps.size) }, Modifier.fillMaxWidth())
+                                GooeyProgress(progress = { (s.file * s.recipe.steps.size + s.step + 0.5f) / (s.files * s.recipe.steps.size) }, Modifier.fillMaxWidth())
                                 TextButton(runner::cancel) { Text("Stop") }
                             }
                         }
@@ -186,7 +186,7 @@ private fun Toggle(title: String, detail: String, on: Boolean, onChange: (Boolea
         Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Spacer(Modifier.width(12.dp))
-    Switch(on, onChange)
+    GooeySwitch(on, onChange)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

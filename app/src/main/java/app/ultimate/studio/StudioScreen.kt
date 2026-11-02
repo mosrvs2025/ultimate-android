@@ -86,7 +86,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -147,6 +146,7 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import app.ultimate.core.GooeyProgress
 
 private val Accent = Color(0xFFFFC46B)
 private val ClipBorder = Color.White
@@ -214,7 +214,7 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
                 TopBar(project.name, status, busy, onClose = { stop(); onExit() }, onProjects = { stop(); showProjects = true }, onExport = { stop(); showExport = true }, canExport = project.clips.isNotEmpty())
-                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp))
+                if (loading) GooeyProgress(Modifier.fillMaxWidth().height(2.dp))
 
                 // Preview: always on screen, at the canvas shape.
                 Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
@@ -951,7 +951,7 @@ private fun ExportSheet(project: StudioProject, manager: StudioManager, onDismis
             }
             item {
                 if (work.active) {
-                    LinearProgressIndicator(progress = { (work.percent ?: 0) / 100f }, modifier = Modifier.fillMaxWidth())
+                    GooeyProgress(progress = { (work.percent ?: 0) / 100f }, modifier = Modifier.fillMaxWidth())
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Rendering · ${work.percent ?: 0}%", Modifier.weight(1f))
                         TextButton(manager::cancelWork) { Text("Cancel") }

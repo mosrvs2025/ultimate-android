@@ -192,7 +192,7 @@ private fun TranscriptSection(uri: String) {
             }
             progress != null -> Column {
                 Text("Listening… ${((progress ?: 0f) * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-                androidx.compose.material3.LinearProgressIndicator(progress = { progress ?: 0f }, Modifier.fillMaxWidth())
+                GooeyProgress(progress = { progress ?: 0f }, Modifier.fillMaxWidth())
             }
             else -> androidx.compose.material3.OutlinedButton({
                 scope.launch {

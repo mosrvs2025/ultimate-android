@@ -30,9 +30,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -257,10 +254,7 @@ fun AbPlayer(a: Uri, b: Uri, peaksA: List<Float>, peaksB: List<Float>, labelA: S
         useB = toB
     }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            SegmentedButton(!useB, { pick(false) }, SegmentedButtonDefaults.itemShape(0, 2)) { Text(labelA) }
-            SegmentedButton(useB, { pick(true) }, SegmentedButtonDefaults.itemShape(1, 2)) { Text(labelB) }
-        }
+        GooeyTabs(listOf(labelA, labelB), if (useB) 1 else 0, { pick(it == 1) })
         Row(verticalAlignment = Alignment.CenterVertically) {
             PlayButton(cur.playing, cur::toggle)
             Spacer(Modifier.width(12.dp))

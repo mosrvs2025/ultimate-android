@@ -29,7 +29,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -55,6 +54,7 @@ import app.ultimate.core.BackBar
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import app.ultimate.core.GooeySwitch
 
 class OrbTool : Tool {
     override val id = "orb"
@@ -96,7 +96,7 @@ private fun OrbScreen(onExit: () -> Unit) {
                     Text("Show the orb", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(if (allowed) "Floats over every app" else "Needs “Display over other apps”", style = MaterialTheme.typography.bodySmall)
                 }
-                Switch(on && allowed, { want ->
+                GooeySwitch(on && allowed, { want ->
                     on = want
                     if (want && !Settings.canDrawOverlays(context)) {
                         context.getSharedPreferences("orb", android.content.Context.MODE_PRIVATE).edit().putBoolean("on", true).apply()

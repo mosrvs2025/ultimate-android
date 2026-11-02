@@ -109,6 +109,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.random.Random
+import app.ultimate.core.GooeyProgress
 
 /** Free space the fun way: swipe through photos, clear duplicates and bursts, act on smart suggestions. */
 class CleanupTool(private val app: UltimateApp) : Tool {
@@ -373,7 +374,7 @@ private fun SwipeDeck(photos: List<Item>, onDone: (List<Item>) -> Unit) {
                 }
                 IconButton(::undo, enabled = index > 0) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
             }
-            androidx.compose.material3.LinearProgressIndicator(progress = { index.toFloat() / photos.size }, Modifier.fillMaxWidth().padding(vertical = 8.dp))
+            GooeyProgress(progress = { index.toFloat() / photos.size }, Modifier.fillMaxWidth().padding(vertical = 8.dp))
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 photos.getOrNull(index + 1)?.let { next -> Thumb(next.file, id = next.mediaId, modifier = Modifier.fillMaxWidth(0.92f).aspectRatio(0.75f).graphicsLayer { scaleX = 0.94f; scaleY = 0.94f; alpha = 0.7f }.clip(RoundedCornerShape(28.dp)), size = 900) }
                 val item = photos[index]

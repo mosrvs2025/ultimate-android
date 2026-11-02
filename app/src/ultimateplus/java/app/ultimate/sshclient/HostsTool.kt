@@ -55,8 +55,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -100,6 +98,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
+import app.ultimate.core.GooeyTabs
 
 /** Registered reflectively from main so offline editions have neither this code nor the SSH library. */
 class HostsTool(context: Context) : Tool {
@@ -169,7 +168,7 @@ private fun HostsScreen(app: UltimateApp, tool: HostsTool, onExit: () -> Unit) {
         },
     ) { pad ->
         Column(Modifier.padding(pad)) {
-            TabRow(selectedTabIndex = tab) { listOf("Hosts", "Snippets", "Keys").forEachIndexed { i, t -> Tab(tab == i, { tab = i }, text = { Text(t) }) } }
+            GooeyTabs(listOf("Hosts", "Snippets", "Keys"), tab, { tab = it }, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             when (tab) {
                 0 -> HostsTab(tool, hosts, onEdit = { editHost = it }, onAdd = { editHost = Host(vault.newHostId(), "", "", user = "") })
                 1 -> SnippetsTab(app, snippets, onEdit = { editSnippet = it })

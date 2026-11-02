@@ -42,7 +42,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -75,6 +74,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
+import app.ultimate.core.GooeySwitch
 
 class RulesTool(private val app: UltimateApp) : Tool {
     override val id = "rules"
@@ -205,7 +205,7 @@ private fun RuleCard(r: Rule, last: RunRecord?, appName: (String) -> String, onE
                 Text(r.name.ifBlank { "Rule" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(Describe.rule(r, appName), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Switch(r.enabled, onEnabled)
+            GooeySwitch(r.enabled, onEnabled)
             Column {
                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
                 DropdownMenu(menu, { menu = false }) {
@@ -248,7 +248,7 @@ private fun RuleEditor(start: Rule, isNew: Boolean, onSave: (Rule) -> Unit, onDi
                         FilterChip(t.on, { t = t.copy(on = true) }, { Text(a) }); FilterChip(!t.on, { t = t.copy(on = false) }, { Text(b) })
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Put things back when it ends", Modifier.weight(1f)); Switch(undo, { undo = it })
+                        Text("Put things back when it ends", Modifier.weight(1f)); GooeySwitch(undo, { undo = it })
                     }
                 }
                 TriggerType.BatteryBelow -> {

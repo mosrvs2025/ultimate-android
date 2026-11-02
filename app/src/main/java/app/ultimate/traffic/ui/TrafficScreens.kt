@@ -56,11 +56,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -96,6 +94,8 @@ import app.ultimate.traffic.model.HostView
 import app.ultimate.traffic.model.TrafficSnapshot
 import java.util.Locale
 import kotlinx.coroutines.delay
+import app.ultimate.core.GooeySwitch
+import app.ultimate.core.GooeyTabs
 
 @Composable
 fun TrafficScreen(c: TrafficController, onExit: () -> Unit) {
@@ -233,7 +233,7 @@ private fun SwitchRow(title: String, body: String, checked: Boolean, onChange: (
         Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Spacer(Modifier.width(12.dp))
-    Switch(checked, onChange)
+    GooeySwitch(checked, onChange)
 }
 
 // ───────────────────────────────── live ──────────────────────────────────
@@ -292,9 +292,7 @@ private fun LiveScreen(c: TrafficController, startedAt: Long, captured: List<Str
                 }
             }
             item {
-                PrimaryScrollableTabRow(tab, edgePadding = 12.dp) {
-                    listOf("Domains", "Apps", "Connections", "DNS", "Log").forEachIndexed { i, t -> Tab(tab == i, { tab = i }, text = { Text(t) }) }
-                }
+                GooeyTabs(listOf("Domains", "Apps", "Connections", "DNS", "Log"), tab, { tab = it }, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), scrollable = true)
             }
             when (tab) {
                 0 -> domains(c, snap)

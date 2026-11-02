@@ -61,7 +61,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -109,6 +108,7 @@ import app.ultimate.pluck.model.Filter
 import app.ultimate.pluck.model.QuickFilter
 import app.ultimate.pluck.model.Sort
 import app.ultimate.pluck.model.TrackerFacts
+import app.ultimate.core.GooeyProgress
 
 @Composable
 fun PluckScreen(c: PluckController, onExit: () -> Unit) {
@@ -526,7 +526,7 @@ private fun InsightsTab(vm: PluckController, onExit: () -> Unit) {
                 val p = progress
                 when {
                     p != null -> {
-                        LinearProgressIndicator(progress = { if (p.total > 0) p.done.toFloat() / p.total else 0f }, Modifier.fillMaxWidth())
+                        GooeyProgress(progress = { if (p.total > 0) p.done.toFloat() / p.total else 0f }, Modifier.fillMaxWidth())
                         Text("Scanning ${p.done} of ${p.total}…", style = MaterialTheme.typography.bodySmall)
                         OutlinedButton(vm::cancelScan) { Text("Stop") }
                     }

@@ -28,7 +28,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import app.ultimate.pluck.model.FileNames
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -52,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import app.ultimate.core.formatBytes
 import app.ultimate.pluck.engine.ApkComposition
 import app.ultimate.pluck.model.AppItem
+import app.ultimate.core.GooeySwitch
 
 private val LIMITS = listOf(16_000_000L to "16 MB", 25_000_000L to "25 MB", 30_000_000L to "30 MB", 100_000_000L to "100 MB")
 
@@ -114,7 +114,7 @@ fun ExtractSheet(items: List<AppItem>, c: PluckController, onDismiss: () -> Unit
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Open the share sheet when done", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                Switch(share, { share = it })
+                GooeySwitch(share, { share = it })
             }
             Button({ onConfirm(compact, share) }, Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) {
                 Text(if (items.size == 1) "Extract" else "Extract ${items.size} apps", style = MaterialTheme.typography.titleMedium)

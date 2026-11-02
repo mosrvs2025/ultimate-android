@@ -37,7 +37,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -75,6 +74,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import app.ultimate.core.GooeySwitch
 
 /** Every notification, kept and searchable, including ones an app later took back. */
 class InboxTool(private val app: UltimateApp) : Tool {
@@ -254,7 +254,7 @@ private fun InboxSettings(log: NotificationLog, apps: List<Triple<String, String
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Notification history", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text("Stored only on this phone, never in reports or backups. ${log.count()} kept.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(verticalAlignment = Alignment.CenterVertically) { Text("Pause recording", Modifier.weight(1f)); Switch(paused, { paused = it; log.paused = it }) }
+            Row(verticalAlignment = Alignment.CenterVertically) { Text("Pause recording", Modifier.weight(1f)); GooeySwitch(paused, { paused = it; log.paused = it }) }
             Text("Keep for", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(7, 30, 90, 365).forEach { d -> FilterChip(days == d, { days = d; log.keepDays = d; log.trim() }, { Text(if (d == 365) "1 year" else "$d days") }) }

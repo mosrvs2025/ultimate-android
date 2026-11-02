@@ -38,7 +38,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -61,6 +60,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import app.ultimate.UltimateApp
 import app.ultimate.checkup.engine.Collector
 import kotlinx.coroutines.delay
+import app.ultimate.core.GooeySwitch
 
 /** Builds the usage report: pick what goes in, add notes, preview it, then share, save or copy. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -92,7 +92,7 @@ fun InsightsSheet(app: UltimateApp, onDismiss: () -> Unit) {
                     Text("Include my other apps")
                     Text("Names and categories, to find apps Ultimate could replace", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(includeApps, { includeApps = it })
+                GooeySwitch(includeApps, { includeApps = it })
             }
             AnimatedVisibility(includeApps && !usage) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
