@@ -53,6 +53,8 @@ import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 import app.ultimate.core.GooeySwitch
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 
 private val card = @Composable { Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(16.dp) }
 
@@ -65,6 +67,8 @@ internal fun MediaCard() {
     var tick by remember { mutableIntStateOf(0) }
     val access = NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
     var list by remember { mutableStateOf<List<Played>>(emptyList()) }
+    var full by remember { mutableStateOf(false) }
+    if (full) MediaHistory { full = false; tick++ }
     LaunchedEffect(on, tick) { list = if (on) withContext(Dispatchers.IO) { log.since(System.currentTimeMillis() - 30 * 86_400_000L) } else emptyList() }
     Column(card(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -86,7 +90,11 @@ internal fun MediaCard() {
             list.take(5).forEach { p ->
                 Column { Text(p.title, maxLines = 1, overflow = TextOverflow.Ellipsis); Text("${FootprintReaders.label(context, p.pkg)} · ${fmt.format(Date(p.startedAt))} · ${hm(p.ms)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-            TextButton({ log.clear(); tick++ }) { Text("Erase it all") }
+            Row {
+                Button({ full = true }) { Text("Search and see everything") }
+                Spacer(Modifier.width(8.dp))
+                TextButton({ log.clear(); tick++ }) { Text("Erase it all") }
+            }
         }
     }
 }

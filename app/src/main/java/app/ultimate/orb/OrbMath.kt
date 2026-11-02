@@ -33,6 +33,39 @@ object OrbMath {
         }
     }
 
+    /**
+     * How far out to fan [count] actions so neighbours stay at least [gap] apart (centre to centre) along the arc,
+     * never closer than [min]. Too tight and the discs touch, and with the gooey effect they melt into one slab.
+     */
+    fun fanRadius(count: Int, gap: Float, min: Float): Float {
+        if (count <= 1) return min
+        val spread = (if (count <= 3) 100.0 else 160.0) * PI / 180
+        val step = spread / (count - 1)
+        return maxOf(min, (gap / (2 * sin(step / 2))).toFloat())
+    }
+
+    /**
+     * Where a petal is [t] of the way through opening, fanning out like a hand of cards: it leaves the orb along the
+     * middle of the fan and sweeps round to its own angle while it travels out to its spot ([px], [py]).
+     */
+    fun fanAt(t: Float, cx: Float, cy: Float, px: Float, py: Float, toward: Float): Pair<Float, Float> {
+        val k = t.coerceIn(0f, 1.2f)
+        val a = kotlin.math.atan2(py - cy, px - cx)
+        var turn = a - toward
+        while (turn > PI) turn -= (2 * PI).toFloat(); while (turn < -PI) turn += (2 * PI).toFloat()
+        val sweep = kotlin.math.sqrt(k.coerceIn(0f, 1f))
+        val ang = toward + turn * sweep
+        val r = hypot(px - cx, py - cy) * k
+        return (cx + r * cos(ang)) to (cy + r * sin(ang))
+    }
+
+    /** The middle direction of a fan of spots around (cx, cy). */
+    fun middle(spots: List<Pair<Float, Float>>, cx: Float, cy: Float): Float {
+        val sx = spots.sumOf { cos(kotlin.math.atan2(it.second - cy, it.first - cx).toDouble()) }
+        val sy = spots.sumOf { sin(kotlin.math.atan2(it.second - cy, it.first - cx).toDouble()) }
+        return kotlin.math.atan2(sy, sx).toFloat()
+    }
+
     /** True when the orb's center is close enough to the dismiss target to drop it there. */
     fun overTarget(cx: Float, cy: Float, tx: Float, ty: Float, reach: Float) = hypot(cx - tx, cy - ty) <= reach
 

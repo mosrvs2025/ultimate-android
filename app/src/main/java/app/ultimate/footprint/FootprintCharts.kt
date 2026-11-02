@@ -148,7 +148,7 @@ internal fun DayClock(heat: Array<LongArray>) {
 
 /** A ring split by kind of access, sweeping round once. Tap a slice's row to pick it. */
 @Composable
-internal fun AccessDonut(items: List<Pair<String, Int>>, colors: List<Color>, selected: Int, onPick: (Int) -> Unit) {
+internal fun AccessDonut(items: List<Pair<String, Int>>, colors: List<Color>, selected: Int, unit: String? = null, onPick: (Int) -> Unit) {
     val haptics = LocalHapticFeedback.current
     val sweeps = remember(items) { ChartMath.sweeps(items.map { it.second }) }
     val grow = remember(items) { Animatable(0f) }
@@ -163,7 +163,10 @@ internal fun AccessDonut(items: List<Pair<String, Int>>, colors: List<Color>, se
                     from += s + 3f
                 }
             }
-            Text(items.getOrNull(selected)?.second?.toString() ?: items.sumOf { it.second }.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(items.getOrNull(selected)?.second?.toString() ?: items.sumOf { it.second }.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                if (unit != null) Text(unit, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         Column(Modifier.padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items.take(6).forEachIndexed { i, (name, n) ->

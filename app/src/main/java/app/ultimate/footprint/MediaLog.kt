@@ -36,9 +36,12 @@ class MediaLog(private val context: Context) : SQLiteOpenHelper(context, "media.
         writableDatabase.delete("played", "at < ?", arrayOf((System.currentTimeMillis() - 120 * 86_400_000L).toString()))
     }
 
-    @Synchronized fun since(from: Long, limit: Int = 500): List<Played> = readableDatabase.rawQuery("SELECT pkg, title, artist, at, ms FROM played WHERE at >= ? ORDER BY at DESC LIMIT ?", arrayOf(from.toString(), limit.toString())).use { c ->
-        buildList { while (c.moveToNext()) add(Played(c.getString(0), c.getString(1), c.getString(2), c.getLong(3), c.getLong(4))) }
+    @Synchronized fun since(from: Long, limit: Int = 500): List<Played> = readableDatabase.rawQuery("SELECT pkg, title, artist, at, ms, id FROM played WHERE at >= ? ORDER BY at DESC LIMIT ?", arrayOf(from.toString(), limit.toString())).use { c ->
+        buildList { while (c.moveToNext()) add(Played(c.getString(0), c.getString(1), c.getString(2), c.getLong(3), c.getLong(4), c.getLong(5))) }
     }
+
+    /** Forget one thing you watched or listened to. */
+    @Synchronized fun delete(id: Long) { writableDatabase.delete("played", "id = ?", arrayOf(id.toString())) }
 
     @Synchronized fun clear() { writableDatabase.delete("played", null, null) }
 }

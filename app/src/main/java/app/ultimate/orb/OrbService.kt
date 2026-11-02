@@ -302,7 +302,7 @@ class OrbService : Service() {
         val (sw, sh) = screen()
         val cx = orbParams.x + orbPx / 2f; val cy = orbParams.y + orbPx / 2f
         val list = actions()
-        val spots = OrbMath.bloom(cx, cy, list.size, 118 * density, sw.toFloat(), sh.toFloat(), 44 * density)
+        val spots = OrbMath.bloom(cx, cy, list.size, OrbMath.fanRadius(list.size, 84 * density, 118 * density), sw.toFloat(), sh.toFloat(), 44 * density)
         val open = mutableStateOf(true)
         val origin = MutableStateFlow(IntOffset.Zero)
         lateinit var view: View
@@ -476,14 +476,16 @@ private fun Bloom(
         actions.indices.forEach { i -> LaunchedEffect(open) { val t = ts[i]; if (!motion) t.snapTo(if (open) 1f else 0f) else if (open) { delay(28L * i); t.animateTo(1f, spring(0.55f, 380f)) } else t.animateTo(0f, tween(180)) } }
         // The petals' discs, drawn as one gooey layer: each buds out of the orb on a neck of liquid that thins and
         // snaps as it flies, and is pulled back in the same way. Before Android 12 the discs are simply drawn plain.
-        Canvas(Modifier.fillMaxSize().gooey(14f)) {
+        val toward = remember(spots) { OrbMath.middle(spots, cx, cy) }
+        Canvas(Modifier.fillMaxSize().gooey(12f)) {
             val ocx = cx - origin.x; val ocy = cy - origin.y
             val petal = 27.dp.toPx()
             if (ts.any { it.value < 0.98f }) drawCircle(PETAL, orbPx / 2f - 4.dp.toPx(), Offset(ocx, ocy))
             ts.forEachIndexed { i, t ->
                 val v = t.value; if (v <= 0.01f) return@forEachIndexed
                 val (px, py) = spots[i]
-                val x = ocx + (px - cx) * v; val y = ocy + (py - cy) * v
+                val (fx, fy) = OrbMath.fanAt(v, cx, cy, px, py, toward)
+                val x = fx - origin.x; val y = fy - origin.y
                 drawCircle(PETAL, petal * (0.4f + 0.6f * v.coerceIn(0f, 1f)), Offset(x, y))
                 val neck = (1f - v).coerceIn(0f, 1f)
                 if (neck > 0.05f) for (k in 1..3) { val f = k / 4f; drawCircle(PETAL, petal * 0.55f * neck, Offset(ocx + (x - ocx) * f, ocy + (y - ocy) * f)) }
@@ -492,7 +494,8 @@ private fun Bloom(
         actions.forEachIndexed { i, a ->
             val t = ts[i]
             val (px, py) = spots[i]
-            val x = cx + (px - cx) * t.value - origin.x; val y = cy + (py - cy) * t.value - origin.y
+            val (fx, fy) = OrbMath.fanAt(t.value, cx, cy, px, py, toward)
+            val x = fx - origin.x; val y = fy - origin.y
             val sizePx = with(d) { 54.dp.toPx() }
             Column(
                 Modifier.offset { IntOffset((x - sizePx).roundToInt(), (y - sizePx / 2).roundToInt()) }.width(with(d) { (sizePx * 2).toDp() })

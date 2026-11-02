@@ -72,7 +72,15 @@ object FootprintReaders {
         return acc.finish()
     }
 
-    fun label(context: Context, pkg: String) = runCatching { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
+    fun label(context: Context, pkg: String): String = runCatching { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
+        ?.takeIf { it.isNotBlank() && it != pkg } ?: fallbackLabel(pkg)
+
+    /** A readable name for an app that is not installed (any more): "com.spotify.music" becomes "Spotify". */
+    fun fallbackLabel(pkg: String): String {
+        val skip = setOf("com", "org", "net", "android", "app", "apps", "google", "mobile", "client", "music", "mediaclient", "lite", "free", "www")
+        val part = pkg.split('.').lastOrNull { it.length > 2 && it.lowercase() !in skip } ?: pkg.substringAfterLast('.')
+        return part.replaceFirstChar { it.uppercase() }
+    }
 
     /** Every app with an icon on the home screen, and what it can do. */
     fun appAccess(context: Context): List<AppAccess> {

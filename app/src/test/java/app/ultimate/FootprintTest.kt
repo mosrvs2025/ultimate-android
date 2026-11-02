@@ -297,3 +297,36 @@ class ExposureContributorsTest {
         assertEquals(listOf(app.ultimate.footprint.Access.BackgroundLocation, app.ultimate.footprint.Access.Messages), app.ultimate.footprint.ExposureMath.risks(apps[1]))
     }
 }
+
+class MediaHistoryTest {
+    private val utc = TimeZone.getTimeZone("UTC"); private val day = 86_400_000L; private val d0 = 20_000L * day
+    private fun p(title: String, artist: String, at: Long, ms: Long, pkg: String = "com.google.android.youtube") = app.ultimate.footprint.Played(pkg, title, artist, at, ms)
+
+    @Test fun searchMatchesEveryWordAnywhere() {
+        val v = p("Lo-fi beats to study to", "Lofi Girl", d0, 60_000)
+        assertTrue(app.ultimate.footprint.MediaStats.matches(v, "lofi girl"))
+        assertTrue(app.ultimate.footprint.MediaStats.matches(v, "STUDY beats"))
+        assertTrue(app.ultimate.footprint.MediaStats.matches(v, "youtube", "YouTube"))
+        assertTrue(app.ultimate.footprint.MediaStats.matches(v, "   "))
+        assertTrue(!app.ultimate.footprint.MediaStats.matches(v, "study jazz"))
+    }
+
+    @Test fun dailyTotalsLineUpOldestFirst() {
+        val list = listOf(p("a", "", d0 + 2 * day + 1000, 30 * 60_000), p("b", "", d0 + 2 * day + 5000, 10 * 60_000), p("c", "", d0, 5 * 60_000), p("old", "", d0 - 10 * day, 99))
+        val days = app.ultimate.footprint.MediaStats.daily(list, 3, d0 + 2 * day + 3_600_000, utc)
+        assertEquals(listOf(5 * 60_000L, 0L, 40 * 60_000L), days)
+    }
+
+    @Test fun appsThatAreGoneStillGetAName() {
+        assertEquals("Spotify", app.ultimate.footprint.FootprintReaders.fallbackLabel("com.spotify.music"))
+        assertEquals("Youtube", app.ultimate.footprint.FootprintReaders.fallbackLabel("com.google.android.youtube"))
+        assertEquals("Netflix", app.ultimate.footprint.FootprintReaders.fallbackLabel("com.netflix.mediaclient"))
+        assertEquals("Whatsapp", app.ultimate.footprint.FootprintReaders.fallbackLabel("com.whatsapp"))
+    }
+
+    @Test fun busiestHourWeighsByTimePlayed() {
+        val list = listOf(p("a", "", d0 + 21 * 3_600_000L, 90 * 60_000), p("b", "", d0 + 8 * 3_600_000L, 5 * 60_000), p("c", "", d0 + day + 8 * 3_600_000L, 5 * 60_000))
+        assertEquals(21, app.ultimate.footprint.MediaStats.busiestHour(list, utc))
+        assertNull(app.ultimate.footprint.MediaStats.busiestHour(emptyList(), utc))
+    }
+}

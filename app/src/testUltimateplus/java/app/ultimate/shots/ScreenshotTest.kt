@@ -65,7 +65,9 @@ import org.robolectric.shadows.ShadowStatFs
 import java.io.File
 import app.ultimate.inbox.Fate
 import app.ultimate.inbox.InboxInsights
-import androidx.compose.material.icons.Icons
+import app.ultimate.footprint.MediaLog
+import app.ultimate.footprint.Played
+import app.ultimate.footprint.MediaHistoryContent
 
 /**
  * Renders the app's real screens to PNG files for the README: the actual Compose code, drawn on a simulated phone with sample
@@ -238,6 +240,22 @@ class ScreenshotTest {
         show { InboxInsights(log, 0, {}) }
         compose.mainClock.advanceTimeBy(1500)
         save("inbox-insights")
+    }
+
+    @Test fun watchHistory() {
+        // Two weeks of made-up viewing and listening.
+        val log = MediaLog(app)
+        val now = System.currentTimeMillis(); val min = 60_000L; val day = 86_400_000L
+        val yt = "com.google.android.youtube"; val sp = "com.spotify.music"; val nf = "com.netflix.mediaclient"
+        for (d in 0 until 14) {
+            log.add(Played(yt, "How to climb your first V4", "Movement for Climbers", now - d * day - 3 * 3_600_000L, (12 + d % 5) * min))
+            log.add(Played(sp, "Midnight City", "M83", now - d * day - 9 * 3_600_000L, (20 + d % 7) * min))
+            if (d % 2 == 0) log.add(Played(nf, "Arcane", "", now - d * day - 2 * 3_600_000L, 42 * min))
+            if (d % 3 == 0) log.add(Played(yt, "Lo-fi beats to study to", "Lofi Girl", now - d * day - 6 * 3_600_000L, 55 * min))
+        }
+        show { MediaHistoryContent {} }
+        compose.mainClock.advanceTimeBy(1500)
+        save("watch-history")
     }
 
     @Test fun about() {

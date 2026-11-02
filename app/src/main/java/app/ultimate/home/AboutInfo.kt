@@ -34,6 +34,10 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.43.0", listOf(
+            "Search everything you watched and listened to, with a dashboard that follows your search: total time, a day-by-day line, a ring by app (tap to filter) and the artists you spend most time with (tap to search). Open, look up or forget any single item.",
+            "The floating orb fans its actions out like a hand of cards, spaced so they never melt into one block.",
+        )),
         Entry("1.42.0", listOf(
             "The bottom bar's highlight is a drop of liquid: switch tabs and it stretches across, two small drops trail it on necks and get pulled in, and it lands with a squish as the new icon hops up into it.",
             "The splash on every tap is gone.",
