@@ -78,28 +78,42 @@ fun AppIcon(packageName: String, modifier: Modifier = Modifier, size: Dp = 48.dp
     }
 }
 
-/** A circle that pops in, then a check mark that draws itself. */
+/**
+ * Done: six droplets fall in from a ring and melt into one circle (the gooey effect, Android 12 and newer; plain
+ * dots that gather into a circle before that), then a check mark draws itself across it.
+ */
 @Composable
 fun SuccessCheck(size: Dp, color: Color, modifier: Modifier = Modifier) {
-    val circle = remember { Animatable(0f) }
-    val tick = remember { Animatable(0f) }
+    val motion = motionOn()
+    val gather = remember { Animatable(if (motion) 0f else 1f) }
+    val circle = remember { Animatable(if (motion) 0f else 1f) }
+    val tick = remember { Animatable(if (motion) 0f else 1f) }
     LaunchedEffect(Unit) {
+        if (!motion) return@LaunchedEffect
+        gather.animateTo(1f, tween(420))
         circle.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
         tick.animateTo(1f, tween(320))
     }
-    Canvas(modifier.size(size)) {
-        drawCircle(color, radius = this.size.minDimension / 2 * circle.value)
-        val w = this.size.width
-        val h = this.size.height
-        val path = Path().apply {
-            moveTo(w * 0.28f, h * 0.52f)
-            lineTo(w * 0.44f, h * 0.68f)
-            lineTo(w * 0.74f, h * 0.36f)
+    Box(modifier.size(size)) {
+        Canvas(Modifier.matchParentSize().gooey((size.value / 9f).coerceIn(3f, 10f))) {
+            val r = this.size.minDimension / 2
+            val c = center
+            if (circle.value < 1f) for (i in 0 until 6) drawCircle(color, r * 0.22f, c + GooeyMath.converge(i, 6, gather.value, r * 0.85f))
+            drawCircle(color, r * (0.35f * gather.value + 0.65f * circle.value).coerceIn(0f, 1f))
         }
-        val measure = PathMeasure().apply { setPath(path, false) }
-        val partial = Path()
-        measure.getSegment(0f, measure.length * tick.value, partial, true)
-        drawPath(partial, Color.White, style = Stroke(width = w * 0.08f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        Canvas(Modifier.matchParentSize()) {
+            val w = this.size.width
+            val h = this.size.height
+            val path = Path().apply {
+                moveTo(w * 0.28f, h * 0.52f)
+                lineTo(w * 0.44f, h * 0.68f)
+                lineTo(w * 0.74f, h * 0.36f)
+            }
+            val measure = PathMeasure().apply { setPath(path, false) }
+            val partial = Path()
+            measure.getSegment(0f, measure.length * tick.value, partial, true)
+            drawPath(partial, Color.White, style = Stroke(width = w * 0.08f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
     }
 }
 
