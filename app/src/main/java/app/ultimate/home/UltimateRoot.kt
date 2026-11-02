@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.UltimateApp
+import app.ultimate.core.GooeyTouches
 import app.ultimate.core.LocalShellNav
 import app.ultimate.core.ShellNav
 import app.ultimate.core.ToolLaunch
@@ -61,8 +62,11 @@ fun UltimateRoot(app: UltimateApp) {
     val standalone = app.tools.size == 1
     val nav = remember { ShellNav(standalone, openLibrary = shell::showLibraryForCurrentTool, openActivity = shell::showActivity, openAbout = shell::showAbout, tools = app.tools, send = { t, uris -> shell.open(t, ToolLaunch(uris)) }) }
 
+    // Every tap anywhere in the app answers with a small gooey splash under the finger.
     CompositionLocalProvider(LocalShellNav provides nav) {
-        if (standalone) StandaloneRoot(app, route, onExitApp = { (context as? Activity)?.finish() }) else SuiteRoot(app, route)
+        GooeyTouches(Modifier.fillMaxSize()) {
+            if (standalone) StandaloneRoot(app, route, onExitApp = { (context as? Activity)?.finish() }) else SuiteRoot(app, route)
+        }
     }
 
     incoming?.let { pending -> HandSheet(app, pending) }

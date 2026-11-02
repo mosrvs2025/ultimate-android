@@ -59,6 +59,22 @@ class GooeyMathTest {
         (0 until 6).forEach { i -> assertEquals(Offset.Zero.getDistance(), GooeyMath.converge(i, 6, 1f, 10f).getDistance(), 1e-4f) }
     }
 
+    @Test fun tapSplashGrowsSplitsMergesAndVanishes() {
+        assertEquals(4, GooeyMath.splash(0.5f, 1f).size)
+        assertTrue(GooeyMath.splash(0f, 1f).all { it.second == 0f })                       // nothing before the tap lands
+        val out = GooeyMath.splash(0.5f, 1f)
+        assertEquals(16f, out[0].second, 1e-3f)                                            // the drop at full size
+        out.drop(1).forEach { (o, r) -> assertEquals(30f, o.getDistance(), 1e-3f); assertEquals(7f, r, 1e-3f) } // droplets flung out
+        GooeyMath.splash(0.9f, 1f).drop(1).forEach { (o, _) -> assertEquals(0f, o.getDistance(), 1e-3f) }   // and pulled back in
+        assertTrue(GooeyMath.splash(1f, 1f).all { it.second == 0f })                       // gone at the end
+        assertEquals(32f, GooeyMath.splash(0.5f, 2f)[0].second, 1e-3f)                    // scales with density
+    }
+
+    @Test fun thumbSwellsOnlyMidway() {
+        assertEquals(1f, GooeyMath.swell(0f), 1e-4f); assertEquals(1f, GooeyMath.swell(1f), 1e-4f)
+        assertEquals(1.3f, GooeyMath.swell(0.5f), 1e-4f); assertEquals(1f, GooeyMath.swell(1.5f), 1e-4f)
+    }
+
     @Test fun flowingDropsStayNearTheTrack() {
         for (k in 0..100) GooeyMath.flowing(k / 100f).forEach { x -> assertTrue("$x", x in -0.15f..1.15f) }
         assertEquals(3, GooeyMath.flowing(0f).size)
@@ -82,6 +98,14 @@ class GooeyComponentsTest {
         compose.onNodeWithTag("s").performClick(); compose.onNodeWithTag("s").assertIsOn()
         compose.onNodeWithTag("s").performClick(); compose.onNodeWithTag("s").assertIsOff()
         assertEquals(listOf(true, false), changed)
+    }
+
+    @Test fun tapSplashNeverTakesTheTap() {
+        var clicks = 0
+        compose.setContent { MaterialTheme { app.ultimate.core.GooeyTouches { androidx.compose.material3.Button({ clicks++ }) { androidx.compose.material3.Text("Go") } } } }
+        compose.onNodeWithText("Go").performClick(); compose.onNodeWithText("Go").performClick()
+        compose.waitForIdle()
+        assertEquals(2, clicks)
     }
 
     @Test fun disabledSwitchDoesNothing() {

@@ -89,7 +89,7 @@ internal fun LiveHero(title: String, body: String) {
             .background(Brush.linearGradient(listOf(a, b, a), start = Offset(-400f + 900f * drift, 0f), end = Offset(400f + 900f * drift, 500f))),
     ) {
         // Drops of colour that drift, drift together and pull apart, with the gooey effect.
-        Box(Modifier.matchParentSize().alpha(0.28f)) {
+        Box(Modifier.matchParentSize().alpha(0.4f)) {
             Canvas(Modifier.matchParentSize().gooey(12f)) {
                 val u = 1.dp.toPx()
                 for (i in 0 until 7) {

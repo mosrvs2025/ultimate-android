@@ -476,7 +476,7 @@ private fun Bloom(
         actions.indices.forEach { i -> LaunchedEffect(open) { val t = ts[i]; if (!motion) t.snapTo(if (open) 1f else 0f) else if (open) { delay(28L * i); t.animateTo(1f, spring(0.55f, 380f)) } else t.animateTo(0f, tween(180)) } }
         // The petals' discs, drawn as one gooey layer: each buds out of the orb on a neck of liquid that thins and
         // snaps as it flies, and is pulled back in the same way. Before Android 12 the discs are simply drawn plain.
-        Canvas(Modifier.fillMaxSize().gooey(10f)) {
+        Canvas(Modifier.fillMaxSize().gooey(14f)) {
             val ocx = cx - origin.x; val ocy = cy - origin.y
             val petal = 27.dp.toPx()
             if (ts.any { it.value < 0.98f }) drawCircle(PETAL, orbPx / 2f - 4.dp.toPx(), Offset(ocx, ocy))
@@ -486,7 +486,7 @@ private fun Bloom(
                 val x = ocx + (px - cx) * v; val y = ocy + (py - cy) * v
                 drawCircle(PETAL, petal * (0.4f + 0.6f * v.coerceIn(0f, 1f)), Offset(x, y))
                 val neck = (1f - v).coerceIn(0f, 1f)
-                if (neck > 0.05f) for (k in 1..3) { val f = k / 4f; drawCircle(PETAL, petal * 0.42f * neck, Offset(ocx + (x - ocx) * f, ocy + (y - ocy) * f)) }
+                if (neck > 0.05f) for (k in 1..3) { val f = k / 4f; drawCircle(PETAL, petal * 0.55f * neck, Offset(ocx + (x - ocx) * f, ocy + (y - ocy) * f)) }
             }
         }
         actions.forEachIndexed { i, a ->

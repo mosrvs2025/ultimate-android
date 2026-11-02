@@ -59,6 +59,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import kotlinx.coroutines.launch
 
 /*
  * Gooey building blocks. Each one draws its moving shapes in a single Canvas with Modifier.gooey(), so shapes that
@@ -96,6 +104,26 @@ object GooeyMath {
         return Offset(kotlin.math.cos(a) * d, kotlin.math.sin(a) * d)
     }
 
+    /**
+     * A tap splash at time [t] (0 to 1): a drop swells under the finger, three droplets break off and fly out, then
+     * fall back in and everything shrinks away. Returns (offset from the touch, radius) pairs in units of [unit].
+     */
+    fun splash(t: Float, unit: Float, seed: Int = 0): List<Pair<Offset, Float>> {
+        val k = t.coerceIn(0f, 1f)
+        val core = unit * 16f * when { k < 0.3f -> k / 0.3f; k < 0.6f -> 1f; else -> (1f - k) / 0.4f }
+        // Out until 0.5, back in by 0.9: the droplets leave the drop and melt back into it.
+        val reach = unit * 30f * when { k < 0.15f -> 0f; k < 0.5f -> (k - 0.15f) / 0.35f; k < 0.9f -> (0.9f - k) / 0.4f; else -> 0f }
+        val drop = unit * 7f * when { k < 0.15f -> k / 0.15f; k < 0.85f -> 1f; else -> ((1f - k) / 0.15f) }
+        val turn = (seed % 360) * (Math.PI / 180).toFloat()
+        return listOf(Offset.Zero to core) + (0 until 3).map { i ->
+            val a = turn + (2 * Math.PI * i / 3).toFloat()
+            Offset(kotlin.math.cos(a) * reach, kotlin.math.sin(a) * reach) to drop
+        }
+    }
+
+    /** A thumb swells a little in the middle of its trip, like a drop stretched by moving: 1 at rest, up to 1 + [amount]. */
+    fun swell(pos: Float, amount: Float = 0.3f) = 1f + amount * kotlin.math.sin(Math.PI.toFloat() * pos.coerceIn(0f, 1f))
+
     /** The blobs of a progress bar that does not know how far along it is: x centres, as fractions of the width. */
     fun flowing(phase: Float): List<Float> = listOf(0f to 1f, 0.35f to 1.6f, 0.7f to 0.8f).map { (offset, speed) -> ((phase * speed + offset) % 1f) * 1.3f - 0.15f }
 }
@@ -113,20 +141,24 @@ fun GooeyTabs(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modi
     val haptics = LocalHapticFeedback.current
     val spots = remember(labels) { mutableStateMapOf<Int, Pair<Float, Float>>() }
     val target = spots[selected]
-    val left by animateFloatAsState(target?.first ?: 0f, moveSpec(motion, Spring.StiffnessMedium), label = "tabL")
-    val width by animateFloatAsState(target?.second ?: 0f, moveSpec(motion, Spring.StiffnessMedium), label = "tabW")
-    val left2 by animateFloatAsState(target?.first ?: 0f, moveSpec(motion, Spring.StiffnessLow), label = "tabL2")
-    val width2 by animateFloatAsState(target?.second ?: 0f, moveSpec(motion, Spring.StiffnessLow), label = "tabW2")
+    // The pill lands with a little squish; two drops follow it at slower speeds, so on the way they hang back on
+    // necks of liquid and are pulled in when the pill stops.
+    val left by animateFloatAsState(target?.first ?: 0f, moveSpec(motion, Spring.StiffnessMediumLow, Spring.DampingRatioLowBouncy), label = "tabL")
+    val width by animateFloatAsState(target?.second ?: 0f, moveSpec(motion, Spring.StiffnessMediumLow, Spring.DampingRatioLowBouncy), label = "tabW")
+    val mid = (target?.first ?: 0f) + (target?.second ?: 0f) / 2
+    val trail1 by animateFloatAsState(mid, moveSpec(motion, Spring.StiffnessLow), label = "tabT1")
+    val trail2 by animateFloatAsState(mid, moveSpec(motion, Spring.StiffnessVeryLow), label = "tabT2")
     val scroll = rememberScrollState()
     if (scrollable) LaunchedEffect(selected, target) { target?.let { scroll.animateScrollTo((it.first - 48f).toInt().coerceAtLeast(0)) } }
     val pill = MaterialTheme.colorScheme.primary
     val outer = if (scrollable) modifier.fillMaxWidth().horizontalScroll(scroll) else modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerHigh)
     Box(outer.padding(3.dp)) {
-        Canvas(Modifier.matchParentSize().gooey(6f)) {
+        Canvas(Modifier.matchParentSize().gooey(9f)) {
             if (target == null) return@Canvas
             val h = size.height
             drawRoundRect(pill, Offset(left, 0f), Size(width, h), CornerRadius(h / 2))
-            drawRoundRect(pill, Offset(left2, h * 0.12f), Size(width2, h * 0.76f), CornerRadius(h / 2))
+            drawCircle(pill, h * 0.36f, Offset(trail1, h / 2))
+            drawCircle(pill, h * 0.26f, Offset(trail2, h / 2))
         }
         Row(if (scrollable) Modifier else Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(if (scrollable) 4.dp else 0.dp)) {
             labels.forEachIndexed { i, text ->
@@ -155,6 +187,7 @@ fun GooeySwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifie
     val goal = if (checked) 1f else 0f
     val pos by animateFloatAsState(goal, moveSpec(motion, Spring.StiffnessMedium, Spring.DampingRatioMediumBouncy), label = "thumb")
     val lag by animateFloatAsState(goal, moveSpec(motion, Spring.StiffnessLow), label = "thumbLag")
+    val tail by animateFloatAsState(goal, moveSpec(motion, Spring.StiffnessVeryLow), label = "thumbTail")
     val track by animateColorAsState(if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest, label = "track")
     val thumb by animateColorAsState(if (checked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.outline, label = "thumbC")
     val edge = MaterialTheme.colorScheme.outline
@@ -164,11 +197,13 @@ fun GooeySwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifie
             drawRoundRect(track, cornerRadius = CornerRadius(size.height / 2))
             if (pos < 1f) drawRoundRect(edge.copy(alpha = 1f - pos), topLeft = Offset(1.dp.toPx(), 1.dp.toPx()), size = Size(size.width - 2.dp.toPx(), size.height - 2.dp.toPx()), cornerRadius = CornerRadius(size.height / 2), style = Stroke(2.dp.toPx()))
         }) {
-            Canvas(Modifier.matchParentSize().gooey(4f)) {
-                val r = GooeyMath.lerp(8.dp.toPx(), 12.dp.toPx(), pos.coerceIn(0f, 1.2f))
+            Canvas(Modifier.matchParentSize().gooey(6f)) {
+                // The thumb swells mid-way and drags two smaller drops behind it, which it swallows when it lands.
+                val r = GooeyMath.lerp(8.dp.toPx(), 12.dp.toPx(), pos.coerceIn(0f, 1.2f)) * GooeyMath.swell(pos, 0.25f)
                 val inset = 16.dp.toPx()
                 drawCircle(thumb, r, Offset(GooeyMath.thumbX(pos, size.width, inset), size.height / 2))
-                drawCircle(thumb, r * 0.75f, Offset(GooeyMath.thumbX(lag, size.width, inset), size.height / 2))
+                drawCircle(thumb, r * 0.7f, Offset(GooeyMath.thumbX(lag, size.width, inset), size.height / 2))
+                drawCircle(thumb, r * 0.45f, Offset(GooeyMath.thumbX(tail, size.width, inset), size.height / 2))
             }
         }
     }
@@ -189,11 +224,14 @@ fun GooeyProgress(progress: () -> Float, modifier: Modifier = Modifier, color: C
     val working = live && motion && p > 0.005f && p < 0.995f
     val bob = if (working) rememberInfiniteTransition(label = "bob").animateFloat(0f, 1f, infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse), label = "bob").value else 0f
     Box(modifier.defaultMinSize(minHeight = 6.dp).progressSemantics(p).drawBehind { drawRoundRect(trackColor, cornerRadius = CornerRadius(size.height / 2)) }) {
-        Spacer(Modifier.matchParentSize().gooey(2f).drawBehind {
+        Spacer(Modifier.matchParentSize().gooey(3f).drawBehind {
             val h = size.height
             if (head > 0.001f) drawRoundRect(color, size = Size((size.width * head).coerceAtLeast(h), h), cornerRadius = CornerRadius(h / 2))
             if (body > 0.001f) drawRoundRect(color, topLeft = Offset(0f, h * 0.2f), size = Size((size.width * body).coerceAtLeast(h), h * 0.6f), cornerRadius = CornerRadius(h / 2))
-            if (working) drawCircle(color, h * 0.42f, Offset(size.width * head + h * 0.2f + bob * h * 1.1f, h / 2))
+            // A bulb on the leading edge while it moves or works, and a droplet that breaks off it and is pulled back.
+            val moving = kotlin.math.abs(head - body) > 0.01f
+            if (head > 0.001f && (working || moving)) drawCircle(color, h * 0.62f, Offset(size.width * head, h / 2))
+            if (working) drawCircle(color, h * 0.5f, Offset(size.width * head + h * 0.4f + bob * h * 2.2f, h / 2))
         })
     }
 }
@@ -211,6 +249,40 @@ fun GooeyProgress(modifier: Modifier = Modifier, color: Color = MaterialTheme.co
         })
     }
 }
+
+/**
+ * Wraps the whole app so every tap answers with a small splash of liquid: a faint drop swells under the finger,
+ * droplets break off and melt back in, and it is gone in half a second. It only watches touches (never takes them),
+ * draws nothing between taps, and stays off when animations are off.
+ */
+@Composable
+fun GooeyTouches(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val motion = motionOn()
+    val splashes = remember { mutableStateListOf<Splash>() }
+    val scope = rememberCoroutineScope()
+    val ink = MaterialTheme.colorScheme.primary
+    Box(modifier.then(if (!motion) Modifier else Modifier.pointerInput(Unit) {
+        var n = 0
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            if (splashes.size < 4) {
+                val s = Splash(down.position, Animatable(0f), (n++ * 47) % 360)
+                splashes += s
+                scope.launch { s.t.animateTo(1f, tween(520, easing = LinearEasing)); splashes.remove(s) }
+            }
+        }
+    })) {
+        content()
+        if (splashes.isNotEmpty()) Box(Modifier.matchParentSize().alpha(0.2f)) {
+            Canvas(Modifier.matchParentSize().gooey(8f)) {
+                splashes.forEach { s -> GooeyMath.splash(s.t.value, 1.dp.toPx(), s.seed).forEach { (o, r) -> if (r > 0.5f) drawCircle(ink, r, s.at + o) } }
+            }
+        }
+    }
+}
+
+/** One tap's splash in flight. */
+class Splash(val at: Offset, val t: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>, val seed: Int)
 
 /** Shorthand used by the Footprint page and others: a gooey pill row sized for a section bar. */
 @Composable
