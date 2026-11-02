@@ -319,7 +319,7 @@ internal fun toolSections(tools: List<app.ultimate.core.Tool>): List<Pair<String
         "Create" to listOf("studio", "squeeze", "audio", "recorder", "photos", "prompter"),
         "Phone" to listOf("files", "storage", "footprint", "cleanup", "inbox", "clips", "checkup", "pluck", "sensors", "sound-meter"),
         "Network" to listOf("hosts", "ssh", "traffic", "lan", "send"),
-        "Smart" to listOf("rules", "recipes", "orb", "screentime", "terminal"),
+        "Smart" to listOf("focus", "rules", "recipes", "orb", "screentime", "terminal"),
     )
     val placed = families.values.flatten().toSet()
     return (families.map { (name, ids) -> name to ids.mapNotNull { id -> tools.firstOrNull { it.id == id } } } + ("More" to tools.filter { it.id !in placed }))

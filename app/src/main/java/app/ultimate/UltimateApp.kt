@@ -63,6 +63,7 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
     val photos by lazy { app.ultimate.photos.PhotoManager(this, work) }
     val automations by lazy { app.ultimate.recipes.Automations(this) }
     val recipes by lazy { app.ultimate.recipes.RecipeRunner(this) }
+    val focus by lazy { app.ultimate.focus.FocusStore(this) }
     val notificationLog by lazy { app.ultimate.inbox.NotificationLog(this) }
     val clips by lazy { app.ultimate.clips.ClipStore(this) }
     val rules by lazy { app.ultimate.rules.RuleEngine(this) }
@@ -97,6 +98,7 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
             if (BuildConfig.HAS_ORB) add(app.ultimate.orb.OrbTool())
             if (BuildConfig.HAS_RULES) add(app.ultimate.rules.RulesTool(this@UltimateApp))
             if (BuildConfig.HAS_FOOTPRINT) add(app.ultimate.footprint.FootprintTool(this@UltimateApp))
+            if (BuildConfig.HAS_FOCUS) add(app.ultimate.focus.FocusTool(this@UltimateApp))
             if (BuildConfig.HAS_SCREENTIME) add(app.ultimate.screentime.ScreenTimeTool(this@UltimateApp))
             if (BuildConfig.HAS_SENSORS) add(app.ultimate.sensors.SensorsTool((getSystemService(SENSOR_SERVICE) as android.hardware.SensorManager).getSensorList(android.hardware.Sensor.TYPE_ALL).size))
         }
@@ -116,6 +118,8 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
         automations.watchScreenRecordings()
         if (BuildConfig.HAS_FILES) app.ultimate.files.UpdateWatcher.arm(this)
         if (BuildConfig.HAS_FOOTPRINT) app.ultimate.footprint.StepSampler.schedule(this)
+        // A focus session that was running when the phone restarted (or Ultimate was closed) picks up where it was.
+        if (BuildConfig.HAS_FOCUS && focus.current.value != null) app.ultimate.focus.FocusService.start(this)
         if (BuildConfig.HAS_RULES) {
             // Copies the rules did themselves are not offered back to the rules, so a rule can never trigger itself.
             if (BuildConfig.HAS_CLIPS) clips.onAdded = { text, source -> if (source != "Rules") rules.fire(app.ultimate.rules.Event.Copied(text)) }

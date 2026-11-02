@@ -173,6 +173,12 @@
             </intent-filter>
         </service>
         <service
+            android:name=".focus.FocusService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Runs a focus session the user started: a countdown, and a check of which app is in front every 30 seconds" />
+        </service>
+        <service
             android:name=".rules.RulesService"
             android:exported="false"
             android:foregroundServiceType="specialUse">

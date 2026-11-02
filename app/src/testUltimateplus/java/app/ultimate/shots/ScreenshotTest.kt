@@ -68,6 +68,10 @@ import app.ultimate.inbox.InboxInsights
 import app.ultimate.footprint.MediaLog
 import app.ultimate.footprint.Played
 import app.ultimate.footprint.MediaHistoryContent
+import app.ultimate.focus.Check
+import app.ultimate.focus.FocusScreen
+import app.ultimate.focus.FocusStore
+import app.ultimate.focus.Verdict
 
 /**
  * Renders the app's real screens to PNG files for the README: the actual Compose code, drawn on a simulated phone with sample
@@ -256,6 +260,24 @@ class ScreenshotTest {
         show { MediaHistoryContent {} }
         compose.mainClock.advanceTimeBy(1500)
         save("watch-history")
+    }
+
+    @Test fun focus() {
+        // Twelve minutes into a 30 minute session: mostly on task, one drift into Instagram that got a nudge.
+        java.io.File(app.filesDir, "focus.json").delete()
+        val store = FocusStore(app)
+        val now = System.currentTimeMillis(); val start = now - 12 * 60_000L
+        store.start("Write the intro to my essay", 30, setOf("com.google.android.apps.docs"), now = start)
+        for (i in 1..24) {
+            val at = start + i * 30_000L
+            val drift = i in 9..12
+            store.addCheck(Check(at, if (drift) "com.instagram.android" else "com.google.android.apps.docs", if (drift) Verdict.Drift else if (i == 5) Verdict.Unsure else Verdict.OnTask, if (drift) 0.9f else 0f))
+            if (i == 10) store.addNudge(at)
+        }
+        show { FocusScreen(store) {} }
+        compose.mainClock.advanceTimeBy(1200)
+        save("focus")
+        store.end()
     }
 
     @Test fun about() {

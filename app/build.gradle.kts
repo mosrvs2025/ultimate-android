@@ -16,8 +16,8 @@ android {
         minSdk = 29
         targetSdk = 35
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 49
-        versionName = "1.43.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 50
+        versionName = "1.44.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -51,6 +51,7 @@ android {
             buildConfigField("boolean", "HAS_ORB", "true")
             buildConfigField("boolean", "HAS_RULES", "true")
             buildConfigField("boolean", "HAS_FOOTPRINT", "true")
+            buildConfigField("boolean", "HAS_FOCUS", "true")
         }
         // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
         create("ultimateplus") {
@@ -80,6 +81,7 @@ android {
             buildConfigField("boolean", "HAS_ORB", "true")
             buildConfigField("boolean", "HAS_RULES", "true")
             buildConfigField("boolean", "HAS_FOOTPRINT", "true")
+            buildConfigField("boolean", "HAS_FOCUS", "true")
         }
         create("studio") {
             dimension = "edition"
@@ -107,6 +109,7 @@ android {
             buildConfigField("boolean", "HAS_ORB", "false")
             buildConfigField("boolean", "HAS_RULES", "false")
             buildConfigField("boolean", "HAS_FOOTPRINT", "false")
+            buildConfigField("boolean", "HAS_FOCUS", "false")
         }
         create("traffic") {
             dimension = "edition"
@@ -134,6 +137,7 @@ android {
             buildConfigField("boolean", "HAS_ORB", "false")
             buildConfigField("boolean", "HAS_RULES", "false")
             buildConfigField("boolean", "HAS_FOOTPRINT", "false")
+            buildConfigField("boolean", "HAS_FOCUS", "false")
         }
         create("squeeze") {
             dimension = "edition"
@@ -161,6 +165,7 @@ android {
             buildConfigField("boolean", "HAS_ORB", "false")
             buildConfigField("boolean", "HAS_RULES", "false")
             buildConfigField("boolean", "HAS_FOOTPRINT", "false")
+            buildConfigField("boolean", "HAS_FOCUS", "false")
         }
         create("audio") {
             dimension = "edition"
@@ -188,6 +193,7 @@ android {
             buildConfigField("boolean", "HAS_ORB", "false")
             buildConfigField("boolean", "HAS_RULES", "false")
             buildConfigField("boolean", "HAS_FOOTPRINT", "false")
+            buildConfigField("boolean", "HAS_FOCUS", "false")
         }
         create("pluck") {
             dimension = "edition"
@@ -215,6 +221,7 @@ android {
             buildConfigField("boolean", "HAS_ORB", "false")
             buildConfigField("boolean", "HAS_RULES", "false")
             buildConfigField("boolean", "HAS_FOOTPRINT", "false")
+            buildConfigField("boolean", "HAS_FOCUS", "false")
         }
     }
 
