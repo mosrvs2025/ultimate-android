@@ -34,6 +34,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.45.0", listOf(
+            "The floating orb's actions never overlap now, even with the orb on an edge or in a corner: they open in a half circle into the screen and nudge apart until they fit.",
+            "The orb has a More button with every tool. Hold any of them to pin it to the orb, up to six.",
+            "Jump to, inside the app, is new: the bubble melts into a panel with search, the tools you use most, and every tool by family.",
+        )),
         Entry("1.44.0", listOf(
             "New Focus tool, with ideas from Bluey: tell a little blueberry what you're working on and for how long. Its eyes follow your finger; it smiles while you're on task and looks worried when you drift.",
             "Every 30 seconds it notes which app is in front (on the phone, no screenshots). Drift has to last before it says anything, it waits two minutes between nudges, and a nudge is a gentle line and a soft chirp.",

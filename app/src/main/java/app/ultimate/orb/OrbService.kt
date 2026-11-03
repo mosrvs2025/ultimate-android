@@ -102,6 +102,11 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import app.ultimate.core.gooey
 import app.ultimate.core.motionOn
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 
 /** One petal of the bloom: a tool to open (or Home, for null). */
 data class OrbAction(val key: String, val label: String, val icon: ImageVector, val toolId: String?)
@@ -293,8 +298,21 @@ class OrbService : Service() {
             OrbAction("inbox", "Notifications", tools.firstOrNull { it.id == "inbox" }?.icon ?: Icons.Rounded.AutoAwesome, "inbox"),
             OrbAction("cleanup", "Clean up", tools.firstOrNull { it.id == "cleanup" }?.icon ?: Icons.Rounded.AutoAwesome, "cleanup"),
         ).filter { it.toolId == null || it.toolId in ids }
-        // Home stays first; the rest learn from what you tap most.
-        return listOf(all.first()) + OrbMath.byUse(all.drop(1), { it.key }) { prefs.getInt("use.$it", 0) }.take(6)
+        // Home stays first. Tools you pinned (hold one in More) come next, in the order you pinned them; without pins the
+        // rest learn from what you tap most. More is always last, for everything else.
+        val pinned = pins().mapNotNull { key -> everything().firstOrNull { it.key == key } }
+        val rest = if (pinned.isNotEmpty()) pinned.take(6) else OrbMath.byUse(all.drop(1), { it.key }) { prefs.getInt("use.$it", 0) }.take(6)
+        return listOf(all.first()) + rest + OrbAction("more", "More", Icons.Rounded.Apps, null)
+    }
+
+    /** Every tool, for the More drawer. */
+    private fun everything(): List<OrbAction> = app?.tools.orEmpty().map { OrbAction(it.id, it.title, it.icon, it.id) }
+
+    private fun pins(): List<String> = prefs.getString("pins", "").orEmpty().split(',').filter { it.isNotBlank() }
+    private fun togglePin(key: String): List<String> {
+        val now = pins().let { if (key in it) it - key else (it + key).takeLast(6) }
+        prefs.edit().putString("pins", now.joinToString(",")).apply()
+        return now
     }
 
     private fun bloom() {
@@ -302,7 +320,8 @@ class OrbService : Service() {
         val (sw, sh) = screen()
         val cx = orbParams.x + orbPx / 2f; val cy = orbParams.y + orbPx / 2f
         val list = actions()
-        val spots = OrbMath.bloom(cx, cy, list.size, OrbMath.fanRadius(list.size, 84 * density, 118 * density), sw.toFloat(), sh.toFloat(), 44 * density)
+        val spots = OrbMath.layout(cx, cy, list.size, 84 * density, 118 * density, sw.toFloat(), sh.toFloat(), 44 * density)
+        val pinned = mutableStateOf(pins().toSet())
         val open = mutableStateOf(true)
         val origin = MutableStateFlow(IntOffset.Zero)
         lateinit var view: View
@@ -311,7 +330,7 @@ class OrbService : Service() {
             scope.launch { delay(230); runCatching { wm.removeView(view) }; bloomView = null; orbView?.visibility = View.VISIBLE; then?.invoke() }
         }
         view = compose {
-            Bloom(open.value, cx, cy, list, spots, orbPx, origin, onPick = { a ->
+            Bloom(open.value, cx, cy, list, spots, orbPx, origin, everything(), pinned.value, onPin = { pinned.value = togglePin(it).toSet() }, onPick = { a ->
                 prefs.edit().putInt("use.${a.key}", prefs.getInt("use.${a.key}", 0) + 1).apply()
                 close { launch(a.toolId) }
             }) { close() }
@@ -462,14 +481,17 @@ private fun DismissTarget(near: MutableStateFlow<Boolean>) {
 
 @Composable
 private fun Bloom(
-    open: Boolean, cx: Float, cy: Float, actions: List<OrbAction>, spots: List<Pair<Float, Float>>, orbPx: Int,
-    windowOrigin: MutableStateFlow<IntOffset>, onPick: (OrbAction) -> Unit, onClose: () -> Unit,
+    shown: Boolean, cx: Float, cy: Float, actions: List<OrbAction>, spots: List<Pair<Float, Float>>, orbPx: Int,
+    windowOrigin: MutableStateFlow<IntOffset>, all: List<OrbAction>, pinned: Set<String>, onPin: (String) -> Unit, onPick: (OrbAction) -> Unit, onClose: () -> Unit,
 ) {
-    val scrim by animateFloatAsState(if (open) 0.42f else 0f, tween(220), label = "scrim")
+    // More swaps the petals for a drawer of every tool; tapping outside the drawer goes back to the petals.
+    var more by remember { mutableStateOf(false) }
+    val open = shown && !more
+    val scrim by animateFloatAsState(if (shown) (if (more) 0.6f else 0.42f) else 0f, tween(220), label = "scrim")
     val d = LocalDensity.current
     val origin by windowOrigin.collectAsState()
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = scrim))
-        .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClose)) {
+        .clickable(remember { MutableInteractionSource() }, indication = null) { if (more) more = false else onClose() }) {
         // Each petal flies out from the orb on a spring, a beat after the one before; closing pulls them back in.
         val motion = motionOn()
         val ts = remember(actions.size) { List(actions.size) { Animatable(if (motion) 0f else 1f) } }
@@ -502,18 +524,55 @@ private fun Bloom(
                     .graphicsLayer { alpha = t.value.coerceIn(0f, 1f) },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(Modifier.size(54.dp).clip(CircleShape).clickable { onPick(a) }, contentAlignment = Alignment.Center) {
+                Box(Modifier.size(54.dp).clip(CircleShape).clickable(enabled = open) { if (a.key == "more") more = true else onPick(a) }, contentAlignment = Alignment.Center) {
                     Icon(a.icon, a.label, tint = Color.White, modifier = Modifier.size(24.dp))
                 }
                 Text(a.label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 1,
                     modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.45f)).padding(horizontal = 6.dp, vertical = 1.dp))
             }
         }
+        androidx.compose.animation.AnimatedVisibility(
+            more && shown, Modifier.align(Alignment.BottomCenter),
+            enter = androidx.compose.animation.scaleIn(spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMediumLow), initialScale = 0.6f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)) + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.scaleOut(targetScale = 0.8f) + androidx.compose.animation.fadeOut(),
+        ) { Drawer(all, pinned, onPin, onPick) }
         // The orb stays where it was, turning into a close button.
         val spin by animateFloatAsState(if (open) 135f else 0f, spring(Spring.DampingRatioMediumBouncy), label = "spin")
         Box(Modifier.offset { IntOffset((cx - orbPx / 2f - origin.x).roundToInt(), (cy - orbPx / 2f - origin.y).roundToInt()) }.size(with(d) { orbPx.toDp() }).padding(4.dp)
             .shadow(10.dp, CircleShape).clip(CircleShape).background(ORB_BRUSH).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
             Icon(Icons.Rounded.Close, "Close", Modifier.size(26.dp).graphicsLayer { rotationZ = spin - 135f }, tint = Color.White)
+        }
+    }
+}
+
+/** Every tool in a compact grid, over any app. Tap one to open it; hold one to pin it to the orb's fan (up to six). */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun Drawer(all: List<OrbAction>, pinned: Set<String>, onPin: (String) -> Unit, onPick: (OrbAction) -> Unit) {
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Column(
+        Modifier.padding(12.dp).fillMaxWidth().heightIn(max = 520.dp).clip(RoundedCornerShape(28.dp)).background(PETAL)
+            .clickable(remember { MutableInteractionSource() }, indication = null) {}.padding(16.dp),
+    ) {
+        Text("All tools", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("Hold one to pin it to the orb. Pinned: ${pinned.size} of 6.", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.padding(bottom = 10.dp))
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(androidx.compose.foundation.lazy.grid.GridCells.Fixed(4), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(all.size) { i ->
+                val a = all[i]
+                val on = a.key in pinned
+                Column(
+                    Modifier.clip(RoundedCornerShape(16.dp)).combinedClickable(onLongClick = { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); onPin(a.key) }) { onPick(a) }.padding(vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box {
+                        Box(Modifier.size(46.dp).clip(CircleShape).background(if (on) Color(0xFF6F7CFF) else Color.White.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
+                            Icon(a.icon, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                        }
+                        if (on) Box(Modifier.align(Alignment.TopEnd).size(14.dp).clip(CircleShape).background(Color(0xFFFFC857)))
+                    }
+                    Text(a.label, color = Color.White, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
         }
     }
 }

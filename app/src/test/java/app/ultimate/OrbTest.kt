@@ -65,3 +65,28 @@ class OrbTest {
         assertEquals(listOf("c", "a", "b", "d"), OrbMath.byUse(listOf("a", "b", "c", "d"), { it }) { uses[it] ?: 0 })
     }
 }
+
+class OrbLayoutTest {
+    private val w = 1080f; private val h = 2340f; private val gap = 84f * 2.75f; private val minR = 118f * 2.75f; private val pad = 44f * 2.75f
+
+    private fun check(cx: Float, cy: Float, n: Int) {
+        val pts = OrbMath.layout(cx, cy, n, gap, minR, w, h, pad)
+        assertEquals(n, pts.size)
+        pts.forEach { (x, y) -> assertTrue("($x, $y) off screen", x in pad - 0.5f..w - pad + 0.5f && y in pad - 0.5f..h - pad + 0.5f) }
+        for (i in pts.indices) for (j in i + 1 until pts.size) {
+            val d = kotlin.math.hypot(pts[i].first - pts[j].first, pts[i].second - pts[j].second)
+            assertTrue("$n actions at ($cx, $cy): $i and $j only ${d.toInt()} apart", d >= gap - 2f)
+        }
+    }
+
+    @Test fun actionsNeverOverlapWhereverTheOrbIs() {
+        // On the right edge in the middle (the screenshot), on the left, near each corner, and out in the open.
+        val places = listOf(1040f to 1230f, 40f to 1230f, 1040f to 150f, 40f to 2200f, 1040f to 2200f, 540f to 1170f, 540f to 150f)
+        for ((x, y) in places) for (n in 1..8) check(x, y, n)
+    }
+
+    @Test fun fanOpensIntoTheScreen() {
+        val pts = OrbMath.layout(1040f, 1230f, 7, gap, minR, w, h, pad)
+        assertTrue(pts.all { it.first < 1040f }) // all to the left of an orb on the right edge
+    }
+}

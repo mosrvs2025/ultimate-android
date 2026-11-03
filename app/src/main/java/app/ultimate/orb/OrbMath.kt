@@ -66,6 +66,62 @@ object OrbMath {
         return kotlin.math.atan2(sy, sx).toFloat()
     }
 
+    /**
+     * Places [count] actions around the orb at (cx, cy) so that no two are closer than [gap] (centre to centre), none
+     * sits closer to the orb than [minR], and all stay inside the screen with [pad] to spare. The fan opens towards the
+     * middle of the screen: a half circle when the orb is on an edge, wider in the open, and a second, outer ring when
+     * one would be too big. Then any that still crowd each other (in a corner, say) are nudged apart until they fit.
+     */
+    fun layout(cx: Float, cy: Float, count: Int, gap: Float, minR: Float, w: Float, h: Float, pad: Float): List<Pair<Float, Float>> {
+        if (count <= 0) return emptyList()
+        val toward = kotlin.math.atan2(h / 2 - cy, w / 2 - cx).toDouble()
+        val onEdge = minOf(cx, w - cx, cy, h - cy) < minR * 1.2f
+        val spread = (if (count <= 2) 70.0 else if (onEdge) 180.0 else 220.0) * PI / 180
+        val maxR = minOf(w, h) * 0.38f
+        fun radiusFor(n: Int) = if (n <= 1) minR else maxOf(minR, (gap / (2 * sin(spread / (n - 1) / 2))).toFloat())
+        // One ring if it fits, else two: the inner one as full as it can be.
+        val rings = mutableListOf<Pair<Int, Float>>()
+        var left = count
+        while (left > 0) {
+            val inner = rings.lastOrNull()?.second?.plus(gap) ?: minR
+            var n = left
+            while (n > 1 && radiusFor(n).coerceAtLeast(inner) > maxR && rings.size < 2) n--
+            rings += n to radiusFor(n).coerceAtLeast(inner)
+            left -= n
+        }
+        val pts = ArrayList<FloatArray>()
+        rings.forEachIndexed { ri, (n, r) ->
+            for (i in 0 until n) {
+                val t = if (n == 1) 0.0 else i.toDouble() / (n - 1) - 0.5
+                val a = toward + t * spread * (if (ri == 0) 1.0 else 0.85)
+                pts += floatArrayOf((cx + r * cos(a)).toFloat(), (cy + r * sin(a)).toFloat())
+            }
+        }
+        fun clamp(p: FloatArray) { p[0] = p[0].coerceIn(pad, w - pad); p[1] = p[1].coerceIn(pad, h - pad) }
+        pts.forEach(::clamp)
+        // Nudge apart: each crowded pair moves away from each other, and anything too near the orb moves out.
+        repeat(120) {
+            var moved = false
+            for (i in pts.indices) for (j in i + 1 until pts.size) {
+                val a = pts[i]; val b = pts[j]
+                var dx = b[0] - a[0]; var dy = b[1] - a[1]
+                var d = hypot(dx, dy)
+                if (d < gap) {
+                    if (d < 0.01f) { dx = cos(i + j.toFloat()); dy = sin(i + j.toFloat()); d = 1f }
+                    val push = (gap - d) / 2 + 0.5f
+                    a[0] -= dx / d * push; a[1] -= dy / d * push; b[0] += dx / d * push; b[1] += dy / d * push
+                    clamp(a); clamp(b); moved = true
+                }
+            }
+            for (p in pts) {
+                val d = hypot(p[0] - cx, p[1] - cy)
+                if (d < minR * 0.9f) { val k = (minR * 0.9f) / maxOf(d, 0.01f); p[0] = cx + (p[0] - cx) * k; p[1] = cy + (p[1] - cy) * k; clamp(p); moved = true }
+            }
+            if (!moved) return pts.map { it[0] to it[1] }
+        }
+        return pts.map { it[0] to it[1] }
+    }
+
     /** True when the orb's center is close enough to the dismiss target to drop it there. */
     fun overTarget(cx: Float, cy: Float, tx: Float, ty: Float, reach: Float) = hypot(cx - tx, cy - ty) <= reach
 
