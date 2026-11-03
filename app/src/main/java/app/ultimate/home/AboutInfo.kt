@@ -29,11 +29,45 @@ object AboutInfo {
     }.trimEnd()
 }
 
+/** What Ultimate is, in words you can show or send someone. */
+object Pitch {
+    const val ONE_LINE = "Ultimate turns your phone into one private toolbox that also gives it new senses."
+
+    fun text(edition: String, toolCount: Int): String = """
+        $edition is one app that replaces a drawer full of single-purpose apps, and teaches your phone new tricks. Everything runs on the phone itself: no accounts, no ads, nothing uploaded.
+
+        • Make space: shrink videos, clean up photos and duplicates, and see what fills your storage.
+        • Make things: edit videos, record and transcribe, convert audio, a teleprompter.
+        • Know your phone: what it knows about you, what your apps track, your notifications and clipboard history, screen time.
+        • New senses: Echo uses sound too high to hear to feel movement and measure distance, like a bat.
+        • Automate it: rules like "when something comes closer to the phone, turn on the flashlight".
+
+        $toolCount tools in one place, with a floating orb to reach them from anywhere.
+    """.trimIndent()
+}
+
+/** Which changes to show after an update: everything newer than the last version you saw, at most [max] releases. */
+object WhatsNew {
+    /** Null when there is nothing to show: a fresh install (shown the introduction instead) or no change. */
+    fun since(lastSeen: String?, current: String, entries: List<Changelog.Entry> = Changelog.entries, max: Int = 5): List<Changelog.Entry>? {
+        if (lastSeen == null || lastSeen == current) return null
+        val newer = entries.takeWhile { it.version != lastSeen }
+        return newer.take(max).takeIf { it.isNotEmpty() }
+    }
+}
+
 /** What changed, newest first. Add a line here with every release so the About screen can say so. */
 object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.55.0", listOf(
+            "Echo measures your hand properly: your last test read 4 cm whatever you did, because your hand changes how the speaker reaches the mic. Echo now models the speaker's own sound and the room separately, frame by frame, and keeps only what really moved.",
+            "Gestures: push your hand toward the phone, pull it away, or hold it still. Rules can act on them, like \"When I push toward the phone, turn on the flashlight\".",
+            "Reach: a living, gooey view of your hand above the phone, with how far Echo has detected so far.",
+            "What's new appears after each update, and About now says what Ultimate is, with a button to share it.",
+            "The Echo test fits the Fold's cover screen: its buttons no longer hide behind the navigation bar.",
+        )),
         Entry("1.54.0", listOf(
             "Echo follows your hand, not your arm: it reports the nearest moving thing, which fixes readings that came out 10 cm too far.",
             "The Echo test is now a guided, full-screen walk-through: one big step at a time, a picture of where your hand goes, a countdown, and what Echo reads live. Results show your hand against Echo's reading on a ruler.",

@@ -91,6 +91,9 @@ object RuleParser {
         // Senses: "when something comes closer to the phone", "when I wave at the phone", "when someone walks away".
         hit("\\b(?:something|someone|anyone|a hand|my hand|i) (?:comes?|gets?|moves?|walks?|reach(?:es)?) (?:closer|near|toward|towards|up to)(?: to)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "echo:approach")) }
         hit("\\b(?:something|someone|anyone|a hand|my hand|i) (?:moves?|walks?|goes?|steps?) (?:away|off)(?: from)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "echo:recede")) }
+        hit("\\bi push(?: my hand)?(?: toward| towards| at| to)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "echo:push")) }
+        hit("\\bi pull(?: my hand)? (?:away|back)(?: from)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "echo:pull")) }
+        hit("\\bi (?:hover|hold my hand(?: still)?)(?: over| above| near)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "echo:hover")) }
         hit("\\bi wave(?: my hand)?(?: at| over| near)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "echo:")) }
         return c.minByOrNull { it.start }?.found
     }

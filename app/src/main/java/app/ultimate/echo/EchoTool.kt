@@ -57,6 +57,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.geometry.Size
+import androidx.compose.foundation.layout.safeDrawingPadding
 import app.ultimate.UltimateApp
 import app.ultimate.core.LibraryItem
 import app.ultimate.core.Signal
@@ -238,14 +239,20 @@ private fun DistanceView(tool: EchoTool) {
         }
     }
     val frame = (state as? SonarState.Running)?.frame
+    val gesture by tool.sonar.lastGesture.collectAsStateWithLifecycle()
+    // The farthest distance detected while sensing this time: Echo's real reach on this phone, right now.
+    var farthest by remember { androidx.compose.runtime.mutableDoubleStateOf(0.0) }
+    frame?.fix?.rangeM?.let { if (!it.isNaN() && !frame.phoneMoving && it > farthest) farthest = it }
+    if (state is SonarState.Off) farthest = 0.0
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         androidx.compose.material3.SecondaryTabRow(view) {
-            listOf("Echogram", "Space", "Spectrum").forEachIndexed { i, t -> androidx.compose.material3.Tab(view == i, { view = i }, text = { Text(t) }) }
+            listOf("Reach", "Echogram", "Space", "Spectrum").forEachIndexed { i, t -> androidx.compose.material3.Tab(view == i, { view = i }, text = { Text(t) }) }
         }
         val mod = Modifier.fillMaxWidth().height(280.dp)
         when (view) {
-            0 -> Echogram(echoFall, tick, frame?.fix?.rangeM ?: Double.NaN, mod)
-            1 -> SpaceMap(trail, tick, frame?.stereo == true, mod)
+            0 -> ReachView(frame?.fix?.rangeM ?: Double.NaN, frame?.fix?.confidence ?: 0.0, frame?.fix?.velocity ?: Double.NaN, farthest, gesture, state is SonarState.Running || state is SonarState.Warming, Modifier.fillMaxWidth().height(340.dp))
+            1 -> Echogram(echoFall, tick, frame?.fix?.rangeM ?: Double.NaN, mod)
+            2 -> SpaceMap(trail, tick, frame?.stereo == true, mod)
             else -> Spectrogram(specFall, tick, mod)
         }
         when (val s = state) {
@@ -326,7 +333,8 @@ private fun BenchDialog(bench: EchoBench, sonar: SonarEngine, onClose: () -> Uni
     fun close() { job?.cancel(); if (step is EchoBench.Step.Prompt) { sonar.stop(); bench.reset() }; onClose() }
     androidx.compose.ui.window.Dialog(::close, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
-            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).padding(horizontal = 20.dp, vertical = 16.dp),
+            // Inside the safe area: on the Fold's cover screen the navigation bar otherwise hides the bottom buttons.
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).safeDrawingPadding().padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -346,7 +354,6 @@ private fun BenchDialog(bench: EchoBench, sonar: SonarEngine, onClose: () -> Uni
                             Text(t, Modifier.padding(start = 12.dp), style = MaterialTheme.typography.bodyLarge)
                         }
                     }
-                    Box(Modifier.weight(1f))
                     Button({ job = scope.launch { bench.run(android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL) } }, Modifier.fillMaxWidth().height(56.dp)) { Text("Start the test") }
                 }
                 is EchoBench.Step.Prompt -> {

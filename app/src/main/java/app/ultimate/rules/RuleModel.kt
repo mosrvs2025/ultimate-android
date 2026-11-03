@@ -216,6 +216,9 @@ object SenseNames {
     val choices = listOf(
         "echo:approach" to "something comes closer to the phone",
         "echo:recede" to "something moves away from the phone",
+        "echo:push" to "I push my hand toward the phone",
+        "echo:pull" to "I pull my hand away from the phone",
+        "echo:hover" to "I hold my hand still over the phone",
         "echo:" to "Echo senses any movement",
     )
     fun describe(key: String) = choices.firstOrNull { it.first == key }?.second ?: if (key.isEmpty()) "the phone senses anything" else "the phone senses $key"

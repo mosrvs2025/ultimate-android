@@ -64,4 +64,23 @@ class SonarRealismTest {
         assertTrue(reads.size >= 14)
         assertEquals(0.15, reads.sorted()[reads.size / 2], 0.025)
     }
+
+    /**
+     * Bench 3 (1.54.0): a hand held at 20 or 30 cm read exactly 3.9 cm, the edge of the search window, every frame. A hand
+     * over the phone also changes how strongly the speaker reaches the mic; locking each frame to that direct path then
+     * rescales every still echo, and the strong ones beside the phone light up as if they had moved.
+     */
+    @Test fun aHandThatDisturbsTheDirectPathIsStillRangedNotTheEdge() {
+        for (cm in listOf(12, 20, 30)) {
+            val t = SonarTracker()
+            val still = listOf(direct to 1.0, direct + samples(0.04) to 0.3, direct + samples(0.09) to 0.08, direct + samples(0.20) to 0.05)
+            repeat(40) { fix(t, still, it) }
+            val reads = (40 until 60).map { k ->
+                val withHand = listOf(direct to 0.85) + still.drop(1) + ((direct + samples(cm / 100.0 + 0.004 * (k % 3))) to 0.01)
+                fix(t, withHand, k).rangeM
+            }.filter { !it.isNaN() }
+            assertTrue("hand at $cm cm detected ${reads.size}/20", reads.size >= 14)
+            assertEquals("hand at $cm cm", cm / 100.0, reads.sorted()[reads.size / 2], 0.025)
+        }
+    }
 }

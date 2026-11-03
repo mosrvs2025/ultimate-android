@@ -68,6 +68,21 @@ object Sonar {
         init { Fft.transform(re, im, false) }
 
         /**
+         * The direct path's own shape: what the profile of the chirp alone looks like, arriving at [delay] samples
+         * (fractions allowed). Its ripples reach across the whole profile, so it has to be modelled, not just skipped.
+         */
+        fun template(delay: Double, outRe: DoubleArray, outIm: DoubleArray) {
+            val half = PERIOD / 2
+            for (i in 0 until PERIOD) {
+                val g = when { i == 0 || i == half -> 1.0; i < half -> 2.0; else -> 0.0 }
+                val p = (re[i] * re[i] + im[i] * im[i]) * g
+                val w = -2 * PI * i * delay / PERIOD
+                outRe[i] = p * cos(w); outIm[i] = p * sin(w)
+            }
+            Fft.transform(outRe, outIm, true)
+        }
+
+        /**
          * Circular cross-correlation of one received [block] with the chirp, as a complex (analytic) profile: its
          * magnitude is the echo strength at each delay with no carrier ripple, and its phase moves with sub-millimetre
          * motion. Writes into [outRe]/[outIm] of length [PERIOD].
@@ -105,7 +120,8 @@ object Sonar {
  * (the table, the phone's own body, the direct path) is learned as a slow complex average, so only movement stands
  * out, and because the comparison is complex, a hand moving even a millimetre changes the phase and shows up.
  */
-class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Double = 0.06) {
+class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Double = 0.06, private val matched: Sonar.Matched = Sonar.Matched()) {
+    private val tr = DoubleArray(Sonar.PERIOD); private val ti = DoubleArray(Sonar.PERIOD)
     private val n = Sonar.PERIOD
     private val wr = DoubleArray(n); private val wi = DoubleArray(n)
     private val bgRe = DoubleArray(n); private val bgIm = DoubleArray(n)
@@ -147,30 +163,65 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
         val d0 = Math.round(direct).toInt() % n
         val median = mag.sortedArray()[n / 2].coerceAtLeast(1e-12)
         val linkSnr = mag[d0] / median
-        // Lock the frame to the direct path: divide by its complex value. The speaker and mic clocks drift by fractions
-        // of a sample and the volume wanders; both move the whole profile together, and this cancels them, so what is
-        // left to change is what really moved. (Found on a real phone, where the drift alone looked like a target.)
-        val zr = re[d0]; val zi = im[d0]; val z2 = (zr * zr + zi * zi).coerceAtLeast(1e-24)
-        for (i in 0 until n) { wr[i] = (re[i] * zr + im[i] * zi) / z2; wi[i] = (im[i] * zr - re[i] * zi) / z2 }
-        if (frames == 1) for (i in 0 until n) { bgRe[i] = wr[i]; bgIm[i] = wi[i] }
-        for (i in 0 until n) diff[i] = hypot(wr[i] - bgRe[i], wi[i] - bgIm[i])
+        // Model the frame as the speaker's direct sound (its exact shape, at its measured sub-sample delay, with its own
+        // strength) plus the still room (the learned echoes, with their own overall strength), and keep what neither
+        // explains. Found on a real phone: the speaker and mic clocks drift by fractions of a sample, and a hand over the
+        // phone changes how strongly the speaker reaches the mic; both show up across the whole profile and looked like
+        // targets (bench 1: false alarms in every frame; bench 3: a hand at 30 cm read 3.9 cm).
+        matched.template(direct, tr, ti)
+        fun dot(ar: DoubleArray, ai: DoubleArray, br: DoubleArray, bi: DoubleArray): Pair<Double, Double> {
+            var x = 0.0; var y = 0.0
+            for (i in 0 until n) { x += ar[i] * br[i] + ai[i] * bi[i]; y += ai[i] * br[i] - ar[i] * bi[i] }
+            return x to y
+        }
+        val (ttr, _) = dot(tr, ti, tr, ti)
+        val (wtr, wti) = dot(re, im, tr, ti)
+        var ar: Double; var ai: Double; var cr = 0.0; var ci = 0.0
+        val (eer, _) = dot(bgRe, bgIm, bgRe, bgIm)
+        if (frames == 1 || eer < 1e-18) { ar = wtr / ttr; ai = wti / ttr }
+        else {
+            val (ter, tei) = dot(tr, ti, bgRe, bgIm) // <T,E>
+            val (wer, wei) = dot(re, im, bgRe, bgIm) // <w,E>
+            val det = ttr * eer - (ter * ter + tei * tei)
+            // a = (<w,T><E,E> - <E,T><w,E>) / det, with <E,T> = conj(<T,E>)
+            ar = (wtr * eer - (ter * wer + tei * wei)) / det
+            ai = (wti * eer - (ter * wei - tei * wer)) / det
+            // c = (<T,T><w,E> - <T,E><w,T>) / det
+            cr = (ttr * wer - (ter * wtr - tei * wti)) / det
+            ci = (ttr * wei - (ter * wti + tei * wtr)) / det
+        }
+        val scale = hypot(ar, ai).coerceAtLeast(1e-12)
+        // What the room returns once the direct sound is taken out, in units of the direct sound's strength.
+        for (i in 0 until n) { wr[i] = (re[i] - (ar * tr[i] - ai * ti[i])) / scale; wi[i] = (im[i] - (ar * ti[i] + ai * tr[i])) / scale }
+        if (frames == 1) for (i in 0 until n) { bgRe[i] = wr[i] * scale; bgIm[i] = wi[i] * scale }
+        for (i in 0 until n) {
+            val er = cr * bgRe[i] - ci * bgIm[i]; val ei = cr * bgIm[i] + ci * bgRe[i]
+            diff[i] = hypot(wr[i] - er / scale, wi[i] - ei / scale)
+        }
         // Judge each distance against its own usual change (constant false-alarm rate): bins beside the direct path
         // always wobble and need a big change to count; quiet bins far out notice a faint hand.
         val floor = 2e-4
-        val start = (0.04 / Sonar.M_PER_SAMPLE).toInt()
+        // Nearer than ~7 cm can't be told apart from the speaker's own sound (the resolution is 5.7 cm), so start there.
+        val start = (0.07 / Sonar.M_PER_SAMPLE).toInt()
         val motion = FloatArray(bins); val echo = FloatArray(bins)
         var best = start; var bestScore = 0.0
         for (k in 0 until bins) {
             val i = (d0 + k) % n
             val score = diff[i] / (sig[i] + floor)
             motion[k] = score.toFloat(); echo[k] = hypot(wr[i], wi[i]).toFloat()
-            if (k >= start && score > bestScore) { bestScore = score; best = k }
         }
+        // Only a real peak counts, never the edge of the window: a slope falling away from the phone is the direct path's
+        // skirt, not a hand.
+        fun isPeak(k: Int) = k in start + 2 until bins - 2 && motion[k] >= motion[k - 1] && motion[k] >= motion[k + 1] && motion[k] >= motion[k - 2] && motion[k] >= motion[k + 2]
+        for (k in start + 2 until bins - 2) if (isPeak(k) && motion[k] > bestScore) { bestScore = motion[k].toDouble(); best = k }
         // Report the nearest clear return, not the strongest: a hand over the phone is the first thing the sound meets,
         // and the arm or body behind it often echoes more. Any peak at least 40% as strong as the best counts.
         if (bestScore >= CONFIDENT) {
             val bar = maxOf(CONFIDENT, bestScore * 0.4)
-            for (k in start + 1 until best) if (motion[k] >= bar && motion[k] >= motion[k - 1] && motion[k] >= motion[k + 1]) { best = k; break }
+            // The nearer peak must be clear in its own right (score) and carry real echo change, not just a ripple of the
+            // stronger return landing in a very quiet bin, where the per-bin scaling would flatter it.
+            val raw = diff[(d0 + best) % n]
+            for (k in start + 2 until best) if (motion[k] >= bar && isPeak(k) && diff[(d0 + k) % n] >= raw * 0.4) { best = k; break }
         }
         val warm = frames > WARMUP
         val detected = warm && bestScore >= CONFIDENT
@@ -192,7 +243,7 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
         val sRate = if (!warm) 0.3 else if (detected) 0.0 else 0.04
         for (i in 0 until n) {
             sig[i] += (diff[i] - sig[i]) * sRate
-            bgRe[i] += (wr[i] - bgRe[i]) * rate; bgIm[i] += (wi[i] - bgIm[i]) * rate
+            bgRe[i] += (wr[i] * scale - bgRe[i]) * rate; bgIm[i] += (wi[i] * scale - bgIm[i]) * rate
         }
         return Fix(direct, range, bestScore, if (lastRange.isNaN()) Double.NaN else velocity, linkSnr, motion, echo)
     }

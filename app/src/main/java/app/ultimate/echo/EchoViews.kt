@@ -29,6 +29,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.ultimate.core.gooey
+import app.ultimate.core.motionOn
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloat
 import kotlin.math.cos
 import kotlin.math.ln
 import kotlin.math.sin
@@ -172,5 +176,82 @@ fun Readout(label: String, value: String, truth: Truth, modifier: Modifier = Mod
         Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         TruthTag(truth, Modifier.padding(top = 2.dp))
+    }
+}
+
+/**
+ * Reach: the live, physical view. A liquid blob rises out of the phone on a tether and floats at the measured
+ * distance of the nearest moving thing; recent positions trail behind as droplets that melt together. The blob's
+ * height is measured; its shape, tether and colours are illustration, driven by the measurement. A dashed line marks
+ * the farthest distance Echo has detected in this session, so you learn its real reach on your phone.
+ */
+@Composable
+fun ReachView(rangeM: Double, confidence: Double, velocity: Double, farthestM: Double, gesture: Pair<EchoGestures.Gesture, Long>?, live: Boolean, modifier: Modifier) {
+    val maxM = 0.6f
+    val present = !rangeM.isNaN()
+    val target = if (present) (rangeM.toFloat() / maxM).coerceIn(0f, 1f) else 0f
+    // Springy, so the blob has weight: it overshoots a little and settles, like something liquid.
+    val level by androidx.compose.animation.core.animateFloatAsState(target, androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 180f), label = "level")
+    val blobSize by androidx.compose.animation.core.animateFloatAsState(if (present) (0.6f + (confidence / 30).toFloat().coerceIn(0f, 0.6f)) else 0.35f, androidx.compose.animation.core.spring(0.5f, 220f), label = "size")
+    val warmth by androidx.compose.animation.core.animateFloatAsState(if (!present || velocity.isNaN()) 0f else (-velocity / 0.5).toFloat().coerceIn(-1f, 1f), androidx.compose.animation.core.tween(250), label = "warm")
+    val breath = if (live && motionOn()) androidx.compose.animation.core.rememberInfiniteTransition(label = "reach").animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800), androidx.compose.animation.core.RepeatMode.Reverse), label = "b").value else 0.5f
+    val trail = remember { ArrayDeque<Float>() }
+    if (present) { trail.addLast(target); while (trail.size > 10) trail.removeFirst() } else if (trail.isNotEmpty()) trail.removeFirst()
+    val now = System.currentTimeMillis()
+    val pop = gesture?.takeIf { now - it.second < 1_100 }
+    val popT by androidx.compose.animation.core.animateFloatAsState(if (pop != null) 1f else 0f, androidx.compose.animation.core.spring(0.45f, 300f), label = "pop")
+    val base = Color(0xFF7FD3FF)
+    val color = when {
+        warmth > 0 -> androidx.compose.ui.graphics.lerp(base, Color(0xFFFF8A5C), warmth)
+        warmth < 0 -> androidx.compose.ui.graphics.lerp(base, Color(0xFF7C9CFF), -warmth)
+        else -> base
+    }
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.clip(RoundedCornerShape(24.dp)).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xFF070B18), Color(0xFF0E1A33))))) {
+        val h = constraints.maxHeight.toFloat()
+        val bottomPad = with(androidx.compose.ui.platform.LocalDensity.current) { 28.dp.toPx() }
+        val topPad = with(androidx.compose.ui.platform.LocalDensity.current) { 16.dp.toPx() }
+        fun y(f: Float) = h - bottomPad - f * (h - bottomPad - topPad)
+        // Ruler and the farthest-seen line: plain lines, not melted.
+        Canvas(Modifier.matchParentSize()) {
+            for (cm in listOf(10, 20, 30, 40, 50)) {
+                val yy = y(cm / 60f)
+                drawLine(Color.White.copy(alpha = 0.08f), Offset(0f, yy), Offset(size.width, yy), strokeWidth = 1.dp.toPx())
+            }
+            if (farthestM > 0) {
+                val yy = y((farthestM.toFloat() / maxM).coerceIn(0f, 1f))
+                drawLine(Color(0xFF3DDC97).copy(alpha = 0.7f), Offset(0f, yy), Offset(size.width, yy), strokeWidth = 1.5.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(14f, 10f)))
+            }
+        }
+        // The liquid: phone, tether, blob and trail drawn in one gooey layer so they melt into each other.
+        Canvas(Modifier.matchParentSize().gooey(14f)) {
+            val cx = size.width * 0.5f
+            val phoneY = h - bottomPad + 8.dp.toPx()
+            drawRoundRect(Color(0xFFE6ECFF), Offset(cx - 70.dp.toPx(), phoneY - 4.dp.toPx()), Size(140.dp.toPx(), 10.dp.toPx()), androidx.compose.ui.geometry.CornerRadius(6.dp.toPx()))
+            val by = y(level)
+            val r = (14.dp.toPx() + 14.dp.toPx() * blobSize) * (1f + 0.06f * breath) * (1f + 0.35f * popT)
+            // The tether: droplets from the phone up to the blob, thinning as it stretches.
+            val steps = ((phoneY - by) / 12.dp.toPx()).toInt().coerceIn(0, 40)
+            for (i in 1 until steps) {
+                val t = i.toFloat() / steps
+                val rr = 6.dp.toPx() * (1f - 0.55f * t) * (if (present) 1f else 0.6f)
+                drawCircle(color.copy(alpha = 0.9f), rr, Offset(cx + kotlin.math.sin((t * 6f + breath * 3f)) * 3.dp.toPx(), phoneY - (phoneY - by) * t))
+            }
+            trail.forEachIndexed { i, f -> drawCircle(color.copy(alpha = 0.25f + 0.05f * i), 5.dp.toPx() + i * 0.8f.dp.toPx(), Offset(cx + (i - trail.size) * 7.dp.toPx(), y(f))) }
+            drawCircle(color, r, Offset(cx, by))
+        }
+        // Words: the distance (measured) and the gesture, if one was just recognised.
+        Column(Modifier.align(Alignment.TopStart).padding(12.dp)) {
+            Text(if (present) "%.0f cm".format(rangeM * 100) else if (live) "Bring a hand over the top of the phone" else "Press Start to feel your hand", color = Color.White, fontSize = if (present) 34.sp else 15.sp, fontWeight = FontWeight.Bold)
+            if (present) TruthTag(Truth.Measured)
+            if (farthestM > 0) Text("Farthest seen: %.0f cm".format(farthestM * 100), color = Color(0xFF3DDC97), fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+        }
+        TruthTag(Truth.Illustration, Modifier.align(Alignment.TopEnd).padding(10.dp))
+        pop?.let { (g, _) ->
+            Text(
+                when (g.kind) { "push" -> "Push"; "pull" -> "Pull"; else -> "Hover" },
+                Modifier.align(Alignment.Center).graphicsLayer { scaleX = 0.6f + 0.6f * popT; scaleY = 0.6f + 0.6f * popT; alpha = popT },
+                color = Color.White, fontSize = 40.sp, fontWeight = FontWeight.Black,
+            )
+        }
     }
 }

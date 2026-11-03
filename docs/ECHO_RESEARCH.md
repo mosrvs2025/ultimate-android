@@ -178,7 +178,44 @@ The in-app **Bench** (Echo → Distance → Run the bench) measures four things:
 - They record every frame's numbers with markers the user taps.
 - The point is to replay real sessions through the tracker here. That is more precise than a video.
 
-**Next step:** a bench and a session log from 1.54.0.
+#### Bench 3: same phone, 1.54.0
+
+**Results:**
+- **False detections:** 0%.
+- **Hand at 10 / 20 / 30 cm:** read 6.5 / 3.9 / 3.9 cm. At 20 and 30 cm the spread was exactly ±0.0 cm.
+- **Battery:** +34 mA.
+
+**Diagnosis:**
+- 3.9 cm was exactly the edge of the search window: the strongest change sat against the edge, not at a peak.
+- A hand over the phone also changes how strongly the speaker reaches the mic.
+- Locking each frame to the direct path then rescaled every still echo by a different factor from the direct path's
+  own far-reaching ripples. This left a smear that "nearest wins" (added in 1.54.0) always picked.
+- Reproduced in `SonarRealismTest.aHandThatDisturbsTheDirectPathIsStillRangedNotTheEdge`. Before the fix, a hand at
+  12 cm read 4.6 cm.
+
+**Fix (1.55.0): model the frame instead of normalising it.** Each frame is fitted as two parts, by complex least
+squares:
+1. **The direct path:** its exact shape (the chirp's autocorrelation), placed at the measured sub-sample delay, with
+   its own strength.
+2. **The still room:** the learned echoes, with their own overall strength.
+
+Only what neither part explains counts as motion. On top of that:
+- The search starts at 7 cm, the resolution limit beside the direct path.
+- Only true peaks count, never the window's edge.
+- A nearer peak wins only if its raw change is at least 40% of the strongest's. The per-bin noise scaling otherwise
+  flattered faint ripples sitting in quiet bins.
+- Debug profile from the test (hand at 20 cm): the hand is now the dominant peak (score ~110). Before, the leakage
+  near the phone scored 110 and the hand 50–70.
+
+**Known limit, now tested and documented:**
+- A hand within ~5 cm of a strong still echo (say, a box at 20 cm) merges with it. That's the 5.7 cm resolution limit.
+
+**New in 1.55.0:**
+- Gestures (`EchoGestures`), as signals rules can use:
+  - **push:** at least 6 cm toward the phone within 0.5 s;
+  - **pull:** the same, away from the phone;
+  - **hover:** held within 3 cm for 1.2 s.
+- A Reach view showing where the hand is and how far Echo has detected so far this session.
 
 ## 4. What the hardware allows
 

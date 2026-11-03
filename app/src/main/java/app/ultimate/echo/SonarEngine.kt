@@ -91,6 +91,9 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
     val state: StateFlow<SonarState> = _state
     val running get() = job?.isActive == true
 
+    /** The last gesture and when it happened, for the screen to answer it visibly. */
+    val lastGesture = MutableStateFlow<Pair<EchoGestures.Gesture, Long>?>(null)
+
     // The gyroscope gates readings: when the phone turns faster than about 17°/s, everything appears to move.
     @Volatile private var turnRate = 0f
     private val gyro = object : SensorEventListener {
@@ -130,6 +133,7 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
                 val re2 = DoubleArray(Sonar.PERIOD); val im2 = DoubleArray(Sonar.PERIOD)
                 val matched = Sonar.Matched(Sonar.period(amplitude))
                 val t1 = SonarTracker(); val t2 = SonarTracker()
+                val gestures = EchoGestures()
                 var distinct: Boolean? = null
                 var silent = 0
                 var lastEvent = 0L
@@ -163,6 +167,12 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
                         val kind = if (fix.velocity < 0) "approach" else "recede"
                         senses.publish(Signal("echo", kind, if (kind == "approach") "Something came closer, now %.0f cm away".format(fix.rangeM * 100) else "Something moved away, now %.0f cm".format(fix.rangeM * 100),
                             mapOf("distance_cm" to "%.0f".format(fix.rangeM * 100), "speed_m_s" to "%.2f".format(abs(fix.velocity)))))
+                    }
+                    // Deliberate gestures, for rules: push toward the phone, pull away, hold still.
+                    gestures.feed(if (moving) Double.NaN else fix.rangeM, now)?.let { g ->
+                        val label = when (g.kind) { "push" -> "You pushed toward the phone"; "pull" -> "You pulled away from the phone"; else -> "You held your hand still" } + " at %.0f cm".format(g.atM * 100)
+                        senses.publish(Signal("echo", g.kind, label, mapOf("distance_cm" to "%.0f".format(g.atM * 100))))
+                        lastGesture.value = g to now
                     }
                     val ms = (System.nanoTime() - t0) / 1e6f
                     if (now - lastShown >= 50) {

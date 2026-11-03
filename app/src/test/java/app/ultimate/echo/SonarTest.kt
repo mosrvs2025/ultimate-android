@@ -57,8 +57,9 @@ class SonarTest {
         repeat(30) { run(t, room, it) }
         var fix: SonarTracker.Fix? = null
         // 40 cm to 20 cm in 10 frames (0.43 s): about -0.47 m/s.
-        for (k in 0..10) fix = run(t, room + ((direct + samples(0.40 - 0.02 * k)) to 0.04), 21 + k)
-        assertEquals(0.20, fix!!.rangeM, 0.02)
+        // Ends at 28 cm, clear of the table at 20 cm: within the 5.7 cm resolution, a hand and a strong still echo merge.
+        for (k in 0..6) { fix = run(t, room + ((direct + samples(0.40 - 0.02 * k)) to 0.04), 31 + k) }
+        assertEquals(0.28, fix!!.rangeM, 0.02)
         assertTrue("v ${fix!!.velocity}", fix!!.velocity < -0.2)
     }
 

@@ -136,6 +136,14 @@ internal fun AboutContent(app: UltimateApp, onClose: () -> Unit) {
                     OutlinedButton({ showReport = true }, Modifier.weight(1f)) { Text("Usage report") }
                 }
             }
+            item {
+                // What the app is for, in words to show or send someone.
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("What is $edition?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(Pitch.text(edition, app.tools.size), style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton({ shareWhatItIs(context, edition, app.tools.size) }) { Text("Share what it is") }
+                }
+            }
             item { Section("What's new") }
             items(Changelog.recent(BuildConfig.VERSION_NAME)) { e ->
                 Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {

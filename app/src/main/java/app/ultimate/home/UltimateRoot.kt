@@ -62,6 +62,7 @@ fun UltimateRoot(app: UltimateApp) {
     incoming?.let { pending -> HandSheet(app, pending) }
     val showAbout by shell.about.collectAsStateWithLifecycle()
     if (showAbout) AboutScreen(app, onClose = shell::hideAbout)
+    WhatsNewOnUpdate(app)
 
 }
 

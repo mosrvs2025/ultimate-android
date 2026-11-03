@@ -90,5 +90,8 @@ class EchoTest {
         assertEquals("echo:approach", trig("When something comes closer to the phone, turn on the flashlight").contains)
         assertEquals("echo:recede", trig("when I walk away from the phone, turn the flashlight off").contains)
         assertEquals(TriggerType.Sensed, trig("when I wave at the phone, vibrate").type)
+        assertEquals("echo:push", trig("When I push toward the phone, turn on the flashlight").contains)
+        assertEquals("echo:hover", trig("when I hover over the phone, vibrate").contains)
+        assertEquals("echo:pull", trig("when I pull my hand away from the phone, turn the flashlight off").contains)
     }
 }
