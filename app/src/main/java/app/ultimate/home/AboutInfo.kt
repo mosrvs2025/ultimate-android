@@ -34,6 +34,12 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.47.0", listOf(
+            "The floating orb steps aside while you're inside Ultimate, and comes back when you leave.",
+            "Opening the orb shows today's numbers and your latest notifications; its badge counts new ones since you last looked. More opens the same panel as Jump to, with search (the keyboard works over any app) and hold-to-pin.",
+            "Home has real cards: who sent the most notifications today, what you played, focus time, photos, and one finding from your records each day.",
+            "Timeline now also knows when you take photos and screenshots, which apps you install, and when you charge your phone, with findings for each.",
+        )),
         Entry("1.46.0", listOf(
             "New Timeline: search everything the app keeps (notifications, copies, what you watched, focus sessions) in one place, pick any of the last 30 days to see it hour by hour, and read findings that only show when the records are put together.",
             "Jump to is readable in dark mode, stays clear of the navigation bar, shows today's numbers at the top, and its search finds things in your records as well as tools.",

@@ -28,7 +28,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.rounded.InstallMobile
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.Screenshot
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Notifications
@@ -96,12 +100,16 @@ class TimelineTool(private val app: UltimateApp) : Tool {
     @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = TimelineScreen(app, launch.query.orEmpty(), onExit)
 }
 
-val Source.icon: ImageVector get() = when (this) { Source.Notification -> Icons.Rounded.Notifications; Source.Clip -> Icons.Rounded.ContentPaste; Source.Watched -> Icons.Rounded.PlayCircle; Source.Focus -> Icons.Rounded.CenterFocusStrong }
+val Source.icon: ImageVector get() = when (this) {
+    Source.Notification -> Icons.Rounded.Notifications; Source.Clip -> Icons.Rounded.ContentPaste; Source.Watched -> Icons.Rounded.PlayCircle; Source.Focus -> Icons.Rounded.CenterFocusStrong
+    Source.Photo -> Icons.Rounded.PhotoCamera; Source.Screenshot -> Icons.Rounded.Screenshot; Source.Install -> Icons.Rounded.InstallMobile; Source.Charge -> Icons.Rounded.BatteryChargingFull
+}
 
 @Composable
 fun Source.tint(): Color = when (this) {
     Source.Notification -> MaterialTheme.colorScheme.primary; Source.Clip -> MaterialTheme.colorScheme.tertiary
     Source.Watched -> Color(0xFFE5704B); Source.Focus -> Color(0xFF3FA66B)
+    Source.Photo -> Color(0xFFD9A400); Source.Screenshot -> Color(0xFF8E6CEF); Source.Install -> Color(0xFF2C9AB7); Source.Charge -> Color(0xFF6BAF3A)
 }
 
 private fun span(ms: Long) = if (ms >= 3_600_000) "${ms / 3_600_000}h ${ms / 60_000 % 60}m" else "${ms / 60_000}m"
@@ -208,6 +216,10 @@ private fun DaySummary(list: List<Moment>, day: Long, now: Long) {
             if (watched > 0) Stat(Source.Watched, "${span(watched)} watched")
             if (clips > 0) Stat(Source.Clip, "$clips copied")
             if (focus.isNotEmpty()) Stat(Source.Focus, "${span(focus.sumOf { it.end - it.at })} focused")
+            list.count { it.source == Source.Photo }.takeIf { it > 0 }?.let { Stat(Source.Photo, "$it photos") }
+            list.count { it.source == Source.Screenshot }.takeIf { it > 0 }?.let { Stat(Source.Screenshot, "$it screenshots") }
+            list.count { it.source == Source.Install }.takeIf { it > 0 }?.let { Stat(Source.Install, "$it installed") }
+            list.filter { it.source == Source.Charge }.takeIf { it.isNotEmpty() }?.let { Stat(Source.Charge, "${span(it.sumOf { c -> c.end - c.at })} charging") }
         }
     }
 }

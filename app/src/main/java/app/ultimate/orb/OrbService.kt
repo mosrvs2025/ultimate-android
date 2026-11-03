@@ -109,9 +109,23 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.geometry.CornerRadius
 import app.ultimate.core.GooeyMath
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.MaterialTheme
+import kotlinx.coroutines.withContext
+import app.ultimate.BuildConfig
+import app.ultimate.timeline.TimelineMath
+import app.ultimate.focus.FocusMath
+import app.ultimate.core.UltimateTheme
+import app.ultimate.home.JumpContents
+import app.ultimate.home.JumpActions
+import app.ultimate.core.Tool
+import app.ultimate.core.AppIcon
 
 /** One petal of the bloom: a tool to open (or Home, for null). */
 data class OrbAction(val key: String, val label: String, val icon: ImageVector, val toolId: String?)
+
+/** What the orb shows when it opens: short chips of today's numbers, and the latest notifications (package, app, text). */
+data class OrbGlance(val chips: List<String>, val latest: List<Triple<String, String, String>>)
 
 /**
  * The Ultimate orb: a bubble that floats over other apps. Drag it anywhere and it springs to the nearest edge; tap it and the
@@ -148,7 +162,7 @@ class OrbService : Service() {
         if (!Settings.canDrawOverlays(this)) { stopSelf(); return }
         prefs.edit().putBoolean("starting", true).commit()
         owner.start()
-        val shown = runCatching { showOrb(); watchWork() }
+        val shown = runCatching { showOrb(); watchWork(); watchApp() }
         if (shown.isFailure) { set(this, false); stopSelf(); return }
         scope.launch { delay(4_000); prefs.edit().putBoolean("starting", false).apply() }
     }
@@ -199,7 +213,7 @@ class OrbService : Service() {
         orbParams = overlayParams(orbPx, orbPx).apply {
             x = prefs.getInt("x", sw - orbPx - (6 * density).toInt()); y = prefs.getInt("y", (sh * 0.35f).toInt())
         }
-        val content = compose { OrbFace(progress, busy, nearTarget, dropHover) }
+        val content = compose { OrbFace(progress, busy, nearTarget, dropHover, unread) }
         // A frame takes every touch itself (Compose would measure drags against a window that moves with the finger).
         val frame = object : FrameLayout(this) { override fun onInterceptTouchEvent(ev: MotionEvent?) = true }
         // Compose looks for its lifecycle from the window's root view, so the frame carries it too, not just the ComposeView.
@@ -285,6 +299,35 @@ class OrbService : Service() {
 
     private fun hideTarget() { targetView?.let { runCatching { wm.removeView(it) } }; targetView = null }
 
+    private val unread = MutableStateFlow(0)
+
+    /**
+     * Steps aside while Ultimate is on screen (the jump bubble is there), and counts notifications that arrived since
+     * the orb was last opened, for its badge.
+     */
+    private fun watchApp() {
+        val a = app ?: return
+        scope.launch { a.inApp.collect { inside -> orbView?.visibility = if (inside) View.GONE else if (bloomView != null) View.INVISIBLE else View.VISIBLE; if (inside) bloomClose?.invoke() } }
+        if (BuildConfig.HAS_INBOX) scope.launch {
+            a.notificationLog.changed.collect { unread.value = withContext(Dispatchers.IO) { runCatching { a.notificationLog.countSince(prefs.getLong("seen", System.currentTimeMillis())) }.getOrDefault(0) } }
+        }
+    }
+
+    private var bloomClose: (() -> Unit)? = null
+
+    /** What the orb shows at a glance when it opens: today's numbers and the latest notifications. */
+    private fun glance(): OrbGlance {
+        val a = app ?: return OrbGlance(emptyList(), emptyList())
+        val now = System.currentTimeMillis()
+        val chips = buildList {
+            if (BuildConfig.HAS_INBOX) runCatching { add("${a.notificationLog.today(now)} notifications") }
+            if (BuildConfig.HAS_CLIPS) runCatching { val start = TimelineMath.startOf(TimelineMath.dayOf(now)); a.clips.clips.value.count { it.at >= start }.takeIf { it > 0 }?.let { add("$it copied") } }
+            if (BuildConfig.HAS_FOCUS) a.focus.current.value?.let { add("Focusing · ${FocusMath.countdown(it.left(now))} left") }
+        }
+        val latest = if (BuildConfig.HAS_INBOX) runCatching { a.notificationLog.search("", null, false, limit = 3).map { Triple(it.pkg, it.app, listOf(it.title, it.text).filter { s -> s.isNotBlank() }.joinToString(": ")) } }.getOrDefault(emptyList()) else emptyList()
+        return OrbGlance(chips, latest)
+    }
+
     // ---- Bloom: the tools around the orb ----
 
     private fun actions(): List<OrbAction> {
@@ -324,15 +367,20 @@ class OrbService : Service() {
         val list = actions()
         val spots = OrbMath.stack(cx, cy, list.size, 54 * density, PILL_W * density, orbPx / 2f + 14 * density, 26 * density, sw.toFloat(), sh.toFloat(), 16 * density)
         val pinned = mutableStateOf(pins().toSet())
+        prefs.edit().putLong("seen", System.currentTimeMillis()).apply(); unread.value = 0
+        val glance = glance()
         val open = mutableStateOf(true)
         val origin = MutableStateFlow(IntOffset.Zero)
         lateinit var view: View
         fun close(then: (() -> Unit)? = null) {
             open.value = false
-            scope.launch { delay(230); runCatching { wm.removeView(view) }; bloomView = null; orbView?.visibility = View.VISIBLE; then?.invoke() }
+            scope.launch { delay(230); runCatching { wm.removeView(view) }; bloomView = null; bloomClose = null; orbView?.visibility = if (app?.inApp?.value == true) View.GONE else View.VISIBLE; then?.invoke() }
         }
         view = compose {
-            Bloom(open.value, cx, cy, list, spots, orbPx, origin, everything(), pinned.value, onPin = { pinned.value = togglePin(it).toSet() }, onPick = { a ->
+            Bloom(open.value, cx, cy, list, spots, orbPx, origin, everything(), pinned.value, glance, app,
+                onKeyboard = { on -> runCatching { (view.layoutParams as WindowManager.LayoutParams).apply { flags = if (on) flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv() else flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE }.also { wm.updateViewLayout(view, it) } } },
+                onOpenTool = { id -> close { launch(id) } },
+                onPin = { pinned.value = togglePin(it).toSet() }, onPick = { a ->
                 prefs.edit().putInt("use.${a.key}", prefs.getInt("use.${a.key}", 0) + 1).apply()
                 close { launch(a.toolId) }
             }) { close() }
@@ -342,6 +390,7 @@ class OrbService : Service() {
         // The orb's position is in screen pixels; the bloom draws in its window's, which may not start at the screen's corner.
         view.post { IntArray(2).also { view.getLocationOnScreen(it); origin.value = IntOffset(it[0], it[1]) } }
         bloomView = view
+        bloomClose = { close() }
     }
 
     private fun launch(toolId: String?) {
@@ -446,8 +495,9 @@ private const val PILL_W = 168f
 private val ORB_BRUSH = Brush.linearGradient(listOf(Color(0xFF8E7CFF), Color(0xFF4FC3F7)))
 
 @Composable
-private fun OrbFace(progress: MutableStateFlow<Float?>, busy: MutableStateFlow<Boolean>, near: MutableStateFlow<Boolean>, hover: MutableStateFlow<Boolean>) {
+private fun OrbFace(progress: MutableStateFlow<Float?>, busy: MutableStateFlow<Boolean>, near: MutableStateFlow<Boolean>, hover: MutableStateFlow<Boolean>, unread: MutableStateFlow<Int>) {
     val p by progress.collectAsState()
+    val news by unread.collectAsState()
     val working by busy.collectAsState()
     val overTarget by near.collectAsState()
     val dropping by hover.collectAsState()
@@ -460,6 +510,10 @@ private fun OrbFace(progress: MutableStateFlow<Float?>, busy: MutableStateFlow<B
     Box(Modifier.fillMaxSize().padding(4.dp).graphicsLayer { scaleX = scale * breath * appear.value; scaleY = scale * breath * appear.value }, contentAlignment = Alignment.Center) {
         Box(Modifier.fillMaxSize().shadow(10.dp, CircleShape).clip(CircleShape).background(ORB_BRUSH), contentAlignment = Alignment.Center) {
             Icon(if (overTarget) Icons.Rounded.Close else Icons.Rounded.AutoAwesome, null, Modifier.size(26.dp), tint = Color.White)
+        }
+        // New notifications since you last opened the orb.
+        if (news > 0 && !overTarget) Box(Modifier.align(Alignment.TopEnd).size(20.dp).clip(CircleShape).background(Color(0xFFE5484D)), contentAlignment = Alignment.Center) {
+            Text(if (news > 99) "99" else "$news", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
         p?.let { f ->
             Canvas(Modifier.fillMaxSize()) {
@@ -486,10 +540,12 @@ private fun DismissTarget(near: MutableStateFlow<Boolean>) {
 @Composable
 private fun Bloom(
     shown: Boolean, cx: Float, cy: Float, actions: List<OrbAction>, spots: List<Pair<Float, Float>>, orbPx: Int,
-    windowOrigin: MutableStateFlow<IntOffset>, all: List<OrbAction>, pinned: Set<String>, onPin: (String) -> Unit, onPick: (OrbAction) -> Unit, onClose: () -> Unit,
+    windowOrigin: MutableStateFlow<IntOffset>, all: List<OrbAction>, pinned: Set<String>, glance: OrbGlance, app: UltimateApp?,
+    onKeyboard: (Boolean) -> Unit, onOpenTool: (String?) -> Unit, onPin: (String) -> Unit, onPick: (OrbAction) -> Unit, onClose: () -> Unit,
 ) {
     // More swaps the petals for a drawer of every tool; tapping outside the drawer goes back to the petals.
     var more by remember { mutableStateOf(false) }
+    LaunchedEffect(more) { onKeyboard(more) }
     val open = shown && !more
     val scrim by animateFloatAsState(if (shown) (if (more) 0.6f else 0.42f) else 0f, tween(220), label = "scrim")
     val d = LocalDensity.current
@@ -535,7 +591,47 @@ private fun Bloom(
             more && shown, Modifier.align(Alignment.BottomCenter),
             enter = androidx.compose.animation.scaleIn(spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMediumLow), initialScale = 0.6f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)) + androidx.compose.animation.fadeIn(),
             exit = androidx.compose.animation.scaleOut(targetScale = 0.8f) + androidx.compose.animation.fadeOut(),
-        ) { Drawer(all, pinned, onPin, onPick) }
+        ) {
+            // The same panel as Jump to inside the app: today's numbers, search across tools and your records, every tool.
+            UltimateTheme {
+                androidx.compose.material3.Surface(Modifier.padding(12.dp).fillMaxWidth().fillMaxHeight(0.72f).clickable(remember { MutableInteractionSource() }, indication = null) {}, shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 12.dp) {
+                    if (app != null) JumpContents(app, null, emptySet(), object : JumpActions {
+                        override fun tool(t: Tool, query: String?) = onOpenTool(t.id)
+                        override fun home() = onOpenTool(null)
+                        override fun library() = onOpenTool(null)
+                        override fun activity() = onOpenTool(null)
+                    }, showNav = false, placeholder = "Search tools and your records", pins = pinned, onPin = { onPin(it.id) })
+                    else Drawer(all, pinned, onPin, onPick)
+                }
+            }
+        }
+        // At a glance: today's numbers and the latest notifications, beside the column of actions.
+        if (glance.chips.isNotEmpty() || glance.latest.isNotEmpty()) {
+            val g by animateFloatAsState(if (open) 1f else 0f, spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMediumLow), label = "glance")
+            val top = spots.minOf { it.second } - origin.y; val bottom = spots.maxOf { it.second } - origin.y
+            val cardH = with(d) { (60 + 46 * glance.latest.size).dp.toPx() }; val gap = with(d) { 40.dp.toPx() }
+            val above = top - gap - cardH > with(d) { 60.dp.toPx() }
+            val y = if (above) top - gap - cardH else bottom + gap
+            Column(
+                Modifier.align(Alignment.TopCenter).offset { IntOffset(0, y.roundToInt()) }.padding(horizontal = 24.dp).fillMaxWidth()
+                    .graphicsLayer { alpha = g.coerceIn(0f, 1f); translationY = (1f - g) * 40f; scaleX = 0.9f + 0.1f * g; scaleY = 0.9f + 0.1f * g }
+                    .clip(RoundedCornerShape(24.dp)).background(PETAL).clickable(remember { MutableInteractionSource() }, indication = null) {}.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (glance.chips.isNotEmpty()) Row(Modifier.clip(RoundedCornerShape(12.dp)).clickable(enabled = open) { onOpenTool("timeline") }, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    glance.chips.forEach { Text(it, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.12f)).padding(horizontal = 10.dp, vertical = 5.dp)) }
+                }
+                glance.latest.forEach { (pkg, appName, text) ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(enabled = open) { onOpenTool("inbox") }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AppIcon(pkg, size = 28.dp); Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(appName, color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp, maxLines = 1)
+                            Text(text, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
         // The orb stays where it was, turning into a close button.
         val spin by animateFloatAsState(if (open) 135f else 0f, spring(Spring.DampingRatioMediumBouncy), label = "spin")
         Box(Modifier.offset { IntOffset((cx - orbPx / 2f - origin.x).roundToInt(), (cy - orbPx / 2f - origin.y).roundToInt()) }.size(with(d) { orbPx.toDp() }).padding(4.dp)

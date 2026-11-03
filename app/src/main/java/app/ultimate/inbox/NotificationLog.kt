@@ -149,6 +149,9 @@ class NotificationLog(private val context: Context) : SQLiteOpenHelper(context, 
         buildList { while (c.moveToNext()) add(Triple(c.getString(0), c.getString(1), c.getInt(2))) }
     }
 
+    /** How many arrived after [at]: for the orb's badge. */
+    fun countSince(at: Long): Int = readableDatabase.rawQuery("SELECT COUNT(*) FROM n WHERE at > ?", arrayOf(at.toString())).use { it.moveToFirst(); it.getInt(0) }
+
     fun count(): Int = readableDatabase.rawQuery("SELECT COUNT(*) FROM n", null).use { it.moveToFirst(); it.getInt(0) }
 
     fun delete(id: Long) { writableDatabase.delete("n", "id = ?", arrayOf(id.toString())); _changed.value++ }

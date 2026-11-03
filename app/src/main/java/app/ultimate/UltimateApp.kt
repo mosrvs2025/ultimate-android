@@ -63,6 +63,8 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
     val photos by lazy { app.ultimate.photos.PhotoManager(this, work) }
     val automations by lazy { app.ultimate.recipes.Automations(this) }
     val recipes by lazy { app.ultimate.recipes.RecipeRunner(this) }
+    /** True while Ultimate itself is on screen: the floating orb steps aside, since the jump bubble does its job there. */
+    val inApp = kotlinx.coroutines.flow.MutableStateFlow(false)
     val focus by lazy { app.ultimate.focus.FocusStore(this) }
     val notificationLog by lazy { app.ultimate.inbox.NotificationLog(this) }
     val clips by lazy { app.ultimate.clips.ClipStore(this) }

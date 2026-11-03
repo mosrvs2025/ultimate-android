@@ -102,3 +102,44 @@ class TimelineScreenTest {
         compose.onNodeWithText("Pasta in 10 minutes").assertExists()
     }
 }
+
+class NewRecordsTest {
+    private val utc = TimeZone.getTimeZone("UTC"); private val H = 3_600_000L; private val D = 24 * H
+    private val now = 20_030L * D + 18 * H
+
+    @Test fun screenshotsPhotosInstallsAndChargingSaySomething() {
+        val all = buildList {
+            for (d in 0 until 14) {
+                val day = now - (13 - d) * D - 18 * H
+                repeat(2) { add(Moment(Source.Screenshot, day + 23 * H + it * 60_000L, "Screenshot")) }
+                if (d % 7 == 5) repeat(8) { add(Moment(Source.Photo, day + 14 * H + it * 60_000L, "Camera")) } // Saturdays out with the camera
+                if (d % 4 == 0) add(Moment(Source.Install, day + 10 * H, "App $d"))
+                // On the charger 11pm to 7am most nights, plugged in at around 20%.
+                if (d % 7 != 0) add(Moment(Source.Charge, day + 23 * H, "20% → 100%", end = day + D + 7 * H, level = 20 + d % 3, level2 = 100))
+            }
+        }.sortedBy { it.at }
+        val said = TimelineMath.insights(all, now, utc)
+        assertTrue(said.toString(), said.any { it.startsWith("You took 28 screenshots, most around 11pm") })
+        assertTrue(said.toString(), said.any { "photos; your camera comes out most on" in it })
+        assertTrue(said.toString(), said.any { it.startsWith("You installed 4 apps, most recently App 12") })
+        assertTrue(said.toString(), said.any { "You charged overnight on" in it })
+        assertTrue(said.toString(), said.any { it.startsWith("You usually plug in at about 2") })
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class ChargeLogTest {
+    @Test fun pluggingInAndOutMakesASession() {
+        val c = ApplicationProvider.getApplicationContext<android.content.Context>()
+        c.getSharedPreferences("charging", 0).edit().clear().commit()
+        app.ultimate.timeline.ChargeLog.plugged(c, at = 1_000)
+        assertEquals(1_000L, app.ultimate.timeline.ChargeLog.current(c, now = 5_000)!!.start)
+        app.ultimate.timeline.ChargeLog.unplugged(c, at = 3_601_000)
+        val s = app.ultimate.timeline.ChargeLog.sessions(c).single()
+        assertEquals(1_000L to 3_601_000L, s.start to s.end)
+        assertEquals(null, app.ultimate.timeline.ChargeLog.current(c))
+        app.ultimate.timeline.ChargeLog.unplugged(c, at = 9_999_999) // unplugged twice: nothing new
+        assertEquals(1, app.ultimate.timeline.ChargeLog.sessions(c).size)
+    }
+}

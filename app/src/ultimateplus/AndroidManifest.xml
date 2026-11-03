@@ -172,6 +172,13 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
+        <!-- Timeline: notes when the phone goes on and off the charger (time and battery level only). -->
+        <receiver android:name=".timeline.ChargeReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
+                <action android:name="android.intent.action.ACTION_POWER_DISCONNECTED" />
+            </intent-filter>
+        </receiver>
         <service
             android:name=".focus.FocusService"
             android:exported="false"

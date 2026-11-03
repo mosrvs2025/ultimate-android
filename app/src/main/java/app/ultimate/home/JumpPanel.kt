@@ -72,6 +72,7 @@ import app.ultimate.timeline.TimelineMath
 import app.ultimate.timeline.TimelineReader
 import app.ultimate.timeline.icon
 import app.ultimate.timeline.tint
+import androidx.compose.foundation.combinedClickable
 
 /** Geometry of the bubble turning into the panel, kept pure so it is tested. */
 object JumpMath {
@@ -135,31 +136,48 @@ internal fun JumpPanel(app: UltimateApp, current: Tool, running: Set<String>, op
         ) {
             // The panel is drawn on a canvas, not a Surface, so give its text and icons the theme's on-surface colour.
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-                Contents(app, current, running) { go -> onClose(); go() }
+                val shell = app.shell
+                JumpContents(app, current.id, running, object : JumpActions {
+                    override fun tool(t: Tool, query: String?) { onClose(); if (t.id != current.id || query != null) shell.open(t, ToolLaunch(query = query)) }
+                    override fun home() { onClose(); shell.showHome() }
+                    override fun library() { onClose(); shell.showLibrary() }
+                    override fun activity() { onClose(); shell.showActivity() }
+                })
             }
         }
     }
 }
 
+/** Where the jump panel's taps go: inside the app they move the shell; over other apps (the orb) they open Ultimate. */
+interface JumpActions {
+    fun tool(t: Tool, query: String? = null)
+    fun home()
+    fun library()
+    fun activity()
+}
+
+/**
+ * What the jump panel holds, shared by the bubble inside the app and the orb's More over other apps: search across
+ * tools and your records, today's numbers, the tools you use most, and every tool by family.
+ */
 @Composable
-private fun Contents(app: UltimateApp, current: Tool, running: Set<String>, go: (() -> Unit) -> Unit) {
-    val shell = app.shell
+fun JumpContents(app: UltimateApp, currentId: String?, running: Set<String>, actions: JumpActions, showNav: Boolean = true, placeholder: String = "Jump to a tool", pins: Set<String> = emptySet(), onPin: ((Tool) -> Unit)? = null) {
     var query by remember { mutableStateOf("") }
     val seen = remember { mutableSetOf<Any>() }
     val now = remember { System.currentTimeMillis() }
     val recent = remember { HomeLayout.favorites(app.tools.map { it.id }, app.insights::opens, app.insights::lastAt, running, now).mapNotNull { id -> app.tools.firstOrNull { it.id == id } } }
-    fun open(t: Tool) = go { if (t.id != current.id) shell.open(t) }
+    fun open(t: Tool) = actions.tool(t)
     // Everything the app has kept for the last 30 days, for today's numbers and for searching your records.
     var records by remember { mutableStateOf<List<Moment>>(emptyList()) }
     LaunchedEffect(Unit) { records = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { TimelineReader.read(app, now - 30 * 86_400_000L) } }
     val timeline = app.tools.firstOrNull { it.id == "timeline" }
-    fun openTimeline(q: String? = null) { timeline?.let { t -> go { shell.open(t, ToolLaunch(query = q)) } } }
+    fun openTimeline(q: String? = null) { timeline?.let { t -> actions.tool(t, q ?: "") } }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Search, as a soft pill.
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerLowest).padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.width(10.dp))
             Box(Modifier.weight(1f)) {
-                if (query.isEmpty()) Text("Jump to a tool", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (query.isEmpty()) Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 BasicTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface), cursorBrush = SolidColor(MaterialTheme.colorScheme.primary))
             }
         }
@@ -173,7 +191,7 @@ private fun Contents(app: UltimateApp, current: Tool, running: Set<String>, go: 
                 if (recent.isNotEmpty()) {
                     Label("You use most")
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        recent.forEachIndexed { i, t -> Bigger(t, t.id == current.id, t.id in running, Modifier.appear("r-${t.id}", seen, i)) { open(t) } }
+                        recent.forEachIndexed { i, t -> Bigger(t, t.id == currentId, t.id in running, Modifier.appear("r-${t.id}", seen, i)) { open(t) } }
                     }
                 }
                 var n = recent.size
@@ -181,7 +199,7 @@ private fun Contents(app: UltimateApp, current: Tool, running: Set<String>, go: 
                     Label(family)
                     tools.chunked(2).forEach { pair ->
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            pair.forEach { t -> Line(t, t.id == current.id, t.id in running, Modifier.weight(1f).appear("t-${t.id}", seen, n++)) { open(t) } }
+                            pair.forEach { t -> Line(t, t.id == currentId, t.id in running, Modifier.weight(1f).appear("t-${t.id}", seen, n++), pinned = t.id in pins, onHold = onPin?.let { f -> { f(t) } }) { open(t) } }
                             if (pair.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
@@ -190,7 +208,7 @@ private fun Contents(app: UltimateApp, current: Tool, running: Set<String>, go: 
                 val found = JumpMath.search(app.tools, query)
                 val hits = remember(records, query) { TimelineMath.search(records, query) }
                 if (found.isNotEmpty()) Label("Tools")
-                found.forEach { t -> Line(t, t.id == current.id, t.id in running, Modifier.fillMaxWidth()) { open(t) } }
+                found.forEach { t -> Line(t, t.id == currentId, t.id in running, Modifier.fillMaxWidth()) { open(t) } }
                 if (hits.isNotEmpty()) {
                     Label("In your records")
                     hits.take(5).forEach { m -> Hit(m, now) { openTimeline(query) } }
@@ -199,10 +217,11 @@ private fun Contents(app: UltimateApp, current: Tool, running: Set<String>, go: 
                 if (found.isEmpty() && hits.isEmpty()) Text("Nothing called that, in tools or in your records.", Modifier.padding(8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Pill(Icons.Rounded.Home, "Home", Modifier.weight(1f)) { go { shell.showHome() } }
-            Pill(Icons.Rounded.VideoLibrary, "Library", Modifier.weight(1f)) { go { shell.showLibrary() } }
-            Pill(Icons.Rounded.History, "Activity", Modifier.weight(1f), busy = running.isNotEmpty()) { go { shell.showActivity() } }
+        if (onPin != null) Text("Hold a tool to pin it to the orb (${pins.size} of 6).", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (showNav) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Pill(Icons.Rounded.Home, "Home", Modifier.weight(1f)) { actions.home() }
+            Pill(Icons.Rounded.VideoLibrary, "Library", Modifier.weight(1f)) { actions.library() }
+            Pill(Icons.Rounded.History, "Activity", Modifier.weight(1f), busy = running.isNotEmpty()) { actions.activity() }
         }
     }
 }
@@ -210,11 +229,12 @@ private fun Contents(app: UltimateApp, current: Tool, running: Set<String>, go: 
 @Composable private fun Label(text: String) = Text(text, Modifier.padding(start = 4.dp, top = 8.dp, bottom = 2.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
 
 /** A tool as a compact row: round icon and name. The current tool is filled in. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun Line(t: Tool, current: Boolean, busy: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun Line(t: Tool, current: Boolean, busy: Boolean, modifier: Modifier, pinned: Boolean = false, onHold: (() -> Unit)? = null, onClick: () -> Unit) {
     Row(
-        modifier.pressScale(0.96f).clip(RoundedCornerShape(18.dp)).background(if (current) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
-            .clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 8.dp),
+        modifier.pressScale(0.96f).clip(RoundedCornerShape(18.dp)).background(if (current || pinned) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
+            .combinedClickable(onLongClick = onHold, onClick = onClick).padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Dot(t.icon, busy, 34)
@@ -263,6 +283,10 @@ private fun TodayStrip(today: List<Moment>, onOpen: () -> Unit) {
                 Source.Clip -> "${of.size} copied"
                 Source.Watched -> "${span / 60_000} min played"
                 Source.Focus -> "${span / 60_000} min focused"
+                Source.Photo -> "${of.size} photos"
+                Source.Screenshot -> "${of.size} screenshots"
+                Source.Install -> "${of.size} installed"
+                Source.Charge -> "${span / 60_000} min charging"
             }
             Row(Modifier.pressScale(0.95f).clip(RoundedCornerShape(50)).background(s.chipColor().copy(alpha = 0.16f)).clickable(onClick = onOpen).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(s.chipIcon(), null, Modifier.size(16.dp), tint = s.chipColor()); Spacer(Modifier.width(6.dp)); Text(text, style = MaterialTheme.typography.labelLarge)

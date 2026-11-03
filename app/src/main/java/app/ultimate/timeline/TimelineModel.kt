@@ -5,12 +5,13 @@ import java.util.TimeZone
 /** Where a moment came from, and the tool that holds it. */
 enum class Source(val label: String, val toolId: String) {
     Notification("Notifications", "inbox"), Clip("Copied", "clips"), Watched("Watched and listened", "footprint"), Focus("Focus", "focus"),
+    Photo("Photos", "cleanup"), Screenshot("Screenshots", "cleanup"), Install("Installed apps", "pluck"), Charge("Charging", "checkup"),
 }
 
 /** One thing that happened, from any of the app's own records: a notification, something copied, something played, a focus session. */
 data class Moment(
     val source: Source, val at: Long, val title: String, val detail: String = "", val app: String = "", val pkg: String? = null,
-    val end: Long = at, val focusDrift: Int = 0,
+    val end: Long = at, val focusDrift: Int = 0, val level: Int = -1, val level2: Int = -1,
 )
 
 /** One day's totals for the strip of days. */
@@ -107,6 +108,32 @@ object TimelineMath {
         if (late.size >= 3) {
             val whatKeepsYou = all.filter { hourOf(it.at, zone) in 0..3 && it.source != Source.Notification }.groupingBy { it.app.ifBlank { it.source.label } }.eachCount().maxByOrNull { it.value }
             add("You were up past midnight on ${late.size} of the last ${days.size} days" + (whatKeepsYou?.let { ", most often with ${it.key}" } ?: "") + ".")
+        }
+
+        // Screenshots: how many, and when you take them.
+        val shots = all.filter { it.source == Source.Screenshot }
+        if (shots.size >= 5) {
+            val h = shots.groupingBy { hourOf(it.at, zone) }.eachCount().maxByOrNull { it.value }!!.key
+            add("You took ${shots.size} screenshots, most around ${if (h % 12 == 0) 12 else h % 12}${if (h < 12) "am" else "pm"}.")
+        }
+        // Photos: the day of the week the camera comes out.
+        val photos = all.filter { it.source == Source.Photo }
+        if (photos.size >= 10) {
+            val byDay = photos.groupingBy { java.util.Calendar.getInstance(zone).apply { timeInMillis = it.at }.get(java.util.Calendar.DAY_OF_WEEK) }.eachCount().maxByOrNull { it.value }!!
+            add("You took ${photos.size} photos; your camera comes out most on ${java.text.DateFormatSymbols.getInstance().weekdays[byDay.key]}s (${byDay.value}).")
+        }
+        // New apps.
+        val installs = all.filter { it.source == Source.Install }
+        if (installs.size >= 3) add("You installed ${installs.size} apps, most recently ${installs.maxByOrNull { it.at }!!.title}.")
+        // Charging habits.
+        val charges = all.filter { it.source == Source.Charge && it.end > it.at }
+        if (charges.size >= 4) {
+            val overnight = charges.filter { c -> (0..5).any { k -> val t = c.at + k * 3_600_000L; t <= c.end && hourOf(t, zone) == 3 } || (hourOf(c.at, zone) <= 3 && hourOf(c.end, zone) >= 4 && c.end - c.at > 3_600_000) }
+                .map { dayOf(it.end, zone) }.toSet()
+            val nights = days.size.coerceAtLeast(1)
+            if (overnight.isNotEmpty()) add("You charged overnight on ${overnight.size} of the last $nights nights.")
+            val ins = charges.mapNotNull { it.level.takeIf { l -> l in 0..100 } }.sorted()
+            if (ins.size >= 4) add("You usually plug in at about ${ins[ins.size / 2]}%.")
         }
 
         // The busiest day of the week for everything together.
