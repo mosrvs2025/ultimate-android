@@ -150,7 +150,9 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
                     var bearing: Double? = null; var lean: Int? = null
                     if (fix2 != null && !fix.rangeM.isNaN()) {
                         val at = (fix.rangeM / Sonar.M_PER_SAMPLE).toInt()
-                        val lag = Bearing.lag(fix.motion, fix2.motion, at)
+                        // The search must cover the spacing: 14 cm apart is up to 20 samples of difference.
+                        val maxLag = hw.micSpacingM?.let { kotlin.math.ceil(it / (Sonar.SOUND / Sonar.RATE)).toInt() + 1 } ?: 4
+                        val lag = Bearing.lag(fix.motion, fix2.motion, at, span = maxLag * 3, maxLag = maxLag)
                         if (hw.micSpacingM != null) bearing = Bearing.angle(lag, hw.micSpacingM) else lean = if (abs(lag) < 0.4) 0 else if (lag > 0) 1 else -1
                     }
                     // The mic must hear the chirp: a weak direct path for two seconds means sound off or filtered.
@@ -183,8 +185,11 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
     /** Stereo when the phone allows it (some give two real mics), the unprocessed source when it exists (no filtering of high sounds). */
     @Suppress("MissingPermission")
     private fun openMic(): Pair<AudioRecord?, Int> {
-        val sources = listOf(MediaRecorder.AudioSource.UNPROCESSED, MediaRecorder.AudioSource.VOICE_RECOGNITION, MediaRecorder.AudioSource.MIC)
-        for (channels in listOf(2, 1)) for (src in sources) {
+        // For two channels the camcorder source comes first: on Samsung and many others it is the one that really records
+        // two separate microphones (top and bottom), where the others copy one mic into both channels.
+        val stereo = listOf(MediaRecorder.AudioSource.CAMCORDER, MediaRecorder.AudioSource.UNPROCESSED, MediaRecorder.AudioSource.VOICE_RECOGNITION, MediaRecorder.AudioSource.MIC)
+        val mono = listOf(MediaRecorder.AudioSource.UNPROCESSED, MediaRecorder.AudioSource.VOICE_RECOGNITION, MediaRecorder.AudioSource.MIC)
+        for (channels in listOf(2, 1)) for (src in if (channels == 2) stereo else mono) {
             val mask = if (channels == 2) AudioFormat.CHANNEL_IN_STEREO else AudioFormat.CHANNEL_IN_MONO
             val min = AudioRecord.getMinBufferSize(Sonar.RATE, mask, AudioFormat.ENCODING_PCM_16BIT).takeIf { it > 0 } ?: continue
             val r = runCatching { AudioRecord(src, Sonar.RATE, mask, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, Sonar.PERIOD * channels * 2 * 4)) }.getOrNull()

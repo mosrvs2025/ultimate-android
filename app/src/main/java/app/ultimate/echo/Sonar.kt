@@ -39,6 +39,17 @@ object Sonar {
         return out
     }
 
+    /** The transmitted signal at any real-valued sample position (wrapping each period): lets tests delay it by fractions of a sample. */
+    fun at(x: Double, amplitude: Float = 0.5f): Double {
+        val i = ((x % PERIOD) + PERIOD) % PERIOD
+        if (i >= CHIRP - 1) return 0.0
+        val t = i / RATE
+        val k = (F1 - F0) / (CHIRP.toDouble() / RATE)
+        val u = i / (CHIRP - 1); val a = 0.2
+        val taper = when { u < a / 2 -> 0.5 * (1 - cos(2 * PI * u / a)); u > 1 - a / 2 -> 0.5 * (1 - cos(2 * PI * (1 - u) / a)); else -> 1.0 }
+        return sin(2 * PI * (F0 * t + k * t * t / 2)) * taper * amplitude
+    }
+
     fun periodPcm(amplitude: Float = 0.5f): ShortArray = period(amplitude).let { p -> ShortArray(p.size) { (p[it] * Short.MAX_VALUE).toInt().toShort() } }
 
     private fun tukey(i: Int, n: Int, a: Double): Double {
@@ -96,7 +107,10 @@ object Sonar {
  */
 class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Double = 0.06) {
     private val n = Sonar.PERIOD
+    private val wr = DoubleArray(n); private val wi = DoubleArray(n)
     private val bgRe = DoubleArray(n); private val bgIm = DoubleArray(n)
+    /** How much each distance normally changes from frame to frame when nothing is there. */
+    private val sig = DoubleArray(n)
     private val diff = DoubleArray(n)
     private val mag = DoubleArray(n)
     private var frames = 0
@@ -111,15 +125,15 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
         val directLag: Double,
         /** Distance to the strongest moving reflector, metres; NaN when nothing moved clearly. */
         val rangeM: Double,
-        /** Change against the still scene at the peak, over the typical change: under ~4 is noise. */
+        /** How many times its usual change this distance changed: under ~5 is the room's own jitter. */
         val confidence: Double,
         /** Metres per second, from the range track; positive is moving away. NaN when unknown. */
         val velocity: Double,
         /** How strongly the direct path stands out: a weak link means the mic barely hears the speaker. */
         val linkSnr: Double,
-        /** Motion energy at each distance bin up to [maxRangeM], for the echogram (index 0 = the phone). */
+        /** Change at each distance bin up to [maxRangeM], in units of that bin's usual change (index 0 = the phone). */
         val motion: FloatArray,
-        /** Echo strength at each bin, the still scene included. */
+        /** Echo strength at each bin relative to the direct path, the still scene included. */
         val echo: FloatArray,
     )
 
@@ -128,24 +142,37 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
     fun feed(re: DoubleArray, im: DoubleArray, now: Long): Fix {
         Sonar.magnitude(re, im, mag)
         frames++
-        // The direct path is the strongest return. Find it on the first frames, then keep it steady (it only moves if
-        // the audio clocks slip, which shows up as a jump we follow).
         val p = Sonar.peak(mag)
         if (direct < 0 || abs(circular(p - direct)) > 3) direct = p
-        val d0 = direct.toInt()
+        val d0 = Math.round(direct).toInt() % n
         val median = mag.sortedArray()[n / 2].coerceAtLeast(1e-12)
         val linkSnr = mag[d0] / median
-        if (frames == 1) for (i in 0 until n) { bgRe[i] = re[i]; bgIm[i] = im[i] }
-        for (i in 0 until n) diff[i] = hypot(re[i] - bgRe[i], im[i] - bgIm[i])
-        // Look from 3 cm out (closer than that is the phone's own body and the direct path's tail) to the range limit.
-        val start = (0.03 / Sonar.M_PER_SAMPLE).toInt()
+        // Lock the frame to the direct path: divide by its complex value. The speaker and mic clocks drift by fractions
+        // of a sample and the volume wanders; both move the whole profile together, and this cancels them, so what is
+        // left to change is what really moved. (Found on a real phone, where the drift alone looked like a target.)
+        val zr = re[d0]; val zi = im[d0]; val z2 = (zr * zr + zi * zi).coerceAtLeast(1e-24)
+        for (i in 0 until n) { wr[i] = (re[i] * zr + im[i] * zi) / z2; wi[i] = (im[i] * zr - re[i] * zi) / z2 }
+        if (frames == 1) for (i in 0 until n) { bgRe[i] = wr[i]; bgIm[i] = wi[i] }
+        for (i in 0 until n) diff[i] = hypot(wr[i] - bgRe[i], wi[i] - bgIm[i])
+        // Judge each distance against its own usual change (constant false-alarm rate): bins beside the direct path
+        // always wobble and need a big change to count; quiet bins far out notice a faint hand.
+        val floor = 2e-4
+        val start = (0.04 / Sonar.M_PER_SAMPLE).toInt()
         val motion = FloatArray(bins); val echo = FloatArray(bins)
-        for (k in 0 until bins) { val i = (d0 + k) % n; motion[k] = diff[i].toFloat(); echo[k] = mag[i].toFloat() }
-        val window = DoubleArray(bins - start) { motion[it + start].toDouble() }
-        val typical = window.sortedArray()[window.size / 2].coerceAtLeast(1e-12)
-        val pk = Sonar.peak(window) + start
-        val conf = motion[pk.toInt().coerceIn(0, bins - 1)] / typical
-        val range = if (frames > WARMUP && conf >= CONFIDENT) pk * Sonar.M_PER_SAMPLE else Double.NaN
+        var best = start; var bestScore = 0.0
+        for (k in 0 until bins) {
+            val i = (d0 + k) % n
+            val score = diff[i] / (sig[i] + floor)
+            motion[k] = score.toFloat(); echo[k] = hypot(wr[i], wi[i]).toFloat()
+            if (k >= start && score > bestScore) { bestScore = score; best = k }
+        }
+        val warm = frames > WARMUP
+        val detected = warm && bestScore >= CONFIDENT
+        val pk = if (best in start + 1 until bins - 1) {
+            val a = motion[best - 1].toDouble(); val b = motion[best].toDouble(); val c = motion[best + 1].toDouble()
+            val d = a - 2 * b + c; if (d == 0.0) best.toDouble() else best + 0.5 * (a - c) / d
+        } else best.toDouble()
+        val range = if (detected) pk * Sonar.M_PER_SAMPLE else Double.NaN
         if (!range.isNaN()) {
             if (!lastRange.isNaN() && now > lastAt) {
                 val v = (range - lastRange) / ((now - lastAt) / 1000.0)
@@ -153,17 +180,22 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
             }
             lastRange = range; lastAt = now
         } else if (now - lastAt > 400) { lastRange = Double.NaN; velocity = 0.0 }
-        // Learn the still scene, but barely while something is moving, so a hand held still fades in slowly.
-        val rate = if (range.isNaN()) learn else learn * 0.15
-        for (i in 0 until n) { bgRe[i] += (re[i] - bgRe[i]) * rate; bgIm[i] += (im[i] - bgIm[i]) * rate }
-        return Fix(direct, range, conf, if (lastRange.isNaN()) Double.NaN else velocity, linkSnr, motion, echo)
+        // Learn the still scene and its usual jitter; barely while something is moving, so a hand held still fades in slowly
+        // and a moving hand doesn't teach the tracker that its own bins are noisy.
+        val rate = if (detected) learn * 0.15 else learn
+        val sRate = if (!warm) 0.3 else if (detected) 0.0 else 0.04
+        for (i in 0 until n) {
+            sig[i] += (diff[i] - sig[i]) * sRate
+            bgRe[i] += (wr[i] - bgRe[i]) * rate; bgIm[i] += (wi[i] - bgIm[i]) * rate
+        }
+        return Fix(direct, range, bestScore, if (lastRange.isNaN()) Double.NaN else velocity, linkSnr, motion, echo)
     }
 
     private fun circular(d: Double): Double { var x = d % n; if (x > n / 2) x -= n; if (x < -n / 2) x += n; return x }
 
     companion object {
-        const val WARMUP = 12 // half a second of learning the room
-        const val CONFIDENT = 4.0
+        const val WARMUP = 24 // about a second of learning the room and its jitter
+        const val CONFIDENT = 5.0
     }
 }
 

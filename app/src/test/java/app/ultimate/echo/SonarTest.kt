@@ -45,7 +45,7 @@ class SonarTest {
     @Test fun aHandIsRangedWithinTwoCentimetres() {
         for (cm in listOf(8, 15, 30, 50)) {
             val t = SonarTracker()
-            repeat(20) { run(t, room, it) }
+            repeat(30) { run(t, room, it) }
             val fix = run(t, room + ((direct + samples(cm / 100.0)) to 0.04), 21)
             assertEquals("hand at $cm cm", cm / 100.0, fix.rangeM, 0.02)
             assertTrue(fix.confidence >= SonarTracker.CONFIDENT)
@@ -54,7 +54,7 @@ class SonarTest {
 
     @Test fun aHandMovingCloserHasNegativeVelocity() {
         val t = SonarTracker()
-        repeat(20) { run(t, room, it) }
+        repeat(30) { run(t, room, it) }
         var fix: SonarTracker.Fix? = null
         // 40 cm to 20 cm in 10 frames (0.43 s): about -0.47 m/s.
         for (k in 0..10) fix = run(t, room + ((direct + samples(0.40 - 0.02 * k)) to 0.04), 21 + k)
@@ -65,7 +65,7 @@ class SonarTest {
     @Test fun theDirectPathIsFoundWhereverTheLatencyPutsIt() {
         val t = SonarTracker()
         val far = 1900 // near the wrap-around: echoes continue past the period's end
-        repeat(20) { run(t, listOf(far to 1.0), it) }
+        repeat(30) { run(t, listOf(far to 1.0), it) }
         val fix = run(t, listOf(far to 1.0, (far + samples(0.25)) to 0.05), 21)
         assertEquals(0.25, fix.rangeM, 0.02)
     }
@@ -91,7 +91,7 @@ class SonarTest {
             var hits = 0; var errSum = 0.0
             repeat(10) { trial ->
                 val t = SonarTracker()
-                repeat(20) { i -> val re = DoubleArray(Sonar.PERIOD); val im = DoubleArray(Sonar.PERIOD); matched.profile(receive(room, trial * 100 + i, noise), re, im); t.feed(re, im, i * 43L) }
+                repeat(30) { i -> val re = DoubleArray(Sonar.PERIOD); val im = DoubleArray(Sonar.PERIOD); matched.profile(receive(room, trial * 100 + i, noise), re, im); t.feed(re, im, i * 43L) }
                 val re = DoubleArray(Sonar.PERIOD); val im = DoubleArray(Sonar.PERIOD)
                 matched.profile(receive(room + ((direct + samples(0.30)) to 0.04), trial * 100 + 50, noise), re, im)
                 val f = t.feed(re, im, 21 * 43L)
@@ -102,7 +102,7 @@ class SonarTest {
         // Two moving reflectors: 8 cm apart (above the 5.7 cm resolution) and 4 cm apart (below).
         for (gap in listOf(0.08, 0.04)) {
             val t = SonarTracker()
-            repeat(20) { i -> val re = DoubleArray(Sonar.PERIOD); val im = DoubleArray(Sonar.PERIOD); matched.profile(receive(room, i), re, im); t.feed(re, im, i * 43L) }
+            repeat(30) { i -> val re = DoubleArray(Sonar.PERIOD); val im = DoubleArray(Sonar.PERIOD); matched.profile(receive(room, i), re, im); t.feed(re, im, i * 43L) }
             val re = DoubleArray(Sonar.PERIOD); val im = DoubleArray(Sonar.PERIOD)
             matched.profile(receive(room + ((direct + samples(0.30)) to 0.04) + ((direct + samples(0.30 + gap)) to 0.04), 77), re, im)
             val f = t.feed(re, im, 21 * 43L)

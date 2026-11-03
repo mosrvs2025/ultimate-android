@@ -113,8 +113,48 @@ The in-app **Bench** (Echo → Distance → Run the bench) measures four things:
 | Battery | Current drawn while idle against while sensing, where the phone reports it |
 
 - Its report is copyable, so results from different phones and changes can be compared.
-- **No phone results are recorded here yet.** This environment has no device. The first bench reports should be
-  pasted into this section.
+#### Bench 1: Samsung Galaxy SM-F956U1, 1.53.0 (first tracker)
+
+**Results:**
+- **Link:** direct path 1723× above the noise. The mic hears the chirp perfectly.
+- **False detections in a still room:** 100% of frames.
+- **Hand at 10 / 20 / 30 cm:** read 4.4 / 6.1 / 5.1 cm. It is always the same few centimetres, whatever the hand does.
+- **Processing:** median 1.6 ms per frame, slowest 3.9 ms.
+- **Battery:** no measurable difference (−12 mA, within fluctuation).
+- **Hardware the phone reported:**
+  - four built-in mics: one at the bottom, three at the top;
+  - top and bottom 14.3 cm apart;
+  - no unprocessed source;
+  - near-ultrasound supported on both the speaker and the mic.
+- **Only one channel arrived.** The stereo request didn't yield two distinct mics.
+
+**Diagnosis:**
+- The speaker and microphone clocks are not locked. The direct path, about 1700× stronger than any echo, shifts by
+  fractions of a sample and changes gain slightly from frame to frame.
+- After subtracting the still scene, that wobble leaves a large residue just past zero distance, larger than a hand's
+  whole echo.
+- The tracker therefore always "found" a target at 3–6 cm. The synthetic tests had no such jitter, so they missed it.
+
+**Fix (1.53.1):**
+1. **Lock each frame to the direct path.** Divide the complex profile by the direct path's complex value, which
+   cancels the common drift in phase and gain.
+2. **Use a per-bin constant false-alarm rate.**
+   - Each distance bin learns its own usual change.
+   - A detection needs 5× that usual change.
+   - The jittery bins near the direct path are therefore held to a much higher bar.
+3. **Change the stereo request.** It now tries the camcorder source first, which on Samsung usually records the top
+   and bottom mics separately.
+4. **Widen the direction search** to cover the 14.3 cm spacing (up to ±21 samples).
+
+**New test (`SonarRealismTest`):**
+- It reproduces the phone's failure, which in turn validates the simulation: the direct path jitters by ±0.35 samples
+  and ±3% in gain.
+- Before the fix: 100/100 false alarms, and the hand read 2.9 cm when held at 10 cm.
+- After the fix:
+  - at most 5 false alarms in 100 frames;
+  - the hand at 10, 20 and 30 cm is ranged within 2.5 cm, from an echo just 1% of the direct path.
+
+**Next step:** rerun the bench on the phone with 1.53.1.
 
 ## 4. What the hardware allows
 

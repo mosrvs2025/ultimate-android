@@ -86,7 +86,7 @@ object BenchMath {
             }
             appendLine("Processing: median %s ms a frame, slowest %s ms (each measurement also takes 42.7 ms of sound)".format(median(procMs.map { it.toDouble() })?.let { "%.1f".format(it) } ?: "?", procMs.maxOrNull()?.let { "%.1f".format(it) } ?: "?"))
             val i = median(idleMa); val s = median(sensingMa)
-            appendLine("Battery: " + if (i != null && s != null) "%.0f mA idle, %.0f mA sensing (+%.0f mA)".format(i, s, s - i) else "this phone doesn't report its current")
+            appendLine("Battery: " + if (i != null && s != null) "%.0f mA idle, %.0f mA sensing (%+.0f mA; differences under ~30 mA are within the phone's own fluctuation)".format(i, s, s - i) else "this phone doesn't report its current")
         }
         return BenchReport(text, falseRate, rows)
     }
