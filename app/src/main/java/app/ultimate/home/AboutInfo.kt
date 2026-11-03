@@ -34,6 +34,12 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.53.0", listOf(
+            "Echo can now measure distance: Distance mode repeats a chirp too high to hear and times its echoes, like a bat, to show how far away a moving hand is (to a few millimetres in tests).",
+            "A live echogram shows what moves at each distance over time, a map shows the space in front of the phone, and a spectrum shows the raw sound. Every view says whether it is measured, estimated or an illustration.",
+            "On phones that expose two separate microphones, Echo estimates which side the movement is on. The gyroscope pauses readings while the phone itself moves.",
+            "A 30-second bench test measures accuracy, false alarms, speed and battery draw on your phone, with a report to copy.",
+        )),
         Entry("1.52.0", listOf(
             "New sense, Echo: the phone plays a tone too high to hear and listens for its echo, so it can feel a hand or a person moving near it, and which way. Nothing is recorded.",
             "Automations can now react to what the phone senses: \"When something comes closer to the phone, turn on the flashlight.\"",
