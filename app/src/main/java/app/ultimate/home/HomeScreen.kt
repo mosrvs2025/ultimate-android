@@ -122,6 +122,7 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
         }
         item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
         item(span = { GridItemSpan(maxLineSpan) }) { TodayDashboard(app) }
+        item(key = "live-senses", span = { GridItemSpan(maxLineSpan) }) { LiveSenses(app) }
         if (running.isNotEmpty()) items(running, key = { "run-${it.first.workId}" }, span = { GridItemSpan(maxLineSpan) }) { (source, snap) ->
             RunningBanner(source, snap, app.tools.firstOrNull { it.id == source.workId }, onView = { app.tools.firstOrNull { it.id == source.workId }?.let(shell::open) })
         }
@@ -395,3 +396,29 @@ private fun PinItem(tool: Tool, done: () -> Unit) {
         leadingIcon = { Icon(if (on) Icons.Rounded.PushPin else Icons.Outlined.PushPin, null) })
 }
 
+
+
+/**
+ * What is using the phone's senses right now (Echo listening, a remote session open), each with its own Stop. Nothing
+ * sensitive runs without showing up here and in the notification shade.
+ */
+@Composable
+private fun LiveSenses(app: UltimateApp) {
+    val sessions by app.senses.sessions.collectAsStateWithLifecycle()
+    if (sessions.isEmpty()) return
+    androidx.compose.material3.Card(
+        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+    ) {
+        androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)) {
+            Text("Live now", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onTertiaryContainer)
+            sessions.forEach { s ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(s.label, Modifier.weight(1f).clickable { app.tools.firstOrNull { it.id == s.module }?.let { app.shell.open(it) } }, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    androidx.compose.material3.TextButton({ app.senses.stop(s.id) }) { Text("Stop") }
+                }
+            }
+            if (sessions.size > 1) androidx.compose.material3.TextButton({ app.senses.stopAll() }) { Text("Stop everything") }
+        }
+    }
+}

@@ -34,6 +34,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.52.0", listOf(
+            "New sense, Echo: the phone plays a tone too high to hear and listens for its echo, so it can feel a hand or a person moving near it, and which way. Nothing is recorded.",
+            "Automations can now react to what the phone senses: \"When something comes closer to the phone, turn on the flashlight.\"",
+            "Live now on Home lists everything using the phone's senses right now, each with Stop, plus Stop everything.",
+        )),
         Entry("1.51.0", listOf(
             "Clean up reads each app waiting under Check first for what else it does: the words in its menus and settings, its widgets, tiles, what it accepts from Share and what it asks permission for. Anything Ultimate may not do yet is listed.",
             "Mark each found feature Need it or Don't need. Your answers are kept.",

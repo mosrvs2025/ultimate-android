@@ -270,6 +270,12 @@ private fun RuleEditor(start: Rule, isNew: Boolean, onSave: (Rule) -> Unit, onDi
                     OutlinedTextField(appField, { appField = it }, Modifier.fillMaxWidth(), label = { Text("From app (empty for any)") }, singleLine = true)
                     OutlinedTextField(t.contains, { t = t.copy(contains = it) }, Modifier.fillMaxWidth(), label = { Text("Containing (optional)") }, singleLine = true)
                 }
+                TriggerType.Sensed -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                        SenseNames.choices.forEach { (key, label) -> FilterChip(t.contains == key, { t = t.copy(contains = key) }, { Text(label.replaceFirstChar { it.uppercase() }) }) }
+                    }
+                    Text("Echo has to be on for this. Start it once from Echo and it keeps listening, with a Stop in the notification shade.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                }
                 TriggerType.Copied -> OutlinedTextField(t.contains, { t = t.copy(contains = it) }, Modifier.fillMaxWidth(), label = { Text("Containing (e.g. http for links; empty for anything)") }, singleLine = true)
             }
 

@@ -69,6 +69,8 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
     val notificationLog by lazy { app.ultimate.inbox.NotificationLog(this) }
     val clips by lazy { app.ultimate.clips.ClipStore(this) }
     val rules by lazy { app.ultimate.rules.RuleEngine(this) }
+    /** The shared senses bus and the list of live sessions, each with Stop. */
+    val senses = app.ultimate.core.Senses()
     val terminal by lazy { app.ultimate.terminal.TerminalManager(this) }
     val sendServer by lazy { app.ultimate.send.SendServer(this) }
     val transcripts by lazy { app.ultimate.speech.TranscriptStore(this) }
@@ -88,6 +90,7 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
             if (BuildConfig.HAS_AUDIO) add(AudioTool(this@UltimateApp))
             if (BuildConfig.HAS_PLUCK) add(PluckTool(this@UltimateApp))
             if (BuildConfig.HAS_SOUND) add(SoundTool(this@UltimateApp))
+            if (BuildConfig.HAS_SOUND && BuildConfig.HAS_RULES) add(app.ultimate.echo.EchoTool(this@UltimateApp))
             if (BuildConfig.HAS_TRAFFIC) add(TrafficTool(this@UltimateApp))
             if (BuildConfig.HAS_NETWORK) add(app.ultimate.lan.LanTool(lanManager))
             if (BuildConfig.HAS_SEND) add(app.ultimate.send.SendTool(sendServer))
@@ -119,6 +122,8 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
         if (BuildConfig.HAS_SEND) follow("Send to computer", kotlinx.coroutines.flow.flow { sendServer.state.collect { emit(it.error) } })
         // A content trigger fires once, so it is re-armed at every start in case the last one was used up while the app was away.
         automations.watchScreenRecordings()
+        // Everything sensed is offered to Automations: the modules never need to know who listens.
+        if (BuildConfig.HAS_RULES) watch.launch { senses.signals.collect { s -> rules.fire(app.ultimate.rules.Event.Sensed(s.key, s.label)) } }
         if (BuildConfig.HAS_FILES) app.ultimate.files.UpdateWatcher.arm(this)
         if (BuildConfig.HAS_FOOTPRINT) app.ultimate.footprint.StepSampler.schedule(this)
         // A focus session that was running when the phone restarted (or Ultimate was closed) picks up where it was.

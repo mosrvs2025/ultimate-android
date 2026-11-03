@@ -168,6 +168,11 @@
                 <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
+        <!-- Echo: sonar sensing with the speaker and mic, only while the user runs it; a notification with Stop is shown throughout. -->
+        <service
+            android:name=".echo.EchoService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
         <service
             android:name=".recorder.RecorderService"
             android:exported="false"

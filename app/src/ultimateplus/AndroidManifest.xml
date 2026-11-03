@@ -203,6 +203,11 @@
             android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Local file sharing between the user's own phone and computer on the same Wi-Fi" />
         </service>
+        <!-- Echo: sonar sensing with the speaker and mic, only while the user runs it; a notification with Stop is shown throughout. -->
+        <service
+            android:name=".echo.EchoService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
         <service
             android:name=".recorder.RecorderService"
             android:exported="false"

@@ -88,6 +88,10 @@ object RuleParser {
             val has = when (val what = m.groupValues[1]) { "link", "url" -> "http"; "something", "text", "some" -> ""; else -> what.trim() }
             add(m, Trigger(TriggerType.Copied, contains = has))
         }
+        // Senses: "when something comes closer to the phone", "when I wave at the phone", "when someone walks away".
+        hit("\\b(?:something|someone|anyone|a hand|my hand|i) (?:comes?|gets?|moves?|walks?|reach(?:es)?) (?:closer|near|toward|towards|up to)(?: to)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "echo:approach")) }
+        hit("\\b(?:something|someone|anyone|a hand|my hand|i) (?:moves?|walks?|goes?|steps?) (?:away|off)(?: from)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "echo:recede")) }
+        hit("\\bi wave(?: my hand)?(?: at| over| near)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "echo:")) }
         return c.minByOrNull { it.start }?.found
     }
 

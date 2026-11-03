@@ -12,6 +12,8 @@ enum class TriggerType(val label: String, val stateful: Boolean) {
     AtTime("it is a certain time", false),
     Notification("a notification arrives", false),
     Copied("I copy something", false),
+    /** Anything a module publishes on the senses bus; [Trigger.contains] is the signal key ("echo:approach"), or empty for any. */
+    Sensed("the phone senses something", false),
 }
 
 /**
@@ -67,6 +69,8 @@ sealed interface Event {
     data class Time(val minutes: Int, val weekday: Int) : Event
     data class Notification(val pkg: String, val app: String, val title: String, val text: String) : Event
     data class Copied(val text: String) : Event
+    /** A signal from one of the app's senses (Echo, and whatever comes next): [key] is "source:kind". */
+    data class Sensed(val key: String, val label: String) : Event
 }
 
 object RuleMatcher {
@@ -81,6 +85,8 @@ object RuleMatcher {
             is Event.Notification -> t.type == TriggerType.Notification && (t.app.isEmpty() || t.app == event.pkg) &&
                 (t.contains.isEmpty() || event.title.contains(t.contains, true) || event.text.contains(t.contains, true))
             is Event.Copied -> t.type == TriggerType.Copied && (t.contains.isEmpty() || event.text.contains(t.contains, true))
+            // "echo:" matches every Echo signal; "echo:approach" only that one; empty matches anything sensed.
+            is Event.Sensed -> t.type == TriggerType.Sensed && (t.contains.isEmpty() || event.key == t.contains || (t.contains.endsWith(":") && event.key.startsWith(t.contains)))
         }
     }
 
@@ -135,6 +141,7 @@ object Describe {
         TriggerType.AtTime -> "it is ${time(t.minutes)} ${days(t.days)}"
         TriggerType.Notification -> "a notification arrives" + (if (t.app.isNotEmpty()) " from ${appName(t.app)}" else "") + (if (t.contains.isNotEmpty()) " containing \"${t.contains}\"" else "")
         TriggerType.Copied -> "I copy something" + (if (t.contains.isNotEmpty()) " containing \"${t.contains}\"" else "")
+        TriggerType.Sensed -> SenseNames.describe(t.contains)
     }
 
     fun action(a: Action, appName: (String) -> String = { it }): String = when (a.type) {
@@ -201,4 +208,15 @@ object Schedule {
 /** Which rule types need Ultimate to be watching the phone live (the others are fed by things that already run). */
 object RuleKinds {
     val LIVE = setOf(TriggerType.Charging, TriggerType.Wifi, TriggerType.Headphones, TriggerType.BatteryBelow)
+}
+
+
+/** The signals people can pick as triggers, in words. New senses add their signals here. */
+object SenseNames {
+    val choices = listOf(
+        "echo:approach" to "something comes closer to the phone",
+        "echo:recede" to "something moves away from the phone",
+        "echo:" to "Echo senses any movement",
+    )
+    fun describe(key: String) = choices.firstOrNull { it.first == key }?.second ?: if (key.isEmpty()) "the phone senses anything" else "the phone senses $key"
 }

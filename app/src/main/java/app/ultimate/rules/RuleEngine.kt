@@ -112,6 +112,7 @@ class RuleEngine(private val context: Context) {
         is Event.Time -> "it is ${Describe.time(e.minutes)}"
         is Event.Notification -> "${e.app}: ${e.title}".take(80)
         is Event.Copied -> "you copied: ${e.text.lines().first().take(50)}"
+        is Event.Sensed -> e.label
     }
 
     private fun vars(e: Event?): Map<String, String> {
@@ -123,6 +124,7 @@ class RuleEngine(private val context: Context) {
             when (e) {
                 is Event.Notification -> { put("title", e.title); put("text", e.text); put("app", e.app) }
                 is Event.Copied -> { put("clip", e.text); put("text", e.text) }
+                is Event.Sensed -> put("text", e.label)
                 else -> Unit
             }
             put("clip", this["clip"] ?: (context.applicationContext as? UltimateApp)?.takeIf { BuildConfig.HAS_CLIPS }?.clips?.clips?.value?.firstOrNull()?.text.orEmpty())
