@@ -188,8 +188,9 @@ class OrbService : Service() {
 
     override fun onDestroy() {
         scope.cancel()
-        listOfNotNull(orbView, bloomView, peekView, targetView).forEach { v -> runCatching { wm.removeView(v) } }
-        owner.stop()
+        listOfNotNull(orbView, bloomView, peekView, targetView).forEach { v -> runCatching { wm.removeViewImmediate(v) } }
+        orbView = null; bloomView = null; peekView = null; targetView = null
+        runCatching { owner.stop() }
         super.onDestroy()
     }
 
@@ -512,7 +513,12 @@ private class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelS
     private var started = false
     fun start() { saved.performRestore(null); registry.currentState = Lifecycle.State.RESUMED; started = true }
     // A lifecycle that never started cannot be destroyed (it throws), e.g. when the permission was missing.
-    fun stop() { if (started) registry.currentState = Lifecycle.State.DESTROYED; viewModelStore.clear() }
+    fun stop() {
+        // Never let tearing down a half-started overlay crash the service.
+        runCatching { if (started && registry.currentState.isAtLeast(Lifecycle.State.CREATED)) registry.currentState = Lifecycle.State.DESTROYED }
+        runCatching { viewModelStore.clear() }
+        started = false
+    }
 }
 
 private val PETAL = Color(0xFF26262C)

@@ -54,14 +54,18 @@ class NotificationCatcher : NotificationListenerService() {
             val fresh = log.newMessages(sbn.key, messages)
             if (messages.isNotEmpty() && fresh.isEmpty()) return
             val body = LogRules.body(e.getCharSequence(Notification.EXTRA_TEXT)?.toString(), e.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(), lines, fresh)
-            val ongoing = n.flags and Notification.FLAG_ONGOING_EVENT != 0 || n.category == Notification.CATEGORY_PROGRESS || n.category == Notification.CATEGORY_TRANSPORT
+            val hasBar = e.getInt(Notification.EXTRA_PROGRESS_MAX, 0) > 0 || e.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false)
+            // Media controls and other standing notifications are noise; a progress bar is kept, as one entry that updates.
+            val ongoing = !hasBar && (n.flags and Notification.FLAG_ONGOING_EVENT != 0 || n.category == Notification.CATEGORY_TRANSPORT)
             if (LogRules.skip(sbn.packageName, packageName, ongoing, title, body, log.excluded)) return
             val app = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }.getOrDefault(sbn.packageName)
             val convo = e.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
             // Who it is from: the group chat's name, else the person who wrote, else the title of a message, call or email.
             val who = convo?.takeIf { it.isNotBlank() } ?: senders.lastOrNull()?.takeIf { it.isNotBlank() }
                 ?: title.takeIf { n.category == Notification.CATEGORY_MESSAGE || n.category == Notification.CATEGORY_CALL || n.category == Notification.CATEGORY_EMAIL }?.takeIf { it.isNotBlank() }
-            log.add(sbn.packageName, app, sbn.postTime, title, body, convo, sbn.key, n.category, who)
+            // A progress bar (an upload, a download) is one entry that updates as it goes.
+            val progress = e.getInt(Notification.EXTRA_PROGRESS_MAX, 0) > 0 || e.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false)
+            log.add(sbn.packageName, app, sbn.postTime, title, body, convo, sbn.key, n.category, who, progress)
             if (BuildConfig.HAS_RULES) (application as UltimateApp).rules.fire(RuleEvent.Notification(sbn.packageName, app, title, body))
             if (System.currentTimeMillis() - lastTrim > 3_600_000L) { lastTrim = System.currentTimeMillis(); log.trim() }
         }

@@ -171,3 +171,78 @@ class LiveNotificationsTest {
         assertEquals(null, app.ultimate.inbox.LiveNotifications.intent("k"))
     }
 }
+
+class ClipSmartTest {
+    private fun k(s: String) = app.ultimate.clips.ClipSmart.kind(s)
+
+    @Test fun recognisesWhatWasCopied() {
+        assertEquals(app.ultimate.clips.ClipSmart.Kind.Json, k("""{"metadata": {"id": 4, "tags": ["a"]}}"""))
+        assertEquals(app.ultimate.clips.ClipSmart.Kind.Json, k("""[1, 2, 3]"""))
+        assertEquals(app.ultimate.clips.ClipSmart.Kind.Plain, k("{not json at all}"))
+        assertEquals(app.ultimate.clips.ClipSmart.Kind.Url, k("https://example.com/a?b=1")); assertEquals(app.ultimate.clips.ClipSmart.Kind.Url, k("www.example.com"))
+        assertEquals(app.ultimate.clips.ClipSmart.Kind.Color, k("#3FA66B")); assertEquals(app.ultimate.clips.ClipSmart.Kind.Color, k("#fff")); assertEquals(app.ultimate.clips.ClipSmart.Kind.Plain, k("123456")) // a number is not a colour
+        assertEquals(app.ultimate.clips.ClipSmart.Kind.Path, k("/storage/emulated/0/Movies/clip.mp4")); assertEquals(app.ultimate.clips.ClipSmart.Kind.Path, k("content://media/external/images/1"))
+        assertEquals(app.ultimate.clips.ClipSmart.Kind.Command, k("git status")); assertEquals(app.ultimate.clips.ClipSmart.Kind.Command, k("$ ls -la")); assertEquals(app.ultimate.clips.ClipSmart.Kind.Command, k("./gradlew build"))
+        assertEquals(app.ultimate.clips.ClipSmart.Kind.Plain, k("Dinner at 7?")); assertEquals(app.ultimate.clips.ClipSmart.Kind.Plain, k(""))
+    }
+
+    @Test fun prettifiesColoursAndPrompts() {
+        val pretty = app.ultimate.clips.ClipSmart.pretty("""{"a":1,"b":[2,3]}""")!!
+        assertTrue(pretty, pretty.contains("\n") && pretty.contains("\"a\": 1"))
+        assertEquals(0xFF3FA66BL, app.ultimate.clips.ClipSmart.color("#3FA66B")); assertEquals(0xFFFFFFFFL, app.ultimate.clips.ClipSmart.color("#fff"))
+        assertEquals("ls -la", app.ultimate.clips.ClipSmart.command("$ ls -la"))
+    }
+}
+
+class StabilityTest {
+    @Test fun identicalNotificationsInTheSameMillisecondStillGetDifferentKeys() {
+        val a = Moment(Source.Notification, 1000, "Uploading", "75 MB / 79 MB", "YT Studio", id = "41")
+        val b = a.copy(id = "42")
+        assertTrue(a.uid != b.uid)
+        // Without an id (older data), the text still tells them apart; the same record keeps the same key.
+        val c = Moment(Source.Notification, 1000, "Uploading", "75 MB / 79 MB"); val d = Moment(Source.Notification, 1000, "Uploading", "76 MB / 79 MB")
+        assertTrue(c.uid != d.uid); assertEquals(c.uid, c.copy().uid)
+    }
+
+    @Test fun findingsCarryTheFilterThatShowsThem() {
+        val f = TimelineMath.findings(Month.build(), Month.now, Month.utc)
+        val interrupt = f.first { "while you were focusing" in it.text }
+        assertEquals(Source.Notification, interrupt.source); assertTrue(interrupt.query!!.isNotBlank())
+        assertTrue(f.first { "up past midnight" in it.text }.lateNight)
+        assertEquals(Source.Clip, f.first { "things you copied" in it.text }.source)
+    }
+
+    @Test fun lateNightsNameWhatYouWereDoingNotAPhotoFolder() {
+        val H = 3_600_000L; val D = 24 * H; val now = 20_030L * D + 12 * H
+        val all = (0 until 5).flatMap { d -> val night = now - d * D - 12 * H + 2 * H
+            listOf(Moment(Source.Photo, night, "res", "", "res"), Moment(Source.Photo, night + 60_000, "res", "", "res"), Moment(Source.Watched, night, "Video", "", "YouTube", end = night + H)) }
+        val late = TimelineMath.insights(all, now, Month.utc).first { "up past midnight" in it }
+        assertTrue(late, "YouTube" in late && "res" !in late)
+    }
+
+    @Test fun pinnedToolsComeFirstAndPinsToggle() {
+        assertEquals(listOf("terminal", "timeline", "storage", "squeeze"), app.ultimate.home.HomeLayout.withPins(listOf("terminal", "timeline"), listOf("storage", "terminal", "squeeze", "files"), listOf("terminal", "timeline", "storage", "squeeze", "files")))
+        assertEquals(listOf("storage", "squeeze", "files", "studio"), app.ultimate.home.HomeLayout.withPins(listOf("gone"), listOf("storage", "squeeze", "files", "studio"), listOf("storage", "squeeze", "files", "studio")))
+        assertEquals(listOf("a", "b"), app.ultimate.home.HomeLayout.togglePin(listOf("a"), "b")); assertEquals(listOf("b"), app.ultimate.home.HomeLayout.togglePin(listOf("a", "b"), "a"))
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class ProgressNotificationTest {
+    @Test fun anUploadIsOneEntryThatUpdatesInPlace() {
+        val c = ApplicationProvider.getApplicationContext<android.content.Context>()
+        c.getDatabasePath("notifications.db").delete()
+        val log = app.ultimate.inbox.NotificationLog(c)
+        log.add("com.google.android.apps.youtube.creator", "YT Studio", 1_000, "Uploading", "75 MB / 79 MB", null, "up", progress = true)
+        log.add("com.google.android.apps.youtube.creator", "YT Studio", 2_000, "Uploading", "76 MB / 79 MB", null, "up", progress = true)
+        log.add("com.google.android.apps.youtube.creator", "YT Studio", 3_000, "Upload complete", "My video", null, "up", progress = false)
+        val all = log.since(0)
+        assertEquals(1, all.size)
+        assertEquals("Upload complete", all[0].title); assertEquals(1_000L, all[0].at) // kept from when it started
+        // A new upload later is a new entry.
+        log.add("com.google.android.apps.youtube.creator", "YT Studio", 9_000, "Uploading", "1 MB / 50 MB", null, "up", progress = true)
+        assertEquals(2, log.since(0).size)
+        log.close()
+    }
+}

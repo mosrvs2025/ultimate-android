@@ -12,7 +12,15 @@ enum class Source(val label: String, val toolId: String) {
 data class Moment(
     val source: Source, val at: Long, val title: String, val detail: String = "", val app: String = "", val pkg: String? = null,
     val end: Long = at, val focusDrift: Int = 0, val level: Int = -1, val level2: Int = -1,
-)
+    /** Unique within its source (a database row, a clip, a gallery item, a package): list keys and actions rely on it. */
+    val id: String = "", val key: String = "", val uri: String? = null,
+) {
+    /** A key no two moments share, even two identical notifications in the same millisecond. */
+    val uid: String get() = "${source.name}:" + id.ifBlank { "$at:${title.hashCode()}:${detail.hashCode()}" }
+}
+
+/** A finding, and what to show when it is tapped: one kind of record, a search, or only the small hours. */
+data class Finding(val text: String, val source: Source? = null, val query: String? = null, val lateNight: Boolean = false)
 
 /** One day's totals for the strip of days. */
 data class DayCount(val day: Long, val notifications: Int, val clips: Int, val watchedMs: Long, val focusMs: Long) {
@@ -68,7 +76,11 @@ object TimelineMath {
      * Findings that only show when the records are read together, most telling first. Each needs enough data behind it
      * to be worth saying, so a new phone says little and a month says a lot.
      */
-    fun insights(all: List<Moment>, now: Long, zone: TimeZone = TimeZone.getDefault()): List<String> = buildList {
+    fun insights(all: List<Moment>, now: Long, zone: TimeZone = TimeZone.getDefault()): List<String> = findings(all, now, zone).map { it.text }
+
+    /** The same findings, each with the filter that shows the records behind it. */
+    fun findings(all: List<Moment>, now: Long, zone: TimeZone = TimeZone.getDefault()): List<Finding> = buildList {
+        fun add(text: String, source: Source? = null, query: String? = null, late: Boolean = false) { add(Finding(text, source, query, late)) }
         val notes = all.filter { it.source == Source.Notification }
         val focus = all.filter { it.source == Source.Focus && it.end > it.at }
         val watched = all.filter { it.source == Source.Watched }
@@ -79,7 +91,7 @@ object TimelineMath {
             val during = notes.filter { n -> focus.any { n.at in it.at..it.end } }
             if (during.size >= 3) {
                 val top = during.groupingBy { it.app }.eachCount().maxByOrNull { it.value }!!
-                add("${top.key} pinged you ${top.value} time${if (top.value == 1) "" else "s"} while you were focusing. That's ${during.size} interruptions across ${focus.size} session${if (focus.size == 1) "" else "s"}.")
+                add(source = Source.Notification, query = top.key, text = "${top.key} pinged you ${top.value} time${if (top.value == 1) "" else "s"} while you were focusing. That's ${during.size} interruptions across ${focus.size} session${if (focus.size == 1) "" else "s"}.")
             }
         }
 
@@ -88,7 +100,7 @@ object TimelineMath {
         val focusDays = days.filter { it.focusMs > 0 }; val otherDays = days.filter { it.focusMs == 0L }
         if (focusDays.size >= 2 && otherDays.size >= 2) {
             val a = focusDays.map { it.notifications }.average(); val b = otherDays.map { it.notifications }.average()
-            if (b > 0 && kotlin.math.abs(a - b) / b >= 0.15) add("On days you used Focus you got ${pct(a, b)}% ${if (a < b) "fewer" else "more"} notifications (${Math.round(a)} against ${Math.round(b)}).")
+            if (b > 0 && kotlin.math.abs(a - b) / b >= 0.15) add(source = Source.Focus, text = "On days you used Focus you got ${pct(a, b)}% ${if (a < b) "fewer" else "more"} notifications (${Math.round(a)} against ${Math.round(b)}).")
         }
 
         // Does a busy phone mean more watching?
@@ -96,48 +108,49 @@ object TimelineMath {
         if (withBoth.size >= 6 && watched.isNotEmpty()) {
             val sorted = withBoth.sortedBy { it.notifications }; val half = sorted.size / 2
             val quiet = sorted.take(half).map { it.watchedMs }.average(); val busy = sorted.takeLast(half).map { it.watchedMs }.average()
-            if (quiet > 0 && busy / quiet >= 1.4) add("You watch and listen ${String.format(java.util.Locale.US, "%.1f", busy / quiet)}× as much on your busiest notification days.")
-            else if (busy > 0 && quiet / busy >= 1.4) add("Busy notification days leave less time for watching: ${mins(busy.toLong())} against ${mins(quiet.toLong())} on quieter days.")
+            if (quiet > 0 && busy / quiet >= 1.4) add(source = Source.Watched, text = "You watch and listen ${String.format(java.util.Locale.US, "%.1f", busy / quiet)}× as much on your busiest notification days.")
+            else if (busy > 0 && quiet / busy >= 1.4) add(source = Source.Watched, text = "Busy notification days leave less time for watching: ${mins(busy.toLong())} against ${mins(quiet.toLong())} on quieter days.")
         }
 
         // What you copy straight out of notifications (often codes and addresses).
         val copiedFrom = clips.mapNotNull { c -> notes.lastOrNull { it.at in (c.at - 120_000)..c.at }?.app }
         if (copiedFrom.size >= 3) {
             val top = copiedFrom.groupingBy { it }.eachCount().maxByOrNull { it.value }!!
-            add("${copiedFrom.size} things you copied came right after a notification, most often from ${top.key} (${top.value}).")
+            add(source = Source.Clip, text = "${copiedFrom.size} things you copied came right after a notification, most often from ${top.key} (${top.value}).")
         }
 
         // Late nights, from any record.
         val late = all.filter { hourOf(it.at, zone) in 0..3 }.map { dayOf(it.at, zone) }.toSet()
         if (late.size >= 3) {
-            val whatKeepsYou = all.filter { hourOf(it.at, zone) in 0..3 && it.source != Source.Notification }.groupingBy { it.app.ifBlank { it.source.label } }.eachCount().maxByOrNull { it.value }
-            add("You were up past midnight on ${late.size} of the last ${days.size} days" + (whatKeepsYou?.let { ", most often with ${it.key}" } ?: "") + ".")
+            // Name only what you were doing (watching or listening): a photo's folder or a charger is not an activity.
+            val whatKeepsYou = all.filter { hourOf(it.at, zone) in 0..3 && it.source == Source.Watched && it.app.isNotBlank() }.groupingBy { it.app }.eachCount().maxByOrNull { it.value }
+            add(late = true, text = "You were up past midnight on ${late.size} of the last ${days.size} days" + (whatKeepsYou?.let { ", most often with ${it.key}" } ?: "") + ".")
         }
 
         // Screenshots: how many, and when you take them.
         val shots = all.filter { it.source == Source.Screenshot }
         if (shots.size >= 5) {
             val h = shots.groupingBy { hourOf(it.at, zone) }.eachCount().maxByOrNull { it.value }!!.key
-            add("You took ${shots.size} screenshots, most around ${if (h % 12 == 0) 12 else h % 12}${if (h < 12) "am" else "pm"}.")
+            add(source = Source.Screenshot, text = "You took ${shots.size} screenshots, most around ${if (h % 12 == 0) 12 else h % 12}${if (h < 12) "am" else "pm"}.")
         }
         // Photos: the day of the week the camera comes out.
         val photos = all.filter { it.source == Source.Photo }
         if (photos.size >= 10) {
             val byDay = photos.groupingBy { java.util.Calendar.getInstance(zone).apply { timeInMillis = it.at }.get(java.util.Calendar.DAY_OF_WEEK) }.eachCount().maxByOrNull { it.value }!!
-            add("You took ${photos.size} photos; your camera comes out most on ${java.text.DateFormatSymbols.getInstance().weekdays[byDay.key]}s (${byDay.value}).")
+            add(source = Source.Photo, text = "You took ${photos.size} photos; your camera comes out most on ${java.text.DateFormatSymbols.getInstance().weekdays[byDay.key]}s (${byDay.value}).")
         }
         // New apps.
         val installs = all.filter { it.source == Source.Install }
-        if (installs.size >= 3) add("You installed ${installs.size} apps, most recently ${installs.maxByOrNull { it.at }!!.title}.")
+        if (installs.size >= 3) add(source = Source.Install, text = "You installed ${installs.size} apps, most recently ${installs.maxByOrNull { it.at }!!.title}.")
         // Charging habits.
         val charges = all.filter { it.source == Source.Charge && it.end > it.at }
         if (charges.size >= 4) {
             val overnight = charges.filter { c -> (0..5).any { k -> val t = c.at + k * 3_600_000L; t <= c.end && hourOf(t, zone) == 3 } || (hourOf(c.at, zone) <= 3 && hourOf(c.end, zone) >= 4 && c.end - c.at > 3_600_000) }
                 .map { dayOf(it.end, zone) }.toSet()
             val nights = days.size.coerceAtLeast(1)
-            if (overnight.isNotEmpty()) add("You charged overnight on ${overnight.size} of the last $nights nights.")
+            if (overnight.isNotEmpty()) add(source = Source.Charge, text = "You charged overnight on ${overnight.size} of the last $nights nights.")
             val ins = charges.mapNotNull { it.level.takeIf { l -> l in 0..100 } }.sorted()
-            if (ins.size >= 4) add("You usually plug in at about ${ins[ins.size / 2]}%.")
+            if (ins.size >= 4) add(source = Source.Charge, text = "You usually plug in at about ${ins[ins.size / 2]}%.")
         }
 
         // The busiest day of the week for everything together.

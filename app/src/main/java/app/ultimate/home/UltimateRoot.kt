@@ -82,6 +82,9 @@ private fun SuiteRoot(app: UltimateApp, route: Route) {
     ) { shown ->
         when (shown) {
             is Route.InTool -> androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
+                // Back from any tool returns to where you came from (Home, Library or Activity). Tools with their own
+                // steps (an editor, a sub-screen) register their own Back after this one, so theirs comes first.
+                BackHandler(onBack = shell::exitTool)
                 // Each tool keeps its own state while the user hops between them.
                 androidx.compose.runtime.key(shown.tool.id) { shown.tool.Screen(onExit = shell::exitTool, launch = shown.launch) }
                 ToolSwitcher(app, shown.tool)

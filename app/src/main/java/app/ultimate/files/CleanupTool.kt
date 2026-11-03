@@ -180,7 +180,13 @@ private fun CleanupScreen(app: UltimateApp, tool: CleanupTool, onExit: () -> Uni
             Text("Clean up looks through your storage on the phone. It needs all files access, and anything you remove waits in the bin for 30 days.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button({ context.startActivity(allFilesIntent(context)) }) { Text("Allow all files access") }
         } else LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { StorageHero(overview, freed, progress) }
+            item {
+                // Each kind in the bar opens where it can be dealt with: files of that kind in Storage, apps in Pluck.
+                StorageHero(overview, freed, progress) { kind ->
+                    val target = if (kind == FileKind.Apk) app.tools.firstOrNull { it.id == "pluck" } else app.tools.firstOrNull { it.id == "storage" }
+                    target?.let { app.shell.open(it, ToolLaunch(query = if (kind == FileKind.Apk) null else "kind:${kind.name}")) }
+                }
+            }
             overview?.photos?.takeIf { it.isNotEmpty() }?.let { photos ->
                 item {
                     Text("Swipe your photos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -228,8 +234,9 @@ private fun CleanupScreen(app: UltimateApp, tool: CleanupTool, onExit: () -> Uni
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun StorageHero(o: CleanupScanner.Overview?, freed: Long, progress: String?) {
+private fun StorageHero(o: CleanupScanner.Overview?, freed: Long, progress: String?, onKind: (FileKind) -> Unit = {}) {
     val grow = remember { Animatable(0f) }
     LaunchedEffect(o) { if (o != null) { grow.snapTo(0f); grow.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) } }
     val colors = mapOf(
@@ -250,11 +257,13 @@ private fun StorageHero(o: CleanupScanner.Overview?, freed: Long, progress: Stri
             val other = (o.total - o.free - colors.keys.sumOf { o.byKind[it] ?: 0 }).coerceAtLeast(0)
             drawRect(Color.Gray, Offset(x, 0f), androidx.compose.ui.geometry.Size(size.width * other / o.total * grow.value, size.height))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        // The legend wraps onto more lines rather than squeezing the last label into a column of letters; each one opens
+        // that kind (files in Storage, apps in Pluck).
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(FileKind.Image to "Photos", FileKind.Video to "Videos", FileKind.Audio to "Audio", FileKind.Apk to "Apps").forEach { (k, label) ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(8.dp).clip(CircleShape).background(colors.getValue(k))); Spacer(Modifier.width(4.dp))
-                    Text("$label ${formatBytes(o.byKind[k] ?: 0)}", style = MaterialTheme.typography.labelSmall)
+                Row(Modifier.clip(RoundedCornerShape(50)).background(colors.getValue(k).copy(alpha = 0.16f)).clickable { onKind(k) }.padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(colors.getValue(k))); Spacer(Modifier.width(6.dp))
+                    Text("$label ${formatBytes(o.byKind[k] ?: 0)}", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                 }
             }
         }

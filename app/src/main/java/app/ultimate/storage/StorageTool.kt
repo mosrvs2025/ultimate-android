@@ -113,6 +113,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.automirrored.rounded.ViewList
 
 /** Where all the space went: by kind, as a map of folders, the biggest files and apps, and how it changes. */
 class StorageTool(private val app: UltimateApp) : Tool {
@@ -128,7 +132,7 @@ class StorageTool(private val app: UltimateApp) : Tool {
     override suspend fun refresh() = Unit
     /** The last scan, kept while the app runs so reopening is instant; refreshed when older than ten minutes. */
     var last: StorageReport? = null
-    @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = StorageScreen(app, this, onExit)
+    @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = StorageScreen(app, this, onExit, kind = launch.query?.removePrefix("kind:")?.let { k -> FileKind.entries.firstOrNull { it.name.equals(k, true) } })
 
     /** The same screen as if "All files access" were granted, with the report already in [last]; for rendering screenshots. */
     @Composable internal fun ScreenWithAccess(onExit: () -> Unit) = StorageScreen(app, this, onExit, assumeAccess = true)
@@ -145,7 +149,7 @@ private val SYSTEM_COLOR = Color(0xFF9E9E9E)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Unit, assumeAccess: Boolean = false) {
+internal fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Unit, assumeAccess: Boolean = false, kind: FileKind? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var access by remember { mutableStateOf(assumeAccess || hasAllFiles(context)) }
@@ -153,7 +157,10 @@ internal fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Un
     var report by remember { mutableStateOf(tool.last) }
     var scanned by remember { mutableStateOf<Int?>(null) }
     var path by remember { mutableStateOf(listOf<Folder>()) }
-    var kindFilter by remember { mutableStateOf<FileKind?>(null) }
+    // Opened from a coloured segment elsewhere (Clean up's bar), start on that kind of file.
+    var kindFilter by remember { mutableStateOf<FileKind?>(kind) }
+    val prefs = remember { context.getSharedPreferences("storage", android.content.Context.MODE_PRIVATE) }
+    var grid by remember { mutableStateOf(prefs.getBoolean("grid", false)) }
     var picked by remember { mutableStateOf<BigFile?>(null) }
     var zoomFrom by remember { mutableStateOf(TransformOrigin.Center) }
     var allHere by remember { mutableStateOf(false) }
@@ -194,7 +201,7 @@ internal fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Un
         }
         val seen = remember { mutableSetOf<Any>() }
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item { Overview(r, kindFilter, onKind = { k -> kindFilter = if (kindFilter == k) null else k }) }
+            item { Overview(r, kindFilter, onKind = { k -> kindFilter = if (kindFilter == k) null else k }, onApps = { app.tools.firstOrNull { it.id == "pluck" }?.let { app.shell.open(it) } }) }
             val saved = all.sumOf { it.savedBytes }
             if (saved > 0) item {
                 Row(Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.primaryContainer).clickable { showSavings = true }.padding(14.dp),
@@ -251,9 +258,19 @@ internal fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Un
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (kindFilter == null) "Biggest files" else "Biggest ${KIND_NAMES[kindFilter]?.lowercase()}", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     if (kindFilter != null) TextButton({ kindFilter = null }) { Text("All kinds") }
+                    // List or grid; the choice is remembered.
+                    IconButton({ grid = !grid; prefs.edit().putBoolean("grid", grid).apply() }) {
+                        Icon(if (grid) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView, if (grid) "Show as a list" else "Show as a grid")
+                    }
                 }
             }
-            items(r.biggest.filter { kindFilter == null || it.kind == kindFilter }.take(25), key = { "b" + it.path }) { f -> FileRow(f) { picked = f } }
+            val biggest = r.biggest.filter { kindFilter == null || it.kind == kindFilter }.take(if (grid) 30 else 25)
+            if (grid) items(biggest.chunked(3), key = { row -> "g" + row.first().path }) { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { f -> FileTile(f, Modifier.weight(1f)) { picked = f } }
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            } else items(biggest, key = { "b" + it.path }) { f -> FileRow(f) { picked = f } }
             if (r.forgotten.isNotEmpty()) {
                 item { Text("Big and forgotten", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold); Text("Over 50 MB and untouched for a year", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(r.forgotten.take(10), key = { "o" + it.path }) { f -> FileRow(f) { picked = f } }
@@ -288,6 +305,9 @@ internal fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Un
                     if (f.kind == FileKind.Video && app.tools.any { it.id == "squeeze" }) TextButton({
                         picked = null; app.tools.first { it.id == "squeeze" }.let { t -> app.shell.open(t, ToolLaunch(listOf(contentUri(context, File(f.path))))) }
                     }) { Text("Shrink") }
+                    if (app.tools.any { it.id == "send" }) TextButton({
+                        picked = null; app.tools.first { it.id == "send" }.let { t -> app.shell.open(t, ToolLaunch(listOf(contentUri(context, File(f.path))))) }
+                    }) { Text("To computer") }
                     TextButton({
                         picked = null
                         scope.launch {
@@ -305,7 +325,7 @@ internal fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Un
 
 /** Used vs free, split by kind, with the week's change and a 30-day sparkline. Tap a kind to list its biggest files. */
 @Composable
-private fun Overview(r: StorageReport, selected: FileKind?, onKind: (FileKind) -> Unit) {
+private fun Overview(r: StorageReport, selected: FileKind?, onKind: (FileKind) -> Unit, onApps: () -> Unit = {}) {
     val grow = remember { Animatable(0f) }
     LaunchedEffect(r.at) { grow.snapTo(0f); grow.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
     val parts = KIND_COLORS.keys.map { Triple(KIND_NAMES.getValue(it), KIND_COLORS.getValue(it), r.byKind[it] ?: 0L) to it } +
@@ -322,7 +342,17 @@ private fun Overview(r: StorageReport, selected: FileKind?, onKind: (FileKind) -
                 Text("free", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Canvas(Modifier.fillMaxWidth().height(22.dp).clip(RoundedCornerShape(11.dp))) {
+        // Tap a coloured stretch of the bar: a kind of file lists just those; Apps opens Pluck.
+        Canvas(Modifier.fillMaxWidth().height(22.dp).clip(RoundedCornerShape(11.dp)).pointerInput(parts) {
+            detectTapGestures { o ->
+                var x = 0f
+                for ((p, kind) in parts) {
+                    val w = size.width * p.third / r.total
+                    if (o.x in x..(x + w)) { if (kind != null) onKind(kind) else if (p.first == "Apps") onApps(); break }
+                    x += w
+                }
+            }
+        }) {
             drawRect(Color.Gray.copy(alpha = 0.18f))
             var x = 0f
             parts.forEach { (p, _) -> val w = size.width * p.third / r.total * grow.value; drawRect(p.second, Offset(x, 0f), Size(w, size.height)); x += w }
@@ -432,12 +462,60 @@ private fun FileRow(f: BigFile, onClick: () -> Unit) = Row(
     Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(vertical = 6.dp),
     verticalAlignment = Alignment.CenterVertically,
 ) {
-    Box(Modifier.size(10.dp).clip(CircleShape).background(KIND_COLORS[f.kind] ?: Color.Gray)); Spacer(Modifier.width(12.dp))
+    FileThumb(f, Modifier.size(44.dp).clip(RoundedCornerShape(10.dp))); Spacer(Modifier.width(12.dp))
     Column(Modifier.weight(1f)) {
         Text(f.name, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(File(f.path).parentFile?.name.orEmpty() + " · " + relativeTime(f.modified), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Text(formatBytes(f.bytes), style = MaterialTheme.typography.labelLarge)
+}
+
+/** A file as a square tile: its picture (or icon), with its size over it. */
+@Composable
+private fun FileTile(f: BigFile, modifier: Modifier, onClick: () -> Unit) {
+    Box(modifier.aspectRatio(1f).pressScale(0.95f).clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick)) {
+        FileThumb(f, Modifier.fillMaxSize())
+        Text(formatBytes(f.bytes), Modifier.align(Alignment.BottomStart).padding(6.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 6.dp, vertical = 2.dp),
+            color = Color.White, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+/**
+ * What a file looks like, loaded off the main thread: a frame of a video, a photo, an APK's own icon, or a PDF's
+ * first page. Anything else gets its kind's colour and the first letter of its type.
+ */
+@Composable
+private fun FileThumb(f: BigFile, modifier: Modifier) {
+    val context = LocalContext.current
+    var bmp by remember(f.path) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    LaunchedEffect(f.path) {
+        bmp = withContext(Dispatchers.IO) {
+            runCatching {
+                val file = File(f.path); val size = android.util.Size(256, 256)
+                when {
+                    f.kind == FileKind.Video -> android.media.ThumbnailUtils.createVideoThumbnail(file, size, null)
+                    f.kind == FileKind.Image -> android.media.ThumbnailUtils.createImageThumbnail(file, size, null)
+                    f.kind == FileKind.Apk -> context.packageManager.getPackageArchiveInfo(f.path, 0)?.applicationInfo?.let { ai ->
+                        ai.sourceDir = f.path; ai.publicSourceDir = f.path
+                        ai.loadIcon(context.packageManager).let { d -> android.graphics.Bitmap.createBitmap(128, 128, android.graphics.Bitmap.Config.ARGB_8888).also { b -> val c = android.graphics.Canvas(b); d.setBounds(0, 0, 128, 128); d.draw(c) } }
+                    }
+                    f.name.endsWith(".pdf", true) -> android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+                        android.graphics.pdf.PdfRenderer(pfd).use { r -> r.openPage(0).use { p ->
+                            android.graphics.Bitmap.createBitmap(256, (256f * p.height / p.width).toInt().coerceIn(64, 512), android.graphics.Bitmap.Config.ARGB_8888).also { b ->
+                                b.eraseColor(android.graphics.Color.WHITE); p.render(b, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            }
+                        } }
+                    }
+                    else -> null
+                }
+            }.getOrNull()
+        }
+    }
+    Box(modifier.background((KIND_COLORS[f.kind] ?: Color.Gray).copy(alpha = 0.25f)), contentAlignment = Alignment.Center) {
+        val b = bmp
+        if (b != null) androidx.compose.foundation.Image(b.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+        else Text(f.name.substringAfterLast('.', "").take(4).uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = KIND_COLORS[f.kind] ?: Color.Gray)
+    }
 }
 
 /** Folders up to three levels down, biggest first: the ones worth looking at (not "Internal storage" itself). */

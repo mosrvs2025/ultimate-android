@@ -87,7 +87,7 @@ class RulesTool(private val app: UltimateApp) : Tool {
     override fun opensOwnScreen(item: LibraryItem) = false
     override suspend fun remove(id: String, deleteFile: Boolean) = true
     override suspend fun refresh() = Unit
-    @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = RulesScreen(app, onExit)
+    @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = RulesScreen(app, onExit, launch.query)
 }
 
 /** Sentences that become rules when tapped, through the same parser as anything you type. */
@@ -102,12 +102,13 @@ private val IDEAS = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RulesScreen(app: UltimateApp, onExit: () -> Unit) {
+private fun RulesScreen(app: UltimateApp, onExit: () -> Unit, start: String? = null) {
     val context = LocalContext.current
     val engine = app.rules
     val rules by engine.rules.collectAsStateWithLifecycle()
     val log by engine.log.collectAsStateWithLifecycle()
-    var text by remember { mutableStateOf("") }
+    // Opened from a record ("make a rule from this"), the sentence is already started.
+    var text by remember { mutableStateOf(start.orEmpty()) }
     var answer by remember { mutableStateOf<RuleParser.Result?>(null) }
     var editing by remember { mutableStateOf<Rule?>(null) }
     var perms by remember { mutableStateOf(Perms.read(context)) }

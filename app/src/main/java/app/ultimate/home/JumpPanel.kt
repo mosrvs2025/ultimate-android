@@ -73,6 +73,10 @@ import app.ultimate.timeline.TimelineReader
 import app.ultimate.timeline.icon
 import app.ultimate.timeline.tint
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.height
 
 /** Geometry of the bubble turning into the panel, kept pure so it is tested. */
 object JumpMath {
@@ -112,7 +116,12 @@ internal fun JumpPanel(app: UltimateApp, current: Tool, running: Set<String>, op
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
         val w = constraints.maxWidth.toFloat(); val h = constraints.maxHeight.toFloat()
         val margin = with(density) { 12.dp.toPx() }
-        val panelH = minOf(h * 0.74f, with(density) { 600.dp.toPx() })
+        // Drag the handle up to give it the whole screen, down to shrink it again (or close it from small).
+        var expanded by remember { mutableStateOf(false) }
+        val panelH by androidx.compose.animation.core.animateFloatAsState(
+            if (expanded) h * 0.92f - with(density) { 24.dp.toPx() } else minOf(h * 0.74f, with(density) { 600.dp.toPx() }),
+            androidx.compose.animation.core.spring(androidx.compose.animation.core.Spring.DampingRatioLowBouncy, androidx.compose.animation.core.Spring.StiffnessMediumLow), label = "panelH",
+        )
         // Clear of the navigation bar, so the bottom row is never hidden behind it.
         val nav = WindowInsets.navigationBars.getBottom(density).toFloat()
         val panel = Rect(margin, h - panelH - margin - nav, w - margin, h - margin - nav)
@@ -134,16 +143,24 @@ internal fun JumpPanel(app: UltimateApp, current: Tool, running: Set<String>, op
             Modifier.offset { IntOffset(panel.left.roundToInt(), panel.top.roundToInt()) }.size(with(density) { panel.width.toDp() }, with(density) { panel.height.toDp() })
                 .alpha(inside).clickable(remember { MutableInteractionSource() }, null) {},
         ) {
+            // A handle to drag the panel taller or shorter.
+            Box(Modifier.fillMaxWidth().height(22.dp).pointerInput(Unit) {
+                var dy = 0f
+                detectVerticalDragGestures(onDragStart = { dy = 0f }, onDragEnd = {
+                    if (dy < -40f) expanded = true else if (dy > 60f) { if (expanded) expanded = false else onClose() }
+                }) { _, d -> dy += d }
+            }, contentAlignment = Alignment.Center) { Box(Modifier.size(36.dp, 4.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))) }
             // The panel is drawn on a canvas, not a Surface, so give its text and icons the theme's on-surface colour.
-            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+            Box(Modifier.padding(top = 14.dp)) { androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
                 val shell = app.shell
-                JumpContents(app, current.id, running, object : JumpActions {
+                val homePins by HomePins.ids(app).collectAsState()
+                JumpContents(app, current.id, running, pins = homePins.toSet(), onPin = { HomePins.toggle(app, it.id) }, pinHint = "Hold a tool to pin it to the top of Home.", actions = object : JumpActions {
                     override fun tool(t: Tool, query: String?) { onClose(); if (t.id != current.id || query != null) shell.open(t, ToolLaunch(query = query)) }
                     override fun home() { onClose(); shell.showHome() }
                     override fun library() { onClose(); shell.showLibrary() }
                     override fun activity() { onClose(); shell.showActivity() }
                 })
-            }
+            } }
         }
     }
 }
@@ -161,7 +178,7 @@ interface JumpActions {
  * tools and your records, today's numbers, the tools you use most, and every tool by family.
  */
 @Composable
-fun JumpContents(app: UltimateApp, currentId: String?, running: Set<String>, actions: JumpActions, showNav: Boolean = true, placeholder: String = "Jump to a tool", pins: Set<String> = emptySet(), onPin: ((Tool) -> Unit)? = null) {
+fun JumpContents(app: UltimateApp, currentId: String?, running: Set<String>, actions: JumpActions, showNav: Boolean = true, placeholder: String = "Jump to a tool", pins: Set<String> = emptySet(), onPin: ((Tool) -> Unit)? = null, pinHint: String? = null) {
     var query by remember { mutableStateOf("") }
     val seen = remember { mutableSetOf<Any>() }
     val now = remember { System.currentTimeMillis() }
@@ -217,7 +234,7 @@ fun JumpContents(app: UltimateApp, currentId: String?, running: Set<String>, act
                 if (found.isEmpty() && hits.isEmpty()) Text("Nothing called that, in tools or in your records.", Modifier.padding(8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        if (onPin != null) Text("Hold a tool to pin it to the orb (${pins.size} of 6).", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (onPin != null) Text(pinHint ?: "Hold a tool to pin it to the orb (${pins.size} of 6).", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (showNav) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Pill(Icons.Rounded.Home, "Home", Modifier.weight(1f)) { actions.home() }
             Pill(Icons.Rounded.VideoLibrary, "Library", Modifier.weight(1f)) { actions.library() }

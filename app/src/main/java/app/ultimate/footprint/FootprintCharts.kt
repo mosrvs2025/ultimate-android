@@ -206,10 +206,12 @@ internal fun AreaChart(values: List<Long>, modifier: Modifier = Modifier.fillMax
 /** A big gauge: how much the apps on this phone could see, from Quiet to Wide open. The arc sweeps round, the number counts up, and the colour warms as it climbs. */
 @Composable
 internal fun ExposureGauge(score: Int, word: String, detail: String) {
+    val motionOn = motionOn()
     val haptics = LocalHapticFeedback.current
     val shown = remember(score) { Animatable(0f) }
     LaunchedEffect(score) {
-        shown.animateTo(score.toFloat(), spring(Spring.DampingRatioLowBouncy, Spring.StiffnessVeryLow))
+        // Counts up without overshooting, so it never shows more than the score (or more than 100).
+        if (motionOn) shown.animateTo(score.toFloat(), tween(1100, easing = FastOutSlowInEasing)) else shown.snapTo(score.toFloat())
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
     val track = MaterialTheme.colorScheme.surfaceVariant
@@ -225,7 +227,7 @@ internal fun ExposureGauge(score: Int, word: String, detail: String) {
                 drawArc(arc, 150f, 240f * f, false, Offset(pad, pad), sz, style = Stroke(w, cap = StrokeCap.Round))
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(Math.round(shown.value).toString(), style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = arc)
+                Text(Math.round(shown.value).coerceIn(0, 100).toString(), style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = arc)
                 Text(word, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
         }

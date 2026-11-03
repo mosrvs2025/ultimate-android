@@ -84,6 +84,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Locale
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 
 val Source.icon: ImageVector get() = when (this) {
     Source.Notification -> Icons.Rounded.Notifications; Source.Clip -> Icons.Rounded.ContentPaste; Source.Watched -> Icons.Rounded.PlayCircle; Source.Focus -> Icons.Rounded.CenterFocusStrong
@@ -108,9 +110,15 @@ internal fun TimelineScreen(app: UltimateApp, initialQuery: String, onExit: () -
     var query by remember { mutableStateOf(initialQuery) }
     var only by remember { mutableStateOf<Source?>(null) }
     var day by remember { mutableLongStateOf(TimelineMath.dayOf(now)) }
-    var hour by remember { mutableIntStateOf(-1) }
+    // A stretch of hours dragged across on the chart (or one tapped), and "only the small hours" from a finding.
+    var hours by remember { mutableStateOf<IntRange?>(null) }
+    var late by remember { mutableStateOf(false) }
     var open by remember { mutableStateOf<Moment?>(null) }
     val list = all.orEmpty()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val actions = remember { MomentActions(app, context) }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    fun hourOf(at: Long) = java.util.Calendar.getInstance().apply { timeInMillis = at }.get(java.util.Calendar.HOUR_OF_DAY)
 
     TimeHost(!embedded, onExit) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = if (embedded) 8.dp else 0.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -130,34 +138,51 @@ internal fun TimelineScreen(app: UltimateApp, initialQuery: String, onExit: () -
             }
             val pool = list.filter { only == null || it.source == only }
 
-            if (query.isNotBlank()) {
-                val hits = TimelineMath.search(pool, query)
-                item { Text(if (hits.isEmpty()) "Nothing matches." else "${hits.size} found", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+            if (query.isNotBlank() || late) {
+                val hits = (if (query.isNotBlank()) TimelineMath.search(pool, query) else pool.sortedByDescending { it.at })
+                    .filter { !late || hourOf(it.at) in 0..3 }.distinctBy { it.uid }
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (hits.isEmpty()) "Nothing matches." else "${hits.size} found" + if (late) " after midnight" else "", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        if (late || only != null || query.isNotBlank()) TextButton({ late = false; only = null; query = "" }) { Text("Clear") }
+                    }
+                }
                 var lastDay = -1L
                 hits.take(300).forEach { m ->
                     val d = TimelineMath.dayOf(m.at)
                     if (d != lastDay) { lastDay = d; item(key = "qd-$d") { DayHeader(m.at, now) } }
-                    item(key = "q-${m.source}-${m.at}-${m.title.hashCode()}") { MomentRow(m, open == m, query) { open = if (open == m) null else m } }
+                    item(key = "q-" + m.uid) { MomentRow(m, open == m, actions) { open = if (open == m) null else m } }
                 }
                 return@LazyColumn
             }
 
-            val insights = TimelineMath.insights(list, now)
+            val findings = TimelineMath.findings(list, now)
             item {
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("What your records say together", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    if (insights.isEmpty()) Text("These appear once there are a few days of notifications, copies, viewing and focus sessions to read across.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    insights.forEach { Text("•  $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer) }
+                    if (findings.isEmpty()) Text("These appear once there are a few days of notifications, copies, viewing and focus sessions to read across.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    else Text("Tap one to see the records behind it.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                    // Each finding wraps fully and, tapped, filters the records below to exactly what it is about.
+                    findings.forEach { f ->
+                        Row(Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(12.dp)).clickable {
+                            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            only = f.source; query = f.query.orEmpty(); late = f.lateNight
+                        }.padding(vertical = 6.dp, horizontal = 2.dp)) {
+                            Text("•", Modifier.width(16.dp), color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text(f.text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer, softWrap = true)
+                            Text("›", color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f))
+                        }
+                    }
                 }
             }
-            item { DayStrip(TimelineMath.days(pool, 30, now), day) { day = it; hour = -1 } }
-            val todays = TimelineMath.onDay(pool, day)
+            item { DayStrip(TimelineMath.days(pool, 30, now), day) { day = it; hours = null } }
+            val todays = TimelineMath.onDay(pool, day).distinctBy { it.uid }
             item { DaySummary(todays, day, now) }
-            if (todays.isNotEmpty()) item { HourBars(TimelineMath.hours(todays), hour) { hour = if (hour == it) -1 else it } }
-            val shown = if (hour >= 0) todays.filter { java.util.Calendar.getInstance().apply { timeInMillis = it.at }.get(java.util.Calendar.HOUR_OF_DAY) == hour } else todays
-            if (hour >= 0) item { TextButton({ hour = -1 }) { Text("Showing ${hour % 12 + if (hour % 12 == 0) 12 else 0}${if (hour < 12) "am" else "pm"} only · show the whole day") } }
+            if (todays.isNotEmpty()) item { HourBars(TimelineMath.hours(todays), hours) { hours = it } }
+            val shown = hours?.let { r -> todays.filter { hourOf(it.at) in r } } ?: todays
+            hours?.let { r -> item { TextButton({ hours = null }) { Text("Showing ${clock(r.first)}–${clock(r.last + 1)} · show the whole day") } } }
             if (shown.isEmpty()) item { Text("Nothing kept for this day.", Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            items(shown.reversed().take(400), key = { "m-${it.source}-${it.at}-${it.title.hashCode()}" }) { m -> MomentRow(m, open == m, "") { open = if (open == m) null else m } }
+            items(shown.reversed().take(400), key = { "m-" + it.uid }) { m -> MomentRow(m, open == m, actions) { open = if (open == m) null else m } }
         }
     }
 }
@@ -232,46 +257,87 @@ private fun Stat(s: Source, text: String) = Row(Modifier.clip(RoundedCornerShape
     Icon(s.icon, null, Modifier.size(16.dp), tint = s.tint()); Spacer(Modifier.width(6.dp)); Text(text, style = MaterialTheme.typography.labelLarge)
 }
 
-/** The day by hour, each bar stacked by kind. Tap an hour to see only it. */
+private fun clock(h: Int) = "${if (h % 12 == 0) 12 else h % 12}${if (h % 24 < 12) "am" else "pm"}"
+
+/**
+ * The day by hour, each bar stacked by kind. Tap an hour to see only it, or drag across the bars to pick a stretch of
+ * hours: the list below follows as you scrub, with a tick at each hour.
+ */
 @Composable
-private fun HourBars(hours: Array<IntArray>, picked: Int, onPick: (Int) -> Unit) {
+private fun HourBars(hours: Array<IntArray>, picked: IntRange?, onPick: (IntRange?) -> Unit) {
     val colors = Source.entries.map { it.tint() }
     val dim = MaterialTheme.colorScheme.surfaceVariant
     val grow = remember(hours.sumOf { it.sum() }) { Animatable(0f) }
     val motion = motionOn()
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     LaunchedEffect(hours.sumOf { it.sum() }) { if (motion) grow.animateTo(1f, tween(700, easing = FastOutSlowInEasing)) else grow.snapTo(1f) }
     val max = (hours.maxOfOrNull { it.sum() } ?: 1).coerceAtLeast(1).toFloat()
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(14.dp)) {
-        Canvas(Modifier.fillMaxWidth().height(90.dp).pointerInput(Unit) { detectTapGestures { o -> onPick((o.x / (size.width / 24f)).toInt().coerceIn(0, 23)) } }) {
+        Canvas(Modifier.fillMaxWidth().height(90.dp)
+            .pointerInput(Unit) { detectTapGestures { o -> val h = (o.x / (size.width / 24f)).toInt().coerceIn(0, 23); onPick(if (picked == h..h) null else h..h) } }
+            .pointerInput(Unit) {
+                var from = 0; var last = -1
+                detectHorizontalDragGestures(
+                    onDragStart = { o -> from = (o.x / (size.width / 24f)).toInt().coerceIn(0, 23); last = from; onPick(from..from); haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove) },
+                ) { change, _ ->
+                    val h = (change.position.x / (size.width / 24f)).toInt().coerceIn(0, 23)
+                    if (h != last) { last = h; haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove); onPick(minOf(from, h)..maxOf(from, h)) }
+                }
+            }) {
             val w = size.width / 24f
+            picked?.let { r -> drawRoundRect(colors[0].copy(alpha = 0.1f), Offset(r.first * w, 0f), Size((r.last - r.first + 1) * w, size.height), CornerRadius(6.dp.toPx())) }
             hours.forEachIndexed { h, counts ->
                 var y = size.height
                 if (counts.sum() == 0) drawRoundRect(dim, Offset(h * w + 2, size.height - 3.dp.toPx()), Size(w - 4, 3.dp.toPx()), CornerRadius(2f))
                 counts.forEachIndexed { k, n ->
                     if (n == 0) return@forEachIndexed
                     val hh = size.height * n / max * grow.value
-                    drawRect(colors[k].copy(alpha = if (picked < 0 || picked == h) 1f else 0.3f), Offset(h * w + 2, y - hh), Size(w - 4, hh)); y -= hh
+                    drawRect(colors[k].copy(alpha = if (picked == null || h in picked) 1f else 0.3f), Offset(h * w + 2, y - hh), Size(w - 4, hh)); y -= hh
                 }
             }
         }
         Row { listOf("12am", "6am", "12pm", "6pm").forEach { Text(it, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline) } }
+        Text("Tap an hour, or drag across to pick a stretch.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
     }
 }
 
-/** One moment. Tap to read all of it. */
+/**
+ * One moment. Tap does the obvious thing (opens the notification or the app, copies again, opens the photo); hold for
+ * everything else. Copied text gets one-tap chips for what it is (JSON, a link, a command, a colour).
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun MomentRow(m: Moment, open: Boolean, query: String, onToggle: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable(onClick = onToggle).animateContentSize().padding(12.dp), verticalAlignment = Alignment.Top) {
-        Box(Modifier.size(34.dp).clip(CircleShape).background(m.source.tint().copy(alpha = 0.16f)), contentAlignment = Alignment.Center) { Icon(m.source.icon, null, Modifier.size(18.dp), tint = m.source.tint()) }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(listOf(m.app, m.source.label).filter { it.isNotBlank() }.distinct().first(), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = m.source.tint(), maxLines = 1)
-                Text(SimpleDateFormat("h:mm a", Locale.getDefault()).format(m.at) + if (m.end > m.at + 60_000) " · ${span(m.end - m.at)}" else "", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun MomentRow(m: Moment, open: Boolean, actions: MomentActions, onToggle: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Box {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .combinedClickable(onLongClick = { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); menu = true }) { if (!actions.primary(m)) onToggle() }
+                .animateContentSize().padding(12.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Box(Modifier.size(34.dp).clip(CircleShape).background(m.source.tint().copy(alpha = 0.16f)), contentAlignment = Alignment.Center) { Icon(m.source.icon, null, Modifier.size(18.dp), tint = m.source.tint()) }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(listOf(m.app, m.source.label).filter { it.isNotBlank() }.distinct().first(), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = m.source.tint(), maxLines = 1)
+                    Text(SimpleDateFormat("h:mm a", Locale.getDefault()).format(m.at) + if (m.end > m.at + 60_000) " · ${span(m.end - m.at)}" else "", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(m.title, fontWeight = FontWeight.SemiBold, maxLines = if (open) 4 else 1, overflow = TextOverflow.Ellipsis)
+                if (m.detail.isNotBlank() && m.detail != m.title) Text(m.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = if (open) 30 else 2, overflow = TextOverflow.Ellipsis)
+                if (open && m.source == Source.Focus && m.focusDrift > 0) Text("${m.focusDrift} drifting check${if (m.focusDrift == 1) "" else "s"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val smart = remember(m.uid) { actions.smart(m) }
+                if (smart.isNotEmpty()) androidx.compose.foundation.layout.FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (m.source == Source.Clip) app.ultimate.clips.ClipSmart.color(m.detail.ifBlank { m.title })?.takeIf { app.ultimate.clips.ClipSmart.kind(m.detail.ifBlank { m.title }) == app.ultimate.clips.ClipSmart.Kind.Color }?.let { c ->
+                        Box(Modifier.size(28.dp).clip(CircleShape).background(Color(c)))
+                    }
+                    smart.forEach { a -> Text(a.label, Modifier.clip(RoundedCornerShape(50)).background(m.source.tint().copy(alpha = 0.14f)).clickable(onClick = a.run).padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = m.source.tint()) }
+                }
             }
-            Text(m.title, fontWeight = FontWeight.SemiBold, maxLines = if (open) 4 else 1, overflow = TextOverflow.Ellipsis)
-            if (m.detail.isNotBlank() && m.detail != m.title) Text(m.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = if (open) 30 else 2, overflow = TextOverflow.Ellipsis)
-            if (open && m.source == Source.Focus && m.focusDrift > 0) Text("${m.focusDrift} drifting check${if (m.focusDrift == 1) "" else "s"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        androidx.compose.material3.DropdownMenu(menu, { menu = false }) {
+            actions.menu(m) { onToggle() }.forEach { a -> androidx.compose.material3.DropdownMenuItem({ Text(a.label) }, { menu = false; a.run() }) }
         }
     }
 }

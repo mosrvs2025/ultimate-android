@@ -77,6 +77,9 @@ import app.ultimate.core.formatBytes
 import kotlinx.coroutines.flow.combine
 import app.ultimate.core.GooeyProgress
 import app.ultimate.core.motionOn
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.runtime.collectAsState
 
 @Composable
 fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
@@ -96,7 +99,12 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
 
     val runningIds = running.map { it.first.workId }.toSet()
     // Recomputed only when something starts or stops running, so tiles do not jump around while you tap.
-    val favorites = remember(runningIds) { HomeLayout.favorites(app.tools.map { it.id }, app.insights::opens, app.insights::lastAt, runningIds, System.currentTimeMillis()).mapNotNull { id -> app.tools.firstOrNull { it.id == id } } }
+    // Pinned tools always come first; then what is running and what you open most.
+    val pins by HomePins.ids(app).collectAsState()
+    val favorites = remember(runningIds, pins) {
+        val ids = app.tools.map { it.id }
+        HomeLayout.withPins(pins, HomeLayout.favorites(ids, app.insights::opens, app.insights::lastAt, runningIds, System.currentTimeMillis(), count = 8), ids).mapNotNull { id -> app.tools.firstOrNull { it.id == id } }
+    }
     val prefs = remember { app.getSharedPreferences("home", android.content.Context.MODE_PRIVATE) }
     var folded by remember { mutableStateOf(prefs.getStringSet("folded", emptySet()).orEmpty()) }
 
@@ -224,6 +232,7 @@ private fun CompactTile(modifier: Modifier, tool: Tool, active: Boolean, onLibra
         DropdownMenu(menu, { menu = false }) {
             DropdownMenuItem({ Text("Open ${tool.title}") }, { menu = false; onClick() }, leadingIcon = { Icon(tool.icon, null) })
             DropdownMenuItem({ Text("Its results in Library") }, { menu = false; onLibrary() }, leadingIcon = { Icon(Icons.Rounded.VideoLibrary, null) })
+            PinItem(tool) { menu = false }
         }
     }
 }
@@ -272,6 +281,7 @@ private fun ToolTile(modifier: Modifier = Modifier, tool: Tool, wide: Boolean, a
             DropdownMenuItem({ Text("Open ${tool.title}") }, { menu = false; onClick() }, leadingIcon = { Icon(tool.icon, null) })
             DropdownMenuItem({ Text("Its results in Library") }, { menu = false; onLibrary() }, leadingIcon = { Icon(Icons.Rounded.VideoLibrary, null) })
             stop?.let { DropdownMenuItem({ Text(it.cancelLabel) }, { menu = false; it.cancelWork() }, leadingIcon = { Icon(Icons.Rounded.Stop, null) }) }
+            PinItem(tool) { menu = false }
         }
     }
 }
@@ -374,3 +384,14 @@ private fun AskBar(app: UltimateApp) {
         }
     }
 }
+
+/** "Pin to the top" or "Unpin", for a tool's long-press menu. */
+@Composable
+private fun PinItem(tool: Tool, done: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val pins by HomePins.ids(context).collectAsState()
+    val on = tool.id in pins
+    DropdownMenuItem({ Text(if (on) "Unpin from the top" else "Pin to the top") }, { done(); HomePins.toggle(context, tool.id) },
+        leadingIcon = { Icon(if (on) Icons.Rounded.PushPin else Icons.Outlined.PushPin, null) })
+}
+

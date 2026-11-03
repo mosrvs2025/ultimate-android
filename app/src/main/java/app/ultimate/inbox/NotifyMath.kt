@@ -24,6 +24,7 @@ enum class Fate(val code: Int) {
 data class Rec(
     val pkg: String, val app: String, val at: Long, val title: String, val text: String,
     val who: String? = null, val category: String? = null, val fate: Fate = Fate.Waiting, val gone: Long = 0, val pulledBack: Boolean = false,
+    val id: Long = 0, val key: String = "",
 )
 
 /** How one app's notifications are treated. */
