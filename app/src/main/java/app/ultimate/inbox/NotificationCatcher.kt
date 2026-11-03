@@ -33,6 +33,7 @@ class NotificationCatcher : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        runCatching { LiveNotifications.put(sbn.key, sbn.notification.contentIntent) }
         runCatching {
             val log = log
             if (log.paused) return
@@ -69,6 +70,7 @@ class NotificationCatcher : NotificationListenerService() {
     // How it left: tapped (you opened it), swiped, cleared with the rest, or taken back by the app itself (for example
     // the sender unsent the message). Insights uses this to tell the notifications you want from the noise.
     override fun onNotificationRemoved(sbn: StatusBarNotification, rankingMap: RankingMap, reason: Int) {
+        LiveNotifications.remove(sbn.key)
         runCatching { if (!log.paused) log.markFate(sbn.key, Fate.fromReason(reason), System.currentTimeMillis()) }
     }
 }

@@ -99,10 +99,9 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
             if (BuildConfig.HAS_TERMINAL) add(app.ultimate.terminal.TerminalTool(this@UltimateApp, terminal))
             if (BuildConfig.HAS_ORB) add(app.ultimate.orb.OrbTool())
             if (BuildConfig.HAS_RULES) add(app.ultimate.rules.RulesTool(this@UltimateApp))
-            if (BuildConfig.HAS_FOOTPRINT) add(app.ultimate.footprint.FootprintTool(this@UltimateApp))
             if (BuildConfig.HAS_FOCUS) add(app.ultimate.focus.FocusTool(this@UltimateApp))
-            // One place to search and read across everything the app keeps.
-            if (BuildConfig.HAS_INBOX || BuildConfig.HAS_CLIPS || BuildConfig.HAS_FOOTPRINT || BuildConfig.HAS_FOCUS) add(app.ultimate.timeline.TimelineTool(this@UltimateApp))
+            // You: your days, your patterns and what your phone knows (Timeline and Footprint together).
+            if (BuildConfig.HAS_INBOX || BuildConfig.HAS_CLIPS || BuildConfig.HAS_FOOTPRINT || BuildConfig.HAS_FOCUS) add(app.ultimate.timeline.YouTool(this@UltimateApp))
             if (BuildConfig.HAS_SCREENTIME) add(app.ultimate.screentime.ScreenTimeTool(this@UltimateApp))
             if (BuildConfig.HAS_SENSORS) add(app.ultimate.sensors.SensorsTool((getSystemService(SENSOR_SERVICE) as android.hardware.SensorManager).getSensorList(android.hardware.Sensor.TYPE_ALL).size))
         }

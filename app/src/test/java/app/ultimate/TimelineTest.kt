@@ -143,3 +143,31 @@ class ChargeLogTest {
         assertEquals(1, app.ultimate.timeline.ChargeLog.sessions(c).size)
     }
 }
+
+class AboutMeTest {
+    @Test fun summarisesEachRecordAndSkipsWhatIsMissing() {
+        val text = app.ultimate.timeline.AboutMe.build(Month.build(), listOf("You unlocked your phone about 80 times a day."), listOf("WhatsApp", "YouTube", "Chrome"), Month.now, zone = Month.utc)
+        assertTrue(text.startsWith("# About me, from my phone (last 30 days)"))
+        assertTrue(text, "## Daily rhythm\n- You unlocked your phone about 80 times a day." in text)
+        assertTrue(text, "## Apps I use most\n- WhatsApp, YouTube, Chrome" in text)
+        assertTrue(text, "## Notifications" in text && "Most from: WhatsApp (237), Slack (230)" in text)
+        assertTrue(text, "## What I watch and listen to" in text && "mostly on YouTube" in text)
+        assertTrue(text, "## Focus" in text && "\"Essay\"" in text)
+        assertTrue(text, "## Patterns across all of it" in text)
+        assertTrue(text, "## Photos" !in text) // none in this month, so no empty section
+    }
+
+    @Test fun anEmptyPhoneGivesJustTheHeading() {
+        val text = app.ultimate.timeline.AboutMe.build(emptyList(), emptyList(), emptyList(), Month.now)
+        assertTrue(text, "##" !in text)
+    }
+}
+
+class LiveNotificationsTest {
+    @Test fun keepsTapActionsOnlyWhileInTheShade() {
+        app.ultimate.inbox.LiveNotifications.put("k", null)
+        assertEquals(null, app.ultimate.inbox.LiveNotifications.intent("k"))
+        app.ultimate.inbox.LiveNotifications.remove("k")
+        assertEquals(null, app.ultimate.inbox.LiveNotifications.intent("k"))
+    }
+}

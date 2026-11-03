@@ -11,8 +11,19 @@ import kotlinx.coroutines.flow.asStateFlow
 /** One notification as it was shown. [removedByApp] marks ones the app took back itself, often an unsent message. */
 data class Logged(
     val id: Long, val pkg: String, val app: String, val at: Long, val title: String, val text: String,
-    val conversation: String?, val removedByApp: Boolean,
+    val conversation: String?, val removedByApp: Boolean, val key: String = "",
 )
+
+/**
+ * The tap actions of notifications still in the shade, held in memory only (they cannot be stored), so the orb can
+ * open a notification in its own app exactly as tapping it in the shade would.
+ */
+object LiveNotifications {
+    private val intents = java.util.concurrent.ConcurrentHashMap<String, android.app.PendingIntent>()
+    fun put(key: String, intent: android.app.PendingIntent?) { if (intent != null) intents[key] = intent else intents.remove(key) }
+    fun remove(key: String) { intents.remove(key) }
+    fun intent(key: String): android.app.PendingIntent? = intents[key]
+}
 
 /** Pure rules for what gets kept, so noise and duplicates are tested. */
 object LogRules {
@@ -138,9 +149,9 @@ class NotificationLog(private val context: Context) : SQLiteOpenHelper(context, 
         if (query.isNotBlank()) { where += "(title LIKE ? OR text LIKE ? OR app LIKE ?)"; repeat(3) { args += "%${query.trim()}%" } }
         if (pkg != null) { where += "pkg = ?"; args += pkg }
         if (onlyRemoved) where += "removed = 1"
-        val sql = "SELECT id, pkg, app, at, title, text, convo, removed FROM n" + (if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")) + " ORDER BY at DESC LIMIT $limit"
+        val sql = "SELECT id, pkg, app, at, title, text, convo, removed, nkey FROM n" + (if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")) + " ORDER BY at DESC LIMIT $limit"
         return readableDatabase.rawQuery(sql, args.toTypedArray()).use { c ->
-            buildList { while (c.moveToNext()) add(Logged(c.getLong(0), c.getString(1), c.getString(2), c.getLong(3), c.getString(4), c.getString(5), c.getString(6), c.getInt(7) == 1)) }
+            buildList { while (c.moveToNext()) add(Logged(c.getLong(0), c.getString(1), c.getString(2), c.getLong(3), c.getString(4), c.getString(5), c.getString(6), c.getInt(7) == 1, c.getString(8).orEmpty())) }
         }
     }
 

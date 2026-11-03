@@ -17,6 +17,10 @@ data class Moment(
 /** One day's totals for the strip of days. */
 data class DayCount(val day: Long, val notifications: Int, val clips: Int, val watchedMs: Long, val focusMs: Long) {
     val total get() = notifications + clips + (if (watchedMs > 0) 1 else 0) + (if (focusMs > 0) 1 else 0)
+
+    /** How much each kind filled the day, on one scale for the stacked bars: a notification is 1, a copy 3, a minute of playing or focus 0.2. */
+    val parts: List<Pair<Source, Float>> get() = listOf(Source.Notification to notifications.toFloat(), Source.Clip to clips * 3f, Source.Watched to watchedMs / 300_000f, Source.Focus to focusMs / 300_000f)
+    val weight get() = parts.sumOf { it.second.toDouble() }.toFloat()
 }
 
 /**

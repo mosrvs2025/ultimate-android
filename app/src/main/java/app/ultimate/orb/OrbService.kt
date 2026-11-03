@@ -120,12 +120,21 @@ import app.ultimate.home.JumpContents
 import app.ultimate.home.JumpActions
 import app.ultimate.core.Tool
 import app.ultimate.core.AppIcon
+import app.ultimate.inbox.LiveNotifications
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.layout.height
 
 /** One petal of the bloom: a tool to open (or Home, for null). */
 data class OrbAction(val key: String, val label: String, val icon: ImageVector, val toolId: String?)
 
-/** What the orb shows when it opens: short chips of today's numbers, and the latest notifications (package, app, text). */
-data class OrbGlance(val chips: List<String>, val latest: List<Triple<String, String, String>>)
+/** One recent notification in the orb's glance; [key] finds its tap action while it is still in the shade. */
+data class GlanceNote(val key: String, val pkg: String, val app: String, val text: String)
+
+/** What the orb shows when it opens: today's notifications and who sent them, what you copied, a running focus session, and the latest notifications. */
+data class OrbGlance(
+    val notifications: Int? = null, val senders: List<Pair<String, Int>> = emptyList(), val copied: List<String> = emptyList(),
+    val focus: String? = null, val latest: List<GlanceNote> = emptyList(),
+) { val empty get() = notifications == null && copied.isEmpty() && focus == null && latest.isEmpty() }
 
 /**
  * The Ultimate orb: a bubble that floats over other apps. Drag it anywhere and it springs to the nearest edge; tap it and the
@@ -317,15 +326,31 @@ class OrbService : Service() {
 
     /** What the orb shows at a glance when it opens: today's numbers and the latest notifications. */
     private fun glance(): OrbGlance {
-        val a = app ?: return OrbGlance(emptyList(), emptyList())
+        val a = app ?: return OrbGlance()
         val now = System.currentTimeMillis()
-        val chips = buildList {
-            if (BuildConfig.HAS_INBOX) runCatching { add("${a.notificationLog.today(now)} notifications") }
-            if (BuildConfig.HAS_CLIPS) runCatching { val start = TimelineMath.startOf(TimelineMath.dayOf(now)); a.clips.clips.value.count { it.at >= start }.takeIf { it > 0 }?.let { add("$it copied") } }
-            if (BuildConfig.HAS_FOCUS) a.focus.current.value?.let { add("Focusing · ${FocusMath.countdown(it.left(now))} left") }
-        }
-        val latest = if (BuildConfig.HAS_INBOX) runCatching { a.notificationLog.search("", null, false, limit = 3).map { Triple(it.pkg, it.app, listOf(it.title, it.text).filter { s -> s.isNotBlank() }.joinToString(": ")) } }.getOrDefault(emptyList()) else emptyList()
-        return OrbGlance(chips, latest)
+        val start = TimelineMath.startOf(TimelineMath.dayOf(now))
+        val today = if (BuildConfig.HAS_INBOX) runCatching { a.notificationLog.since(start, limit = 5_000) }.getOrDefault(emptyList()) else emptyList()
+        val senders = today.groupingBy { it.app }.eachCount().entries.sortedByDescending { it.value }.take(4).map { it.key to it.value }
+        val copied = if (BuildConfig.HAS_CLIPS) a.clips.clips.value.filter { it.at >= start }.sortedByDescending { it.at }.take(4).map { it.text } else emptyList()
+        val focus = if (BuildConfig.HAS_FOCUS) a.focus.current.value?.let { "${it.task.ifBlank { "Focus" }} · ${FocusMath.countdown(it.left(now))} left" } else null
+        val latest = if (BuildConfig.HAS_INBOX) runCatching { a.notificationLog.search("", null, false, limit = 3).map { GlanceNote(it.key, it.pkg, it.app, listOf(it.title, it.text).filter { s -> s.isNotBlank() }.joinToString(": ")) } }.getOrDefault(emptyList()) else emptyList()
+        return OrbGlance(if (BuildConfig.HAS_INBOX) today.size else null, senders, copied, focus, latest)
+    }
+
+    /** Opens a notification the way tapping it in the shade would; if it is gone from the shade, opens its app. */
+    private fun openNote(n: GlanceNote) {
+        val sent = LiveNotifications.intent(n.key)?.let { pi ->
+            runCatching {
+                val opts = if (Build.VERSION.SDK_INT >= 34) android.app.ActivityOptions.makeBasic().setPendingIntentBackgroundActivityStartMode(android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED).toBundle() else null
+                pi.send(this, 0, null, null, null, null, opts); true
+            }.getOrDefault(false)
+        } ?: false
+        if (!sent) packageManager.getLaunchIntentForPackage(n.pkg)?.let { runCatching { startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+    }
+
+    private fun copy(text: String) {
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Ultimate", text))
+        android.widget.Toast.makeText(this, "Copied", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     // ---- Bloom: the tools around the orb ----
@@ -380,6 +405,7 @@ class OrbService : Service() {
             Bloom(open.value, cx, cy, list, spots, orbPx, origin, everything(), pinned.value, glance, app,
                 onKeyboard = { on -> runCatching { (view.layoutParams as WindowManager.LayoutParams).apply { flags = if (on) flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv() else flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE }.also { wm.updateViewLayout(view, it) } } },
                 onOpenTool = { id -> close { launch(id) } },
+                onOpenNote = { n -> close { openNote(n) } }, onCopy = { copy(it) },
                 onPin = { pinned.value = togglePin(it).toSet() }, onPick = { a ->
                 prefs.edit().putInt("use.${a.key}", prefs.getInt("use.${a.key}", 0) + 1).apply()
                 close { launch(a.toolId) }
@@ -537,11 +563,12 @@ private fun DismissTarget(near: MutableStateFlow<Boolean>) {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun Bloom(
     shown: Boolean, cx: Float, cy: Float, actions: List<OrbAction>, spots: List<Pair<Float, Float>>, orbPx: Int,
     windowOrigin: MutableStateFlow<IntOffset>, all: List<OrbAction>, pinned: Set<String>, glance: OrbGlance, app: UltimateApp?,
-    onKeyboard: (Boolean) -> Unit, onOpenTool: (String?) -> Unit, onPin: (String) -> Unit, onPick: (OrbAction) -> Unit, onClose: () -> Unit,
+    onKeyboard: (Boolean) -> Unit, onOpenTool: (String?) -> Unit, onOpenNote: (GlanceNote) -> Unit, onCopy: (String) -> Unit, onPin: (String) -> Unit, onPick: (OrbAction) -> Unit, onClose: () -> Unit,
 ) {
     // More swaps the petals for a drawer of every tool; tapping outside the drawer goes back to the petals.
     var more by remember { mutableStateOf(false) }
@@ -605,28 +632,56 @@ private fun Bloom(
                 }
             }
         }
-        // At a glance: today's numbers and the latest notifications, beside the column of actions.
-        if (glance.chips.isNotEmpty() || glance.latest.isNotEmpty()) {
+        // At a glance, beside the column of actions: today's numbers as chips that open up right here (who sent the
+        // notifications, what you copied), and the latest notifications, which open in their own app.
+        if (!glance.empty) {
+            var chip by remember { mutableStateOf<String?>(null) }
             val g by animateFloatAsState(if (open) 1f else 0f, spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMediumLow), label = "glance")
             val top = spots.minOf { it.second } - origin.y; val bottom = spots.maxOf { it.second } - origin.y
-            val cardH = with(d) { (60 + 46 * glance.latest.size).dp.toPx() }; val gap = with(d) { 40.dp.toPx() }
+            val cardH = with(d) { (92 + 46 * glance.latest.size).dp.toPx() }; val gap = with(d) { 40.dp.toPx() }
             val above = top - gap - cardH > with(d) { 60.dp.toPx() }
             val y = if (above) top - gap - cardH else bottom + gap
             Column(
                 Modifier.align(Alignment.TopCenter).offset { IntOffset(0, y.roundToInt()) }.padding(horizontal = 24.dp).fillMaxWidth()
                     .graphicsLayer { alpha = g.coerceIn(0f, 1f); translationY = (1f - g) * 40f; scaleX = 0.9f + 0.1f * g; scaleY = 0.9f + 0.1f * g }
-                    .clip(RoundedCornerShape(24.dp)).background(PETAL).clickable(remember { MutableInteractionSource() }, indication = null) {}.padding(14.dp),
+                    .clip(RoundedCornerShape(24.dp)).background(PETAL).clickable(remember { MutableInteractionSource() }, indication = null) {}.animateContentSize().padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (glance.chips.isNotEmpty()) Row(Modifier.clip(RoundedCornerShape(12.dp)).clickable(enabled = open) { onOpenTool("timeline") }, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    glance.chips.forEach { Text(it, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.12f)).padding(horizontal = 10.dp, vertical = 5.dp)) }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    glance.notifications?.let { n -> GlanceChip("$n notifications today", chip == "n") { chip = if (chip == "n") null else "n" } }
+                    if (glance.copied.isNotEmpty()) GlanceChip("${glance.copied.size} copied", chip == "c") { chip = if (chip == "c") null else "c" }
                 }
-                glance.latest.forEach { (pkg, appName, text) ->
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(enabled = open) { onOpenTool("inbox") }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        AppIcon(pkg, size = 28.dp); Spacer(Modifier.width(10.dp))
+                glance.focus?.let { Text(it, color = Color(0xFF9BE0B4), fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(enabled = open) { onOpenTool("focus") }.padding(vertical = 2.dp)) }
+                when (chip) {
+                    "n" -> Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.06f)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Who sent them", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
+                        val most = glance.senders.firstOrNull()?.second ?: 1
+                        glance.senders.forEach { (who, n) ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(who, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(110.dp))
+                                Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.1f))) {
+                                    Box(Modifier.fillMaxWidth(n / most.toFloat()).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0xFF8E9BFF)))
+                                }
+                                Text("  $n", color = Color.White, fontSize = 12.sp)
+                            }
+                        }
+                        Text("See all in history", color = Color(0xFFB9C2FF), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = open) { onOpenTool("inbox") }.padding(vertical = 4.dp))
+                    }
+                    "c" -> Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.06f)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Tap one to copy it again", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
+                        glance.copied.forEach { t ->
+                            Text(t.lineSequence().first().take(80), color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(enabled = open) { onCopy(t) }.padding(vertical = 6.dp))
+                        }
+                    }
+                }
+                if (glance.latest.isNotEmpty()) Text("Latest · tap to open in its app, hold for history", color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp)
+                glance.latest.forEach { n ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).combinedClickable(enabled = open, onLongClick = { onOpenTool("inbox") }) { onOpenNote(n) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AppIcon(n.pkg, size = 28.dp); Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(appName, color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp, maxLines = 1)
-                            Text(text, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(n.app, color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp, maxLines = 1)
+                            Text(n.text, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -672,6 +727,12 @@ private fun Drawer(all: List<OrbAction>, pinned: Set<String>, onPin: (String) ->
         }
     }
 }
+
+@Composable
+private fun GlanceChip(text: String, on: Boolean, onClick: () -> Unit) = Text(
+    text + if (on) "  ▴" else "  ▾", color = if (on) Color(0xFF1B1F3B) else Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+    modifier = Modifier.clip(RoundedCornerShape(50)).background(if (on) Color(0xFFB9C2FF) else Color.White.copy(alpha = 0.12f)).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 6.dp),
+)
 
 @Composable
 private fun PeekCard(peek: MutableStateFlow<Pair<String, String?>?>, fromLeft: Boolean, onOpen: (String?) -> Unit) {

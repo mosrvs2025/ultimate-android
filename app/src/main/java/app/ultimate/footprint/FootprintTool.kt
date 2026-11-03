@@ -108,7 +108,7 @@ internal fun hm(ms: Long): String { val m = ms / 60_000; return if (m >= 60) "${
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loaded? = null) {
+internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loaded? = null, part: FootprintPart = FootprintPart.All) {
     val context = LocalContext.current
     var tick by remember { mutableIntStateOf(0) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
@@ -129,10 +129,10 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
     val nav = remember { listOf("Your day, as a clock" to "Day", "What you open most" to "Apps", "Data your apps sent and received this week" to "Data", "Your steps" to "Steps", "Your body, from your health apps" to "Body", "What you watch and listen to" to "Media", "Where you have been" to "Places", "Who can see what" to "Access", "Things any app can read without asking" to "Facts") }
     fun jump(title: String) { marks[title]?.let { i -> scope.launch { listState.animateScrollToItem(i) } } }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Footprint") }, navigationIcon = { ToolBackButton(onExit) }, actions = { ShellActions() }) }) { pad ->
+    FootHost(part == FootprintPart.All, onExit) { pad ->
         Column(Modifier.padding(pad)) {
         if (d != null) {
-            val shown = nav.filter { (t, _) -> when (t) { "Your day, as a clock" -> d.usage != null; "What you open most" -> d.usage?.opens?.isNotEmpty() == true; "Data your apps sent and received this week" -> d.net?.isNotEmpty() == true; else -> true } }
+            val shown = nav.filter { (t, _) -> (if (t in PRIVACY_SECTIONS) part.privacy else part.patterns) && when (t) { "Your day, as a clock" -> d.usage != null; "What you open most" -> d.usage?.opens?.isNotEmpty() == true; "Data your apps sent and received this week" -> d.net?.isNotEmpty() == true; else -> true } }
             val sel by remember(shown) { androidx.compose.runtime.derivedStateOf { val at = listState.firstVisibleItemIndex; shown.indexOfLast { (t, _) -> (marks[t] ?: Int.MAX_VALUE) <= at + 1 }.coerceAtLeast(0) } }
             SectionNav(shown.map { it.second }, sel) { jump(shown[it].first) }
         }
@@ -141,10 +141,10 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
             fun row(key: Any? = null, content: @Composable androidx.compose.foundation.lazy.LazyItemScope.() -> Unit) { item(key = key, content = content); n++ }
             fun <T> rows(list: List<T>, key: (T) -> Any, content: @Composable androidx.compose.foundation.lazy.LazyItemScope.(T) -> Unit) { items(list, key = key, itemContent = content); n += list.size }
             fun sec(title: String) { marks[title] = n; row { Section(title) } }
-            row { Box(Modifier.graphicsLayer { val o = if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 600f; translationY = o * 0.45f; alpha = (1f - o / 500f).coerceIn(0f, 1f) }) { LiveHero("What your phone knows about you", "Everything on this page was read from this phone, just now, and stays on it. It is what any app you let in could learn too.") } }
+            if (part == FootprintPart.All) row { Box(Modifier.graphicsLayer { val o = if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 600f; translationY = o * 0.45f; alpha = (1f - o / 500f).coerceIn(0f, 1f) }) { LiveHero("What your phone knows about you", "Everything on this page was read from this phone, just now, and stays on it. It is what any app you let in could learn too.") } }
             if (d == null) { items(4) { Shimmer(Modifier.fillMaxWidth().height(if (it == 0) 120.dp else 80.dp)) }; return@LazyColumn }
 
-            row {
+            if (part.patterns) row {
                 val locationApps = d.apps.count { Access.Location in it.access || Access.BackgroundLocation in it.access }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     d.usage?.let { u ->
@@ -156,12 +156,12 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
                 }
             }
 
-            row {
+            if (part.privacy) row {
                 val score = ExposureMath.score(d.apps); val big = ExposureMath.biggest(d.apps)
                 Box(Modifier.appear("gauge", seen, 1).pressScale(0.98f).clip(RoundedCornerShape(28.dp)).clickable { gaugeSheet = true }) { ExposureGauge(score, ExposureMath.word(score), big?.let { (a, n) -> "$n of your apps can see ${a.label.lowercase()}. That counts most. Tap to see which apps." } ?: "No app you installed holds a sensitive permission.") }
             }
 
-            if (d.usage == null) row {
+            if (!part.patterns) Unit else if (d.usage == null) row {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.tertiaryContainer).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Allow usage access to see your week", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onTertiaryContainer)
                     Text("Android keeps a log of every app you open and every time you unlock. Any app can read it once you allow this, so this is a fair look at what that means. It is read here, on the phone, and goes nowhere.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
@@ -183,23 +183,26 @@ internal fun FootprintScreen(app: UltimateApp, onExit: () -> Unit, preset: Loade
                 }
             }
 
-            d.net?.takeIf { it.isNotEmpty() }?.let { net ->
+            if (part.privacy) d.net?.takeIf { it.isNotEmpty() }?.let { net ->
                 sec("Data your apps sent and received this week")
                 val top = net.take(6)
                 rows(top, key = { "n-" + it.pkg }) { n -> AppBar(n.pkg, FootprintReaders.label(context, n.pkg), n.total.toFloat() / top.first().total, "${formatBytes(n.total)} · sent ${formatBytes(n.sent)}") { appSheet = n.pkg } }
             }
 
-            sec("Your steps")
-            row { StepsCard() }
+            if (part.patterns) {
+                sec("Your steps")
+                row { StepsCard() }
 
-            sec("Your body, from your health apps")
-            row { HealthCard() }
+                sec("Your body, from your health apps")
+                row { HealthCard() }
 
-            sec("What you watch and listen to")
-            row { MediaCard() }
+                sec("What you watch and listen to")
+                row { MediaCard() }
 
-            sec("Where you have been")
-            row { PlacesCard() }
+                sec("Where you have been")
+                row { PlacesCard() }
+            }
+            if (!part.privacy) return@LazyColumn
 
             sec("Who can see what")
             val counts = Access.values().map { a -> a to d.apps.count { a in it.access } }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<Access, Int>> { it.first.sensitive }.thenBy { it.first.ordinal })
@@ -354,3 +357,21 @@ private fun StepsCard() {
         }
     }
 }
+
+/** Which part of Footprint to show: all of it as its own screen, or one half inside the You hub. */
+enum class FootprintPart {
+    All, Patterns, Privacy;
+    val patterns get() = this != Privacy
+    val privacy get() = this != Patterns
+}
+
+private val PRIVACY_SECTIONS = setOf("Data your apps sent and received this week", "Who can see what", "Things any app can read without asking")
+
+/** Footprint's own top bar when it stands alone; inside the You hub the hub has the bar. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FootHost(withBar: Boolean, onExit: () -> Unit, content: @Composable (PaddingValues) -> Unit) {
+    if (withBar) Scaffold(topBar = { TopAppBar(title = { Text("Footprint") }, navigationIcon = { ToolBackButton(onExit) }, actions = { ShellActions() }) }) { content(it) }
+    else content(PaddingValues(0.dp))
+}
+

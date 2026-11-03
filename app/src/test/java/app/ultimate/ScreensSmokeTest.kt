@@ -39,7 +39,7 @@ class ScreensSmokeTest {
         compose.onNodeWithText("Copy details").assertIsDisplayed()
     }
 
-    @Test fun footprintScreenDraws() = show("footprint", "Footprint")
+    @Test fun youScreenDraws() = show("timeline", "You")
 
     @Test fun rulesScreenDraws() = show("rules", "Rules")
     @Test fun hostsScreenDraws() = show("hosts", "SSH hosts")

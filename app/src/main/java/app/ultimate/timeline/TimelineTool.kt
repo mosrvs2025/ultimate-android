@@ -85,21 +85,6 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-/** Everything the app keeps (notifications, copies, what you played, focus sessions) on one searchable timeline. */
-class TimelineTool(private val app: UltimateApp) : Tool {
-    override val id = "timeline"
-    override val title = "Timeline"
-    override val tagline = "Search everything, day by day, and what it adds up to"
-    override val icon = Icons.Rounded.Timeline
-    override val acceptedMimePrefixes = emptyList<String>()
-    override val headline: StateFlow<String> = MutableStateFlow("Your days, searchable").asStateFlow()
-    override val library: StateFlow<List<LibraryItem>> = MutableStateFlow<List<LibraryItem>>(emptyList()).asStateFlow()
-    override fun opensOwnScreen(item: LibraryItem) = false
-    override suspend fun remove(id: String, deleteFile: Boolean) = true
-    override suspend fun refresh() = Unit
-    @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = TimelineScreen(app, launch.query.orEmpty(), onExit)
-}
-
 val Source.icon: ImageVector get() = when (this) {
     Source.Notification -> Icons.Rounded.Notifications; Source.Clip -> Icons.Rounded.ContentPaste; Source.Watched -> Icons.Rounded.PlayCircle; Source.Focus -> Icons.Rounded.CenterFocusStrong
     Source.Photo -> Icons.Rounded.PhotoCamera; Source.Screenshot -> Icons.Rounded.Screenshot; Source.Install -> Icons.Rounded.InstallMobile; Source.Charge -> Icons.Rounded.BatteryChargingFull
@@ -116,7 +101,7 @@ private fun span(ms: Long) = if (ms >= 3_600_000) "${ms / 3_600_000}h ${ms / 60_
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun TimelineScreen(app: UltimateApp, initialQuery: String, onExit: () -> Unit, preset: List<Moment>? = null) {
+internal fun TimelineScreen(app: UltimateApp, initialQuery: String, onExit: () -> Unit, preset: List<Moment>? = null, embedded: Boolean = false, header: (@Composable () -> Unit)? = null) {
     var all by remember { mutableStateOf(preset) }
     val now = remember { System.currentTimeMillis() }
     LaunchedEffect(Unit) { if (preset == null) all = withContext(Dispatchers.IO) { TimelineReader.read(app, now - 60 * 86_400_000L) } }
@@ -127,8 +112,9 @@ internal fun TimelineScreen(app: UltimateApp, initialQuery: String, onExit: () -
     var open by remember { mutableStateOf<Moment?>(null) }
     val list = all.orEmpty()
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Timeline") }, navigationIcon = { ToolBackButton(onExit) }, actions = { ShellActions() }) }) { pad ->
-        LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    TimeHost(!embedded, onExit) { pad ->
+        LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = if (embedded) 8.dp else 0.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (header != null) item { header() }
             item {
                 OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(28.dp),
                     placeholder = { Text("Search notifications, copies, what you played…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
@@ -179,25 +165,42 @@ internal fun TimelineScreen(app: UltimateApp, initialQuery: String, onExit: () -
 @Composable
 private fun DayHeader(at: Long, now: Long) = Text(app.ultimate.inbox.dayLabel(at, now), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
 
-/** The last 30 days as small columns: tap one to look at that day. Each bar's height is how much happened. */
+/**
+ * The last 30 days as small columns: tap one to look at that day. Each bar is stacked by kind (notifications, copies,
+ * playing, focus) in their colours, and grows in from the bottom, one day after another.
+ */
 @Composable
 private fun DayStrip(days: List<DayCount>, selected: Long, onPick: (Long) -> Unit) {
     val state = rememberLazyListState(initialFirstVisibleItemIndex = (days.size - 6).coerceAtLeast(0))
-    val max = (days.maxOfOrNull { it.total } ?: 1).coerceAtLeast(1)
+    val max = (days.maxOfOrNull { it.weight } ?: 1f).coerceAtLeast(1f)
+    val motion = motionOn()
+    val grow = remember { Animatable(if (motion) 0f else 1f) }
+    LaunchedEffect(Unit) { if (motion) grow.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
+    val colors = Source.entries.associateWith { it.tint() }
     LazyRow(state = state, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        items(days, key = { it.day }) { d ->
+        items(days.size, key = { days[it].day }) { i ->
+            val d = days[i]
             val on = d.day == selected
             val start = TimelineMath.startOf(d.day)
+            // Later days start growing a moment after earlier ones, so the month fills in left to right.
+            val k = ((grow.value * 1.6f) - i / days.size.toFloat() * 0.6f).coerceIn(0f, 1f)
             Column(
-                Modifier.width(46.dp).pressScale(0.94f).clip(RoundedCornerShape(16.dp)).background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerLow)
+                Modifier.width(46.dp).pressScale(0.94f).clip(RoundedCornerShape(16.dp)).background(if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
                     .clickable { onPick(d.day) }.padding(vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                val ink = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                val ink = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                 Text(SimpleDateFormat("EEE", Locale.getDefault()).format(start), style = MaterialTheme.typography.labelSmall, color = ink.copy(alpha = 0.7f))
                 Text(SimpleDateFormat("d", Locale.getDefault()).format(start), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = ink)
-                Box(Modifier.padding(top = 4.dp).size(6.dp, 28.dp), contentAlignment = Alignment.BottomCenter) {
-                    Box(Modifier.size(6.dp, (28f * d.total / max).coerceAtLeast(2f).dp).clip(RoundedCornerShape(3.dp)).background(if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary))
+                Canvas(Modifier.padding(top = 4.dp).size(14.dp, 44.dp)) {
+                    val full = size.height * (d.weight / max) * k
+                    var y = size.height
+                    if (d.weight <= 0f) drawRoundRect(colors.getValue(Source.Notification).copy(alpha = 0.2f), Offset(0f, size.height - 2.dp.toPx()), Size(size.width, 2.dp.toPx()), CornerRadius(2f))
+                    d.parts.forEach { (src, w) ->
+                        if (w <= 0f) return@forEach
+                        val h = full * (w / d.weight)
+                        drawRoundRect(colors.getValue(src), Offset(0f, y - h), Size(size.width, h), CornerRadius(3.dp.toPx())); y -= h
+                    }
                 }
             }
         }
@@ -271,5 +274,12 @@ private fun MomentRow(m: Moment, open: Boolean, query: String, onToggle: () -> U
             if (open && m.source == Source.Focus && m.focusDrift > 0) Text("${m.focusDrift} drifting check${if (m.focusDrift == 1) "" else "s"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimeHost(withBar: Boolean, onExit: () -> Unit, content: @Composable (androidx.compose.foundation.layout.PaddingValues) -> Unit) {
+    if (withBar) Scaffold(topBar = { TopAppBar(title = { Text("Timeline") }, navigationIcon = { ToolBackButton(onExit) }, actions = { ShellActions() }) }) { content(it) }
+    else content(androidx.compose.foundation.layout.PaddingValues(0.dp))
 }
 
