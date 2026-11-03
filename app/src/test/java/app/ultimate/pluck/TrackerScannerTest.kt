@@ -4,6 +4,7 @@ import app.ultimate.pluck.engine.SdkKind
 import app.ultimate.pluck.engine.TrackerScanner
 import app.ultimate.pluck.model.AppSource
 import app.ultimate.pluck.model.arrange
+import app.ultimate.pluck.model.Replacements
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -172,7 +173,7 @@ class ReplacementsTest {
 
     @Test fun everyKnownEntryPointsAtARealToolAndNeverAtOurOwnPackage() {
         app.ultimate.pluck.model.Replacements.known.forEach {
-            assertTrue(it.toolId in setOf("squeeze", "audio", "pluck"))
+            assertTrue(it.toolId in setOf("squeeze", "audio", "pluck", "studio", "sound-meter"))
             assertTrue(it.originalPackage !in app.ultimate.pluck.model.Replacements.ours)
         }
     }
@@ -292,5 +293,17 @@ class MediationTest {
         val e = app.ultimate.pluck.model.Explainer.exposures(perms)
         assertEquals(listOf("Advertising ID", "Approximate location"), e.map { it.label })
         assertEquals(listOf(true, false), e.map { it.granted })
+    }
+
+    @Test fun appsAreRecognisedByNameButOnlyAsCheckFirst() {
+        fun app(pkg: String, name: String) = app.ultimate.pluck.model.AppItem(
+            packageName = pkg, label = name, versionName = "1", versionCode = 1, isSystem = false, enabled = true, apkPaths = listOf("/x.apk"),
+            apkBytes = 10_000_000, installTime = 0, updateTime = 0, installer = null, minSdk = 26, targetSdk = 34, permissionCount = 0, dangerousCount = 0,
+        )
+        val av = Replacements.availability(setOf("sound-meter", "recorder"), emptySet())
+        val meter = app("com.splendapps.decibel", "Sound Meter"); val other = app("com.x.meter", "Decibel Pro"); val calc = app("com.x.calc", "Calculator")
+        val found = Replacements.find(listOf(meter, other, calc), av, emptyMap(), emptySet())
+        assertEquals(listOf("com.splendapps.decibel", "com.x.meter"), found.map { it.app.packageName })
+        assertTrue(found.none { it.safe })
     }
 }

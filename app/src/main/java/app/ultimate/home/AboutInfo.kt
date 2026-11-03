@@ -34,6 +34,14 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.50.0", listOf(
+            "Squeeze: Watch both plays the original and the squeezed copy one above the other, in step, with one play button and one seek bar.",
+            "Squeeze: Delete original frees the space once you're happy. It goes to Android's trash (kept 30 days), after Android asks you to confirm.",
+            "Clean up now spots apps that Ultimate's own tools stand in for, such as a sound meter, voice recorder, teleprompter, clipboard or video compressor. Ones recognised only by name always wait under Check first.",
+            "The orb has its own mark now, and while something runs it shows what: a video being squeezed, a film rendering, a song being cut, with the percentage.",
+            "Studio: fixed the crash when trimming clips. The time ruler tried to draw a label where there was no room left at the end.",
+            "Studio: trimming shows the frame at the edge you are dragging, live, and the trim handles are easier to catch.",
+        )),
         Entry("1.49.1", listOf(
             "Fixed a crash when a panel was measured at a negative size for a moment (the jump panel while the screen resized, and the Squeeze before-and-after view).",
             "Studio: fixed a crash when trimming a clip that has a title very short (the title no longer tries to squeeze into no room).",

@@ -49,7 +49,42 @@ object Replacements {
             "com.toralabs.apkextractor", "Apk Extractor", "pluck", Coverage.Full,
             note = "Pluck names saved files with your own pattern. The original also has an Install option; its purpose was not confirmed.",
         ),
+        Replacement(
+            "com.splendapps.decibel", "Sound Meter", "sound-meter", Coverage.Mostly,
+            missing = listOf("Readings in calibrated dB(A): the Sound meter shows unweighted levels unless you calibrate it against a reference meter"),
+            note = "The Sound meter shows live level, peak and average, keeps sessions and exports them.",
+        ),
     )
+
+    /**
+     * Apps we have no entry for, recognised by what their name says they do. These were not checked feature by
+     * feature, so they are only ever offered as "check first", never as safe.
+     */
+    private val byName: List<Pair<List<String>, String>> = listOf(
+        listOf("sound meter", "decibel", "db meter", "noise meter", "sound level") to "sound-meter",
+        listOf("voice recorder", "audio recorder", "sound recorder", "voice memo") to "recorder",
+        listOf("teleprompter", "prompter") to "prompter",
+        listOf("clipboard") to "clips",
+        listOf("notification history", "notification log", "notifications history") to "inbox",
+        listOf("video compressor", "compress video", "video compress", "reduce video") to "squeeze",
+        listOf("video to mp3", "video to audio", "mp3 converter", "audio extractor") to "audio",
+        listOf("apk extractor", "apk export", "apk backup") to "pluck",
+        listOf("video editor", "video maker") to "studio",
+        listOf("screen time", "app usage tracker", "usage tracker") to "screentime",
+        listOf("network scanner", "wifi scanner", "lan scanner", "ip scanner") to "network",
+        listOf("sensor test", "phone sensors", "sensors toolbox", "bubble level", "spirit level") to "sensors",
+        listOf("storage analyzer", "disk usage", "storage analyser") to "storage",
+        listOf("duplicate photo", "photo cleaner", "gallery cleaner") to "cleanup",
+    )
+
+    /** A guess from the app's name, for apps not in [known]. */
+    fun guess(a: AppItem): Replacement? {
+        if (a.isSystem) return null
+        val name = a.label.lowercase()
+        val tool = byName.firstOrNull { (words, _) -> words.any { it in name } }?.second ?: return null
+        return Replacement(a.packageName, a.label, tool, Coverage.Mostly,
+            missing = listOf("Not checked feature by feature: going by its name, ${toolName(tool)} does the same job. Open it once and make sure you don't rely on anything extra."))
+    }
 
     private val byPackage = known.associateBy { it.originalPackage }
 
@@ -58,7 +93,11 @@ object Replacements {
 
     fun forPackage(pkg: String): Replacement? = byPackage[pkg]
 
-    private val names = mapOf("squeeze" to "Squeeze", "audio" to "Video to audio", "pluck" to "Pluck", "studio" to "Studio")
+    private val names = mapOf(
+        "squeeze" to "Squeeze", "audio" to "Video to audio", "pluck" to "Pluck", "studio" to "Studio",
+        "sound-meter" to "Sound meter", "recorder" to "Recorder", "prompter" to "Teleprompter", "clips" to "Clipboard", "inbox" to "Notification history",
+        "screentime" to "Screen time", "network" to "Network scanner", "sensors" to "Sensors", "storage" to "Storage", "cleanup" to "Clean up",
+    )
     private val homes = mapOf(
         "squeeze" to listOf("app.squeeze", "app.ultimate", "app.ultimate.plus"),
         "audio" to listOf("app.ultimate.audio", "app.ultimate", "app.ultimate.plus"),
@@ -83,7 +122,7 @@ object Replacements {
     fun find(apps: List<AppItem>, available: Map<String, String>, custom: Map<String, Replacement>, accepted: Set<String>): List<Cleanup> =
         apps.mapNotNull { a ->
             if (a.packageName in ours) return@mapNotNull null
-            val r = custom[a.packageName] ?: byPackage[a.packageName] ?: return@mapNotNull null
+            val r = custom[a.packageName] ?: byPackage[a.packageName] ?: guess(a) ?: return@mapNotNull null
             if (r.toolId !in available) return@mapNotNull null
             Cleanup(a, effective(r, available), via(r, available), a.packageName in accepted)
         }

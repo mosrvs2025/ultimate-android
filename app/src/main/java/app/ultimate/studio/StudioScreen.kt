@@ -265,6 +265,7 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit) {
                         if (panel != null && selection == null) panel = null
                     },
                     onTrim = { updated -> stop(); change(updated.id) { updated } },
+                    onPeek = { ms -> playing = false; playhead = ms.coerceIn(0, project.durationMs) },
                     onReorder = { id, index -> stop(); manager.moveTo(id, index); haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
                     onZoom = { z -> dpPerSecond = (dpPerSecond * z).coerceIn(MIN_DP_PER_SECOND, MAX_DP_PER_SECOND) },
                     onAddVideos = addVideos,
@@ -437,6 +438,7 @@ private fun TimelineView(
     onAddVideos: () -> Unit,
     onMusic: () -> Unit,
     onText: (String) -> Unit,
+    onPeek: (Long) -> Unit = {},
 ) {
     val density = LocalDensity.current
     val scroll = rememberScrollState()
@@ -506,7 +508,15 @@ private fun TimelineView(
                         ClipStrip(
                             c, pxPerMs, selected = c.id == selection, enabled = enabled,
                             onTap = { onSelect(c.id) },
-                            onDrag = { draft = it },
+                            onDrag = { d ->
+                                draft = d
+                                // Show the frame at the edge being dragged, on the clock of the timeline as it was when the trim began.
+                                project.clips.firstOrNull { it.id == d.id }?.let { orig ->
+                                    val edge = if (d.startMs != orig.startMs) d.startMs else d.endMs
+                                    val into = ((edge - orig.startMs) / orig.speed).toLong().coerceIn(0, (orig.durationMs - 1).coerceAtLeast(0))
+                                    onPeek(Timeline.offset(project, d.id) + into)
+                                }
+                            },
                             onDragEnd = { draft?.let(onTrim); draft = null },
                             onLift = { rootX -> lifted = Lift(c.id, clips.indexOfFirst { it.id == c.id }, rootX - boxX) },
                             onLiftMove = { dx -> lifted = lifted?.let { it.copy(dx = it.dx + dx) } },
@@ -616,7 +626,7 @@ private fun Ruler(totalMs: Long, pxPerMs: Float) {
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-    val width = with(density) { (totalMs * pxPerMs).toDp() }
+    val width = with(density) { (totalMs * pxPerMs).coerceAtLeast(1f).toDp() }
     Canvas(Modifier.width(width).height(18.dp)) {
         // Pick a tick spacing that leaves room for labels at this zoom.
         val stepMs = listOf(250L, 500L, 1000L, 2000L, 5000L, 10_000L, 30_000L, 60_000L).first { it * pxPerMs >= 48.dp.toPx() / 2 }
@@ -626,7 +636,12 @@ private fun Ruler(totalMs: Long, pxPerMs: Float) {
             val x = t * pxPerMs
             val major = i % 2 == 0
             drawLine(labelColor.copy(alpha = if (major) 0.7f else 0.35f), Offset(x, size.height - if (major) 7.dp.toPx() else 4.dp.toPx()), Offset(x, size.height), strokeWidth = 1.dp.toPx())
-            if (major) drawText(measurer, rulerLabel(t), Offset(x + 3.dp.toPx(), 0f), TextStyle(color = labelColor, fontSize = 9.sp))
+            if (major) {
+                // Measure without limits, and only draw a label that fits: near the end there may be no room at all.
+                val label = measurer.measure(rulerLabel(t), TextStyle(color = labelColor, fontSize = 9.sp))
+                val lx = x + 3.dp.toPx()
+                if (lx + label.size.width <= size.width) drawText(label, topLeft = Offset(lx, 0f))
+            }
             t += stepMs
             i++
         }
@@ -681,7 +696,7 @@ private fun ClipStrip(
                 val b = base ?: c
                 onDrag(Timeline.trimStart(b, b.startMs + (dx / pxPerMs * b.speed).toLong()))
             }
-            TrimHandle(Modifier.align(Alignment.CenterEnd), onStart = { base = c }, onEnd = { base = null; onDragEnd() }) { dx ->
+            TrimHandle(Modifier.align(Alignment.CenterEnd), atEnd = true, onStart = { base = c }, onEnd = { base = null; onDragEnd() }) { dx ->
                 val b = base ?: c
                 onDrag(Timeline.trimEnd(b, b.endMs + (dx / pxPerMs * b.speed).toLong()))
             }
@@ -690,13 +705,14 @@ private fun ClipStrip(
 }
 
 @Composable
-private fun TrimHandle(modifier: Modifier, onStart: () -> Unit, onEnd: () -> Unit, onDelta: (Float) -> Unit) {
+private fun TrimHandle(modifier: Modifier, atEnd: Boolean = false, onStart: () -> Unit, onEnd: () -> Unit, onDelta: (Float) -> Unit) {
     var accumulated by remember { mutableFloatStateOf(0f) }
     val start by androidx.compose.runtime.rememberUpdatedState(onStart)
     val end by androidx.compose.runtime.rememberUpdatedState(onEnd)
     val delta by androidx.compose.runtime.rememberUpdatedState(onDelta)
+    // A wide touch area around a narrow visible handle, so the edge is easy to catch.
     Box(
-        modifier.width(14.dp).fillMaxHeight().background(ClipBorder)
+        modifier.width(28.dp).fillMaxHeight()
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragStart = { accumulated = 0f; start() },
@@ -708,9 +724,11 @@ private fun TrimHandle(modifier: Modifier, onStart: () -> Unit, onEnd: () -> Uni
                     delta(accumulated)
                 }
             },
-        contentAlignment = Alignment.Center,
+        contentAlignment = if (atEnd) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
-        Box(Modifier.width(2.dp).height(18.dp).background(Color.Black.copy(alpha = 0.6f)))
+        Box(Modifier.width(14.dp).fillMaxHeight().background(ClipBorder), contentAlignment = Alignment.Center) {
+            Box(Modifier.width(2.dp).height(18.dp).background(Color.Black.copy(alpha = 0.6f)))
+        }
     }
 }
 

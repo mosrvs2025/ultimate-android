@@ -571,6 +571,7 @@ private fun ResultRow(job: Item, context: android.content.Context, onOpen: (Stri
                         color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
                     )
                     if (s.libraryId != null) Sub("Tap to compare and see stats")
+                    OriginalActions(job, s)
                 }
                 is Status.Skipped -> Sub(s.reason)
                 is Status.Failed -> Text(s.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -594,3 +595,24 @@ private fun ResultRow(job: Item, context: android.content.Context, onOpen: (Stri
 
 @Composable
 private fun Sub(text: String) = Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+
+/** After a squeeze: watch the two side by side, then free the space by deleting the original. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun OriginalActions(job: Item, s: Status.Done) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var watching by remember { mutableStateOf(false) }
+    var gone by androidx.compose.runtime.saveable.rememberSaveable(job.id) { mutableStateOf(false) }
+    val freed = (job.source.sizeBytes - s.outputBytes).coerceAtLeast(0)
+    val delete = rememberDeleteOriginal { ok ->
+        gone = gone || ok
+        android.widget.Toast.makeText(context, if (ok) "Original moved to the trash. ${formatBytes(job.source.sizeBytes)} freed" else "The original was kept", android.widget.Toast.LENGTH_SHORT).show()
+    }
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        androidx.compose.material3.AssistChip({ watching = true }, { Text("Watch both") }, enabled = !gone)
+        if (gone) Sub("Original deleted")
+        else if (Originals.canDelete(context, job.uri)) androidx.compose.material3.AssistChip({ delete(job.uri) }, { Text("Delete original · frees ${formatBytes(freed)}") })
+    }
+    if (watching) WatchBoth(job.uri, s.output, "Original · ${formatBytes(job.source.sizeBytes)}", "Squeezed · ${formatBytes(s.outputBytes)}") { watching = false }
+}

@@ -56,7 +56,7 @@ class TrafficEngineTest {
         app.write("hello")
         app.readUntil(5)
         assertEquals("HELLO", app.text())
-        assertTrue("every packet the engine wrote must have valid checksums", tun.all.all { PacketBuilder.valid(Ip4Packet.parse(it, it.size)!!) })
+        assertTrue("every packet the engine wrote must have valid checksums", synchronized(tun.all) { tun.all.toList() }.all { PacketBuilder.valid(Ip4Packet.parse(it, it.size)!!) })
         val rec = engine.records.values.single()
         assertEquals(5L, rec.up.get()); assertEquals(5L, rec.down.get()); assertEquals(10_123, rec.uid)
         assertEquals(1L, engine.attempts.get()); assertEquals(1L, engine.successes.get())

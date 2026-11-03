@@ -47,6 +47,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Photo
+import androidx.compose.material.icons.rounded.Audiotrack
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.VideoFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -160,6 +164,8 @@ class OrbService : Service() {
     // Shared with the Compose content of every window.
     private val progress = MutableStateFlow<Float?>(null)
     private val busy = MutableStateFlow(false)
+    /** What the running job is working on, shown in the orb in place of its own mark. */
+    private val workIcon = MutableStateFlow<androidx.compose.ui.graphics.vector.ImageVector?>(null)
     private val nearTarget = MutableStateFlow(false)
     private val dropHover = MutableStateFlow(false)
     private val peek = MutableStateFlow<Pair<String, String?>?>(null)
@@ -223,7 +229,7 @@ class OrbService : Service() {
         orbParams = overlayParams(orbPx, orbPx).apply {
             x = prefs.getInt("x", sw - orbPx - (6 * density).toInt()); y = prefs.getInt("y", (sh * 0.35f).toInt())
         }
-        val content = compose { OrbFace(progress, busy, nearTarget, dropHover, unread) }
+        val content = compose { OrbFace(progress, busy, nearTarget, dropHover, unread, workIcon) }
         // A frame takes every touch itself (Compose would measure drags against a window that moves with the finger).
         val frame = object : FrameLayout(this) { override fun onInterceptTouchEvent(ev: MotionEvent?) = true }
         // Compose looks for its lifecycle from the window's root view, so the frame carries it too, not just the ComposeView.
@@ -455,6 +461,7 @@ class OrbService : Service() {
             combine(sources.map { s -> s.work }) { it.toList() }.collect { snaps ->
                 val running = snaps.filter { it.active }
                 busy.value = running.isNotEmpty()
+                workIcon.value = sources.zip(snaps).firstOrNull { it.second.active }?.first?.workId?.let { id -> workGlyph(id) ?: app?.tools?.firstOrNull { it.id == id }?.icon }
                 progress.value = running.mapNotNull { it.percent }.takeIf { it.isNotEmpty() }?.average()?.toFloat()?.div(100f)
                 sources.zip(snaps).forEach { (src, w) ->
                     if (last[src.workId] == true && !w.active) showPeek(w.doneTitle ?: (if (w.failed) "${src.workTitle} stopped" else "${src.workTitle} finished"), src.workId)
@@ -527,7 +534,8 @@ private const val PILL_W = 168f
 private val ORB_BRUSH = Brush.linearGradient(listOf(Color(0xFF8E7CFF), Color(0xFF4FC3F7)))
 
 @Composable
-private fun OrbFace(progress: MutableStateFlow<Float?>, busy: MutableStateFlow<Boolean>, near: MutableStateFlow<Boolean>, hover: MutableStateFlow<Boolean>, unread: MutableStateFlow<Int>) {
+private fun OrbFace(progress: MutableStateFlow<Float?>, busy: MutableStateFlow<Boolean>, near: MutableStateFlow<Boolean>, hover: MutableStateFlow<Boolean>, unread: MutableStateFlow<Int>, job: MutableStateFlow<androidx.compose.ui.graphics.vector.ImageVector?>) {
+    val jobIcon by job.collectAsState()
     val p by progress.collectAsState()
     val news by unread.collectAsState()
     val working by busy.collectAsState()
@@ -541,7 +549,18 @@ private fun OrbFace(progress: MutableStateFlow<Float?>, busy: MutableStateFlow<B
     LaunchedEffect(Unit) { appear.animateTo(1f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow)) }
     Box(Modifier.fillMaxSize().padding(4.dp).graphicsLayer { scaleX = scale * breath * appear.value; scaleY = scale * breath * appear.value }, contentAlignment = Alignment.Center) {
         Box(Modifier.fillMaxSize().shadow(10.dp, CircleShape).clip(CircleShape).background(ORB_BRUSH), contentAlignment = Alignment.Center) {
-            Icon(if (overTarget) Icons.Rounded.Close else Icons.Rounded.AutoAwesome, null, Modifier.size(26.dp), tint = Color.White)
+            // Idle it wears its own mark; at work it shows what it is working on (a video being squeezed, a song being cut)
+            // with the percentage under it.
+            androidx.compose.animation.Crossfade(if (overTarget) "x" else if (working && jobIcon != null) "job" else "idle", label = "face") { face ->
+                when (face) {
+                    "x" -> Icon(Icons.Rounded.Close, null, Modifier.size(26.dp), tint = Color.White)
+                    "job" -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(jobIcon!!, null, Modifier.size(if (p != null) 22.dp else 26.dp), tint = Color.White)
+                        p?.let { Text("${(it * 100).toInt()}%", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, lineHeight = 10.sp) }
+                    }
+                    else -> OrbMark(Modifier.size(28.dp))
+                }
+            }
         }
         // New notifications since you last opened the orb.
         if (news > 0 && !overTarget) Box(Modifier.align(Alignment.TopEnd).size(20.dp).clip(CircleShape).background(Color(0xFFE5484D)), contentAlignment = Alignment.Center) {
@@ -751,5 +770,30 @@ private fun PeekCard(peek: MutableStateFlow<Pair<String, String?>?>, fromLeft: B
         .clickable { onOpen(shown?.second) }.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(ORB_BRUSH)); Spacer(Modifier.width(10.dp))
         Text(shown?.first.orEmpty(), color = Color.White, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+
+/** A picture of the work itself for the jobs where the tool's own icon says less. */
+private fun workGlyph(id: String): androidx.compose.ui.graphics.vector.ImageVector? = when (id) {
+    "squeeze" -> Icons.Rounded.VideoFile
+    "studio" -> Icons.Rounded.Movie
+    "audio" -> Icons.Rounded.Audiotrack
+    "photos" -> Icons.Rounded.Photo
+    else -> null
+}
+
+/** The orb's own mark: three drops caught merging, like the gooey motion through the app. */
+@Composable
+private fun OrbMark(modifier: Modifier) {
+    Canvas(modifier) {
+        val c = center; val r = size.minDimension
+        val white = Color.White
+        drawCircle(white, r * 0.22f, c + Offset(-r * 0.12f, r * 0.08f))
+        drawCircle(white, r * 0.15f, c + Offset(r * 0.2f, -r * 0.16f))
+        drawCircle(white, r * 0.09f, c + Offset(r * 0.25f, r * 0.24f))
+        // Necks between the drops, so they read as one liquid shape rather than three dots.
+        drawLine(white, c + Offset(-r * 0.12f, r * 0.08f), c + Offset(r * 0.2f, -r * 0.16f), strokeWidth = r * 0.14f, cap = StrokeCap.Round)
+        drawLine(white, c + Offset(-r * 0.12f, r * 0.08f), c + Offset(r * 0.25f, r * 0.24f), strokeWidth = r * 0.08f, cap = StrokeCap.Round)
     }
 }
