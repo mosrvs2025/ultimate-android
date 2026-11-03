@@ -34,6 +34,12 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.54.0", listOf(
+            "Echo follows your hand, not your arm: it reports the nearest moving thing, which fixes readings that came out 10 cm too far.",
+            "The Echo test is now a guided, full-screen walk-through: one big step at a time, a picture of where your hand goes, a countdown, and what Echo reads live. Results show your hand against Echo's reading on a ruler.",
+            "Record a session: saves Echo's measurements (numbers only, never audio) with markers you tap, to share for a precise diagnosis.",
+            "Senses on Home: Echo sits near the top with its live reading, so you don't have to scroll for it.",
+        )),
         Entry("1.53.1", listOf(
             "Echo Distance: fixed constant false readings of a few centimetres. Your bench showed the speaker's own sound wobbling slightly every frame and looking like a hand; each frame is now locked to that sound, and each distance is judged against its own usual noise.",
             "Echo asks for the top and bottom microphones separately in a way Samsung phones allow, for a direction estimate.",

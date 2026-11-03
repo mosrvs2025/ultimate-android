@@ -51,6 +51,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.geometry.Size
 import app.ultimate.UltimateApp
 import app.ultimate.core.LibraryItem
 import app.ultimate.core.Signal
@@ -114,11 +120,14 @@ class EchoTool(private val app: UltimateApp) : Tool {
                 }
                 item {
                     Text(
-                        "Private by design: nothing is recorded or kept. The mic is used only while Echo runs, and it stops when you leave unless a rule is listening. You can stop it from the notification shade at any time. Works best with the media volume at half or more.",
+                        "Private by design: no audio is ever recorded or kept, only the numbers on screen (and a session log if you record one). The mic is used only while Echo runs, and it stops when you leave unless a rule is listening. You can stop it from the notification shade at any time. Works best with the media volume at half or more.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (distanceMode) item { BenchPanel(bench, running) }
+                if (distanceMode) {
+                    item { BenchCard(bench, sonar, running) }
+                    item { LogCard(sonar) }
+                }
                 item { HardwarePanel(hardware) }
                 if (echoes.isNotEmpty()) {
                     item { Text("Just sensed", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold) }
@@ -286,28 +295,194 @@ private fun HardwarePanel(h: EchoHardware) {
     }
 }
 
-/** Runs the repeatable bench and shows the report, ready to copy. */
+/** The way into the bench: one inviting card. The bench itself runs full screen, one step at a time. */
 @Composable
-private fun BenchPanel(bench: EchoBench, sensing: Boolean) {
+private fun BenchCard(bench: EchoBench, sonar: SonarEngine, sensing: Boolean) {
     val step by bench.step.collectAsStateWithLifecycle()
+    var open by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.secondaryContainer).clickable(enabled = !sensing || step !is EchoBench.Step.Idle) { open = true }.padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Test Echo on this phone", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            Text(
+                when (step) { is EchoBench.Step.Done -> "Results ready. Tap to see them"; is EchoBench.Step.Prompt -> "Running…"; else -> "A 30-second guided test of accuracy, false alarms, speed and battery" },
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
+        Icon(Icons.Rounded.Speed, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+    }
+    if (open) BenchDialog(bench, sonar) { open = false }
+}
+
+@Composable
+private fun BenchDialog(bench: EchoBench, sonar: SonarEngine, onClose: () -> Unit) {
+    val step by bench.step.collectAsStateWithLifecycle()
+    val live by sonar.state.collectAsStateWithLifecycle()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.secondaryContainer).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Bench test", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer)
-        when (val s = step) {
-            EchoBench.Step.Idle -> {
-                Text("About 30 seconds: false alarms in a still room, accuracy with your hand at 10, 20 and 30 cm, processing time and battery draw. Lay the phone flat, screen up.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                Button({ scope.launch { bench.run(android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL) } }, enabled = !sensing) { Text("Run the bench") }
+    var job by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun close() { job?.cancel(); if (step is EchoBench.Step.Prompt) { sonar.stop(); bench.reset() }; onClose() }
+    androidx.compose.ui.window.Dialog(::close, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Echo test", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                IconButton(::close) { Icon(Icons.Rounded.Close, "Close") }
             }
-            is EchoBench.Step.Prompt -> Text("${s.text}  ${s.secondsLeft}", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
-            is EchoBench.Step.Failed -> { Text(s.why, color = MaterialTheme.colorScheme.error); TextButton({ bench.reset() }) { Text("Try again") } }
-            is EchoBench.Step.Done -> {
-                Text(s.report.text, style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                Row {
-                    TextButton({ app.ultimate.core.copyText(context, "Echo bench", s.report.text) }) { Text("Copy results") }
-                    TextButton({ bench.reset() }) { Text("Run again") }
+            when (val s = step) {
+                EchoBench.Step.Idle -> {
+                    Text("How well does Echo hear on this phone?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                    listOf(
+                        "1" to "Lay the phone flat on a table, screen up, with the media volume at half or more.",
+                        "2" to "For the first 12 seconds, keep your hands away. Echo learns the room and counts false alarms.",
+                        "3" to "Then hold your palm over the top of the screen at 10, 20 and 30 cm. The screen shows where, and what Echo reads.",
+                    ).forEach { (n, t) ->
+                        Row(verticalAlignment = Alignment.Top) {
+                            Box(Modifier.size(28.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) { Text(n, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold) }
+                            Text(t, Modifier.padding(start = 12.dp), style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                    Box(Modifier.weight(1f))
+                    Button({ job = scope.launch { bench.run(android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL) } }, Modifier.fillMaxWidth().height(56.dp)) { Text("Start the test") }
+                }
+                is EchoBench.Step.Prompt -> {
+                    androidx.compose.material3.LinearProgressIndicator(progress = { (s.index + 1f) / s.total }, Modifier.fillMaxWidth())
+                    Text("Step ${s.index + 1} of ${s.total}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text(s.title, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+                    Text(s.text, style = MaterialTheme.typography.titleMedium)
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                        HandPicture(s.targetCm, s.handAway, Modifier.matchParentSize())
+                        TruthTag(Truth.Illustration, Modifier.align(Alignment.TopStart))
+                        Text("${s.secondsLeft}", Modifier.align(Alignment.TopEnd), style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    }
+                    if (s.targetCm != null) {
+                        val read = ((live as? SonarState.Running)?.frame?.fix?.rangeM ?: Double.NaN) * 100
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Echo reads", style = MaterialTheme.typography.labelLarge)
+                                Text(if (read.isNaN()) "nothing yet" else "%.0f cm".format(read), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                            }
+                            TruthTag(Truth.Measured)
+                        }
+                    }
+                }
+                is EchoBench.Step.Failed -> {
+                    Text("The test stopped", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                    Text(s.why, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
+                    Box(Modifier.weight(1f))
+                    Button({ bench.reset() }, Modifier.fillMaxWidth().height(56.dp)) { Text("Try again") }
+                }
+                is EchoBench.Step.Done -> {
+                    val r = s.report
+                    androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        item { Text("Results", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold) }
+                        item { ResultLine("False alarms in a still room", "%.0f%%".format(r.falseRate * 100), r.falseRate <= 0.05) }
+                        r.rows.forEach { row ->
+                            item { AccuracyRow(row) }
+                        }
+                        item { Text(r.text, style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button({ app.ultimate.core.copyText(context, "Echo bench", r.text); android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show() }, Modifier.weight(1f)) { Text("Copy results") }
+                        androidx.compose.material3.OutlinedButton({ bench.reset() }, Modifier.weight(1f)) { Text("Run again") }
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ResultLine(label: String, value: String, good: Boolean) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = if (good) Color(0xFF3DDC97) else Color(0xFFFF8A5C))
+    }
+}
+
+/** Where your hand was, against where Echo put it, on one 0-40 cm ruler. */
+@Composable
+private fun AccuracyRow(r: BenchMath.Row) {
+    val good = r.medianCm != null && kotlin.math.abs(r.medianCm - r.heldCm) <= 3
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Hand at ${r.heldCm} cm", Modifier.weight(1f))
+            Text(r.medianCm?.let { "read %.0f cm".format(it) } ?: "not detected", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (good) Color(0xFF3DDC97) else Color(0xFFFF8A5C))
+        }
+        val line = MaterialTheme.colorScheme.outline
+        Canvas(Modifier.fillMaxWidth().height(22.dp)) {
+            fun x(cm: Double) = (cm / 40.0).toFloat().coerceIn(0f, 1f) * size.width
+            drawLine(line, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = 2.dp.toPx())
+            drawCircle(Color.White, 7.dp.toPx(), Offset(x(r.heldCm.toDouble()), size.height / 2), style = Stroke(2.dp.toPx()))
+            r.medianCm?.let { m -> drawCircle(if (good) Color(0xFF3DDC97) else Color(0xFFFF8A5C), 6.dp.toPx(), Offset(x(m), size.height / 2)) }
+        }
+        Text("Ring: your hand · dot: Echo · detected in %.0f%% of frames".format(r.detectRate * 100), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** A side view of the phone lying flat with a hand above it at [targetCm], or away for the hands-off steps. A drawing, not a measurement. */
+@Composable
+private fun HandPicture(targetCm: Int?, away: Boolean, modifier: Modifier) {
+    val accent = MaterialTheme.colorScheme.primary
+    val ink = MaterialTheme.colorScheme.onSurface
+    val bob = if (targetCm != null && motionOn()) rememberInfiniteTransition(label = "bob").animateFloat(-1f, 1f, infiniteRepeatable(tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "b").value else 0f
+    Canvas(modifier) {
+        val base = size.height * 0.85f
+        val cmPx = (size.height * 0.7f) / 35f
+        // The phone, flat, screen up; the top edge (speaker and top mic) on the right.
+        drawRoundRect(ink.copy(alpha = 0.85f), Offset(size.width * 0.2f, base), Size(size.width * 0.6f, 8.dp.toPx()), androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()))
+        drawCircle(accent, 4.dp.toPx(), Offset(size.width * 0.76f, base - 3.dp.toPx()))
+        listOf(10, 20, 30).forEach { cm ->
+            val y = base - cm * cmPx
+            drawLine(ink.copy(alpha = if (cm == targetCm) 0.6f else 0.15f), Offset(size.width * 0.1f, y), Offset(size.width * 0.95f, y), strokeWidth = 1.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 10f)))
+        }
+        if (targetCm != null && !away) {
+            val y = base - (targetCm + bob * 0.5f) * cmPx
+            drawRoundRect(accent, Offset(size.width * 0.6f, y - 6.dp.toPx()), Size(size.width * 0.3f, 12.dp.toPx()), androidx.compose.ui.geometry.CornerRadius(6.dp.toPx()))
+            drawLine(accent.copy(alpha = 0.5f), Offset(size.width * 0.76f, base - 6.dp.toPx()), Offset(size.width * 0.76f, y + 8.dp.toPx()), strokeWidth = 2.dp.toPx())
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+/** Records a session of Echo's numbers (no audio) to share for diagnosis, with markers you tap as you go. */
+@Composable
+private fun LogCard(sonar: SonarEngine) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val log = androidx.compose.runtime.remember { EchoLog() }
+    var rec by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var count by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(rec) {
+        if (!rec) return@LaunchedEffect
+        var last: SonarFrame? = null
+        sonar.state.collect { s -> (s as? SonarState.Running)?.frame?.let { f -> if (f !== last) { last = f; log.add(f); count = log.frames } } }
+    }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Record a session", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            if (rec) "Recording what Echo measures: $count frames. Tap a marker whenever you change what you're doing."
+            else "Saves every measurement (numbers only, never audio) with markers you tap, as a file you can share for a precise diagnosis.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (rec) {
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("hand away", "hand at 10 cm", "hand at 20 cm", "hand at 30 cm", "hand moving", "something else").forEach { m ->
+                    androidx.compose.material3.AssistChip({ log.mark(m); android.widget.Toast.makeText(context, "Marked: $m", android.widget.Toast.LENGTH_SHORT).show() }, { Text(m) })
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (!rec) Button({ if (!sonar.running) sonar.start(); log.start(); count = 0; rec = true }) { Text("Start recording") }
+            else Button({
+                rec = false
+                log.finish(context)?.let { uri ->
+                    context.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/csv").putExtra(android.content.Intent.EXTRA_STREAM, uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share Echo session"))
+                }
+            }) { Text("Stop and share") }
         }
     }
 }

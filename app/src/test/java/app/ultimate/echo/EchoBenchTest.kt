@@ -26,4 +26,12 @@ class EchoBenchTest {
         val r = BenchMath.report("x", emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), false)
         assertTrue(r.text.contains("doesn't report its current"))
     }
+
+    @Test fun sessionLogRowsCarryTheMeasurementMarkerAndPeaks() {
+        val motion = FloatArray(100).also { it[56] = 9f; it[84] = 3f }
+        val f = SonarFrame(SonarTracker.Fix(0.0, 0.2, 9.0, -0.1, 540.0, motion, FloatArray(0)), null, null, null, FloatArray(0), false, 1.5f, false)
+        val row = EchoLog.row(1234, f, "hand at 20 cm")
+        assertEquals("1234,20.0,9.00,-0.100,540,0,0,1.50,hand at 20 cm,20.0:9.0;30.0:3.0", row)
+        assertEquals(EchoLog.HEADER.split(",").size, row.split(",").size)
+    }
 }

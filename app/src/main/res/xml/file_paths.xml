@@ -2,6 +2,8 @@
 <paths>
     <!-- Cleaned copies made for Share clean; deleted on the next run. -->
     <cache-path name="clean" path="clean/" />
+    <!-- Echo session logs (numbers only, no audio), shared for diagnosis. -->
+    <cache-path name="echo" path="echo/" />
     <!-- Files: opening and sharing anything on shared storage (needs all-files access, Ultimate editions only). -->
     <external-path name="storage" path="." />
 </paths>

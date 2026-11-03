@@ -154,7 +154,31 @@ The in-app **Bench** (Echo → Distance → Run the bench) measures four things:
   - at most 5 false alarms in 100 frames;
   - the hand at 10, 20 and 30 cm is ranged within 2.5 cm, from an echo just 1% of the direct path.
 
-**Next step:** rerun the bench on the phone with 1.53.1.
+#### Bench 2: same phone, 1.53.1
+
+**Results:**
+- **Link:** 542× above the noise.
+- **False detections:** 0%, down from 100%.
+- **Hand at 10 / 20 / 30 cm:** read 20.5 / 15.7 / 20.2 cm, detected in 73% / 100% / 8% of frames.
+- **Battery:** +252 mA while sensing. That is much higher than bench 1, possibly from screen brightness or the
+  speaker's volume. To recheck.
+
+**Diagnosis:**
+- The jitter fix worked.
+- The remaining error looks like target choice. A hand above the phone comes with an arm behind it, also moving and
+  often echoing more strongly, and the tracker reported the strongest return.
+- At 30 cm the hand's echo is about 9× weaker than at 10 cm, so it rarely cleared the bar.
+
+**Fix (1.54.0):**
+- Report the nearest clear return: the first local peak at least 40% as strong as the best.
+- `SonarRealismTest.theNearestMovingThingWinsOverAStrongerArmBehindIt` covers it. Before the fix it reported the arm
+  at 32 cm instead of the hand at 15 cm.
+
+**New tool: session logs.**
+- They record every frame's numbers with markers the user taps.
+- The point is to replay real sessions through the tracker here. That is more precise than a video.
+
+**Next step:** a bench and a session log from 1.54.0.
 
 ## 4. What the hardware allows
 

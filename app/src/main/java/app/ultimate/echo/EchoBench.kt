@@ -15,7 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 class EchoBench(private val engine: SonarEngine) {
     sealed interface Step {
         data object Idle : Step
-        data class Prompt(val text: String, val secondsLeft: Int) : Step
+        /** [index] of [total] steps; [targetCm] is where the hand should be, or null for steps without a hand. [title] is the short headline. */
+        data class Prompt(val title: String, val text: String, val secondsLeft: Int, val index: Int = 0, val total: Int = STEPS, val targetCm: Int? = null, val handAway: Boolean = true) : Step
         data class Done(val report: BenchReport) : Step
         data class Failed(val why: String) : Step
     }
@@ -25,11 +26,11 @@ class EchoBench(private val engine: SonarEngine) {
 
     suspend fun run(model: String) {
         val idle = mutableListOf<Double>()
-        for (s in 4 downTo 1) { _step.value = Step.Prompt("Measuring the battery with Echo off. Leave the phone still.", s); engine.currentMa()?.let(idle::add); delay(1000) }
+        for (s in 4 downTo 1) { _step.value = Step.Prompt("Hands off", "Measuring the battery with Echo off. Leave the phone flat and still.", s, 0); engine.currentMa()?.let(idle::add); delay(1000) }
         engine.start()
         val sensing = mutableListOf<Double>()
         val frames = mutableListOf<SonarFrame>()
-        suspend fun collect(text: String, seconds: Int): List<SonarFrame> {
+        suspend fun collect(title: String, text: String, seconds: Int, index: Int, targetCm: Int? = null, handAway: Boolean = true): List<SonarFrame> {
             val got = mutableListOf<SonarFrame>()
             val end = System.currentTimeMillis() + seconds * 1000L
             var shownLeft = -1
@@ -37,18 +38,18 @@ class EchoBench(private val engine: SonarEngine) {
                 (engine.state.value as? SonarState.Failed)?.let { _step.value = Step.Failed(it.why); return emptyList() }
                 (engine.state.value as? SonarState.Running)?.frame?.let { if (got.lastOrNull() !== it) got += it }
                 val left = ((end - System.currentTimeMillis()) / 1000).toInt() + 1
-                if (left != shownLeft) { shownLeft = left; _step.value = Step.Prompt(text, left); engine.currentMa()?.let(sensing::add) }
+                if (left != shownLeft) { shownLeft = left; _step.value = Step.Prompt(title, text, left, index, targetCm = targetCm, handAway = handAway); engine.currentMa()?.let(sensing::add) }
                 delay(40)
             }
             frames += got
             return got
         }
-        collect("Learning the room. Keep the phone flat and your hands away.", 3)
-        val still = collect("Stay still: counting false alarms.", 5)
+        collect("Hands off", "Echo is learning the room. Keep the phone flat and your hands away.", 3, 1)
+        val still = collect("Stay still", "Counting false alarms: anything Echo reports now is a mistake.", 5, 2)
         if (_step.value is Step.Failed) { engine.stop(); return }
-        val holds = listOf(10, 20, 30).map { cm ->
-            collect("Get ready to hold your hand $cm cm above the top of the phone.", 2)
-            cm to collect("Hold your hand flat about $cm cm above the top edge, and move it a little.", 4)
+        val holds = listOf(10, 20, 30).mapIndexed { i, cm ->
+            collect("Get ready: $cm cm", "Bring your hand to about $cm cm above the top of the screen, palm down.", 2, 3 + i, cm, handAway = false)
+            cm to collect("Hold at $cm cm", "Keep your palm about $cm cm above the top of the screen and wiggle it gently up and down a centimetre.", 4, 3 + i, cm, handAway = false)
         }
         engine.stop()
         if (_step.value is Step.Failed) return
@@ -56,6 +57,8 @@ class EchoBench(private val engine: SonarEngine) {
     }
 
     fun reset() { _step.value = Step.Idle }
+
+    companion object { const val STEPS = 6 }
 }
 
 data class BenchReport(val text: String, val falseRate: Double, val rows: List<BenchMath.Row>)

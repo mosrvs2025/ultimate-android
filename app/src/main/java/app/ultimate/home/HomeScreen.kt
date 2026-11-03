@@ -70,6 +70,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.UltimateApp
+import app.ultimate.echo.EchoTool
+import app.ultimate.echo.SonarState
+import app.ultimate.echo.EchoState
 import app.ultimate.core.LibraryRow
 import app.ultimate.core.Tool
 import app.ultimate.core.ToolLaunch
@@ -123,6 +126,7 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
         item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
         item(span = { GridItemSpan(maxLineSpan) }) { TodayDashboard(app) }
         item(key = "live-senses", span = { GridItemSpan(maxLineSpan) }) { LiveSenses(app) }
+        app.tools.firstOrNull { it.id == "echo" }?.let { echo -> item(key = "senses", span = { GridItemSpan(maxLineSpan) }) { SensesCard(app, echo as app.ultimate.echo.EchoTool) } }
         if (running.isNotEmpty()) items(running, key = { "run-${it.first.workId}" }, span = { GridItemSpan(maxLineSpan) }) { (source, snap) ->
             RunningBanner(source, snap, app.tools.firstOrNull { it.id == source.workId }, onView = { app.tools.firstOrNull { it.id == source.workId }?.let(shell::open) })
         }
@@ -419,6 +423,43 @@ private fun LiveSenses(app: UltimateApp) {
                 }
             }
             if (sessions.size > 1) androidx.compose.material3.TextButton({ app.senses.stopAll() }) { Text("Stop everything") }
+        }
+    }
+}
+
+
+/**
+ * The phone's senses, up top where they can't get lost among the tools: Echo's live state at a glance (what it is
+ * measuring right now), and one tap to open it.
+ */
+@Composable
+private fun SensesCard(app: UltimateApp, echo: EchoTool) {
+    val sonar by echo.sonar.state.collectAsStateWithLifecycle()
+    val motion by echo.engine.state.collectAsStateWithLifecycle()
+    val line = when (val s = sonar) {
+        is SonarState.Running -> s.frame.fix.rangeM.takeIf { !it.isNaN() }?.let { "Measuring · something %.0f cm away".format(it * 100) } ?: "Measuring · nothing moving"
+        SonarState.Warming -> "Learning the room…"
+        else -> if (motion is EchoState.Sensing) "Sensing motion" else "Feel distance and movement with sound you can't hear"
+    }
+    val live = sonar is SonarState.Running || motion is EchoState.Sensing
+    val glow = if (live && motionOn()) androidx.compose.animation.core.rememberInfiniteTransition(label = "senses").animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1600)), label = "g").value else 0f
+    Row(
+        Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
+            .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(androidx.compose.ui.graphics.Color(0xFF14213D), androidx.compose.ui.graphics.Color(0xFF1F4E79))))
+            .clickable { app.insights.count("home.senses"); app.shell.open(echo) }.padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.padding(end = 14.dp).size(44.dp)) {
+            val o = androidx.compose.ui.geometry.Offset(size.width / 2, size.height / 2)
+            for (i in 0 until 3) {
+                val p = ((i / 3f) + glow) % 1f
+                drawCircle(androidx.compose.ui.graphics.Color(0xFF7FD3FF).copy(alpha = if (live) 1f - p else 0.25f), size.minDimension / 2 * (if (live) p else (i + 1) / 3f), o, style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
+            }
+            drawCircle(androidx.compose.ui.graphics.Color(0xFF7FD3FF), 4.dp.toPx(), o)
+        }
+        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+            Text("Senses · Echo", color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(line, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall)
         }
     }
 }

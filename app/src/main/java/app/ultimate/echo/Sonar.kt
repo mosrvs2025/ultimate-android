@@ -166,6 +166,12 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
             motion[k] = score.toFloat(); echo[k] = hypot(wr[i], wi[i]).toFloat()
             if (k >= start && score > bestScore) { bestScore = score; best = k }
         }
+        // Report the nearest clear return, not the strongest: a hand over the phone is the first thing the sound meets,
+        // and the arm or body behind it often echoes more. Any peak at least 40% as strong as the best counts.
+        if (bestScore >= CONFIDENT) {
+            val bar = maxOf(CONFIDENT, bestScore * 0.4)
+            for (k in start + 1 until best) if (motion[k] >= bar && motion[k] >= motion[k - 1] && motion[k] >= motion[k + 1]) { best = k; break }
+        }
         val warm = frames > WARMUP
         val detected = warm && bestScore >= CONFIDENT
         val pk = if (best in start + 1 until bins - 1) {

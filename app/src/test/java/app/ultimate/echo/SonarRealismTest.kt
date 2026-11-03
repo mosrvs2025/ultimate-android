@@ -49,4 +49,19 @@ class SonarRealismTest {
             assertEquals("hand at $cm cm", cm / 100.0, med, 0.025)
         }
     }
+
+    /**
+     * Bench 2 on the same phone (1.53.1): no false alarms any more, but a hand held at 10 cm read 20 cm and one at 30 cm
+     * read 20 cm. A hand over the phone comes with an arm behind it, moving too and often echoing more strongly. The
+     * hand is the nearest moving thing, so that is what Echo should report.
+     */
+    @Test fun theNearestMovingThingWinsOverAStrongerArmBehindIt() {
+        val t = SonarTracker()
+        repeat(40) { fix(t, room, it) }
+        val reads = (40 until 60).map { k ->
+            fix(t, room + ((direct + samples(0.15 + 0.004 * (k % 3))) to 0.01) + ((direct + samples(0.32 + 0.005 * (k % 2))) to 0.025), k).rangeM
+        }.filter { !it.isNaN() }
+        assertTrue(reads.size >= 14)
+        assertEquals(0.15, reads.sorted()[reads.size / 2], 0.025)
+    }
 }
