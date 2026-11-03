@@ -34,6 +34,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.51.0", listOf(
+            "Clean up reads each app waiting under Check first for what else it does: the words in its menus and settings, its widgets, tiles, what it accepts from Share and what it asks permission for. Anything Ultimate may not do yet is listed.",
+            "Mark each found feature Need it or Don't need. Your answers are kept.",
+            "Copy build brief puts everything still needed, for every app, into one text to paste into a coding chat, so the missing parts can be built and the apps uninstalled.",
+        )),
         Entry("1.50.0", listOf(
             "Squeeze: Watch both plays the original and the squeezed copy one above the other, in step, with one play button and one seek bar.",
             "Squeeze: Delete original frees the space once you're happy. It goes to Android's trash (kept 30 days), after Android asks you to confirm.",

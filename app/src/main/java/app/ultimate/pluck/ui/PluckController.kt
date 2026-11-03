@@ -2,6 +2,11 @@ package app.ultimate.pluck.ui
 
 import app.ultimate.core.*
 import app.ultimate.UltimateApp
+import app.ultimate.pluck.model.FeatureGap
+import app.ultimate.pluck.model.GapScan
+import app.ultimate.pluck.model.GapMark
+import app.ultimate.pluck.engine.GapReader
+import app.ultimate.pluck.engine.GapMarks
 import app.ultimate.pluck.engine.ScanStore
 import app.ultimate.pluck.engine.TrackerScanner
 import app.ultimate.pluck.model.AppDetail
@@ -98,6 +103,32 @@ class PluckController(private val app: UltimateApp) {
     fun unmarkReplaced(pkg: String) { scope.launch { app.pluckReplacements.unmark(pkg) } }
     fun acceptMissing(pkg: String) { scope.launch { app.pluckReplacements.accept(pkg) } }
     fun revokeAccepted(pkg: String) { scope.launch { app.pluckReplacements.revoke(pkg) } }
+
+    // What each app may do that its replacement doesn't, found by reading the app; and your answers.
+    private val gapMarks = GapMarks(app)
+    val gapAnswers: StateFlow<Map<String, GapMark>> = gapMarks.marks
+    private val gapFound = kotlinx.coroutines.flow.MutableStateFlow<Map<String, GapScan>>(emptyMap())
+    val gaps: StateFlow<Map<String, GapScan>> = gapFound
+
+    fun scanGaps(item: Cleanup) {
+        if (item.app.packageName in gapFound.value) return
+        scope.launch {
+            GapReader.scan(app, item.app.packageName, item.replacement)?.let { r -> gapFound.update { it + (r.pkg to r) } }
+        }
+    }
+
+    fun markGap(pkg: String, text: String, mark: GapMark?) = gapMarks.set(pkg, text, mark)
+
+    /** Scans every app in Clean up that still has something missing, then writes the brief to paste into a coding chat. */
+    suspend fun buildBrief(): String {
+        val todo = cleanup.value.filter { it.replacement.missing.isNotEmpty() }
+        todo.filter { it.app.packageName !in gapFound.value }.forEach { c ->
+            GapReader.scan(app, c.app.packageName, c.replacement)?.let { r -> gapFound.update { it + (r.pkg to r) } }
+        }
+        val scans = todo.mapNotNull { gapFound.value[it.app.packageName] }
+        val date = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date())
+        return FeatureGap.brief(scans, todo.associate { it.app.packageName to it.replacement.missing.filterNot { m -> m.startsWith("Not checked feature by feature") } }, gapMarks.marks.value, Replacements::toolName, date)
+    }
     val scanProgress = MutableStateFlow<ScanProgress?>(null)
     private var scanJob: Job? = null
     val shareWhenDone = MutableStateFlow(false)
