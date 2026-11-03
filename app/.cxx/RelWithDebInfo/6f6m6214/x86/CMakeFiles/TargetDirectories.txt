@@ -1,3 +1,0 @@
-/home/user/ultimate-android/app/.cxx/RelWithDebInfo/6f6m6214/x86/CMakeFiles/ultimate_needle.dir
-/home/user/ultimate-android/app/.cxx/RelWithDebInfo/6f6m6214/x86/CMakeFiles/edit_cache.dir
-/home/user/ultimate-android/app/.cxx/RelWithDebInfo/6f6m6214/x86/CMakeFiles/rebuild_cache.dir

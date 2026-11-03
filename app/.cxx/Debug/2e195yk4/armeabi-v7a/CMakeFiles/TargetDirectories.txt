@@ -1,3 +1,0 @@
-/home/user/ultimate-android/app/.cxx/Debug/2e195yk4/armeabi-v7a/CMakeFiles/ultimate_needle.dir
-/home/user/ultimate-android/app/.cxx/Debug/2e195yk4/armeabi-v7a/CMakeFiles/edit_cache.dir
-/home/user/ultimate-android/app/.cxx/Debug/2e195yk4/armeabi-v7a/CMakeFiles/rebuild_cache.dir

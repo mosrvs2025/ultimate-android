@@ -8,3 +8,4 @@ local.properties
 .idea/
 .kotlin/
 app/src/main/cpp/needle/
+app/.cxx/
