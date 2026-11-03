@@ -62,6 +62,16 @@ import app.ultimate.core.gooey
 import app.ultimate.core.motionOn
 import app.ultimate.core.pressScale
 import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import app.ultimate.core.ToolLaunch
+import app.ultimate.inbox.dayLabel
+import app.ultimate.timeline.Moment
+import app.ultimate.timeline.Source
+import app.ultimate.timeline.TimelineMath
+import app.ultimate.timeline.TimelineReader
+import app.ultimate.timeline.icon
+import app.ultimate.timeline.tint
 
 /** Geometry of the bubble turning into the panel, kept pure so it is tested. */
 object JumpMath {
@@ -102,7 +112,9 @@ internal fun JumpPanel(app: UltimateApp, current: Tool, running: Set<String>, op
         val w = constraints.maxWidth.toFloat(); val h = constraints.maxHeight.toFloat()
         val margin = with(density) { 12.dp.toPx() }
         val panelH = minOf(h * 0.74f, with(density) { 600.dp.toPx() })
-        val panel = Rect(margin, h - panelH - margin, w - margin, h - margin)
+        // Clear of the navigation bar, so the bottom row is never hidden behind it.
+        val nav = WindowInsets.navigationBars.getBottom(density).toFloat()
+        val panel = Rect(margin, h - panelH - margin - nav, w - margin, h - margin - nav)
         // The dim behind, and a tap outside to close.
         Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.4f * t.value.coerceIn(0f, 1f)))
             .clickable(remember { MutableInteractionSource() }, null, onClick = onClose))
@@ -120,7 +132,12 @@ internal fun JumpPanel(app: UltimateApp, current: Tool, running: Set<String>, op
         if (inside > 0f) Box(
             Modifier.offset { IntOffset(panel.left.roundToInt(), panel.top.roundToInt()) }.size(with(density) { panel.width.toDp() }, with(density) { panel.height.toDp() })
                 .alpha(inside).clickable(remember { MutableInteractionSource() }, null) {},
-        ) { Contents(app, current, running) { go -> onClose(); go() } }
+        ) {
+            // The panel is drawn on a canvas, not a Surface, so give its text and icons the theme's on-surface colour.
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+                Contents(app, current, running) { go -> onClose(); go() }
+            }
+        }
     }
 }
 
@@ -132,6 +149,11 @@ private fun Contents(app: UltimateApp, current: Tool, running: Set<String>, go: 
     val now = remember { System.currentTimeMillis() }
     val recent = remember { HomeLayout.favorites(app.tools.map { it.id }, app.insights::opens, app.insights::lastAt, running, now).mapNotNull { id -> app.tools.firstOrNull { it.id == id } } }
     fun open(t: Tool) = go { if (t.id != current.id) shell.open(t) }
+    // Everything the app has kept for the last 30 days, for today's numbers and for searching your records.
+    var records by remember { mutableStateOf<List<Moment>>(emptyList()) }
+    LaunchedEffect(Unit) { records = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { TimelineReader.read(app, now - 30 * 86_400_000L) } }
+    val timeline = app.tools.firstOrNull { it.id == "timeline" }
+    fun openTimeline(q: String? = null) { timeline?.let { t -> go { shell.open(t, ToolLaunch(query = q)) } } }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Search, as a soft pill.
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerLowest).padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -143,6 +165,11 @@ private fun Contents(app: UltimateApp, current: Tool, running: Set<String>, go: 
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (query.isBlank()) {
+                val today = remember(records) { TimelineMath.onDay(records, TimelineMath.dayOf(now)) }
+                if (today.isNotEmpty()) {
+                    Label("Today so far")
+                    TodayStrip(today) { openTimeline() }
+                }
                 if (recent.isNotEmpty()) {
                     Label("You use most")
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -161,8 +188,15 @@ private fun Contents(app: UltimateApp, current: Tool, running: Set<String>, go: 
                 }
             } else {
                 val found = JumpMath.search(app.tools, query)
-                if (found.isEmpty()) Text("No tool called that.", Modifier.padding(8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val hits = remember(records, query) { TimelineMath.search(records, query) }
+                if (found.isNotEmpty()) Label("Tools")
                 found.forEach { t -> Line(t, t.id == current.id, t.id in running, Modifier.fillMaxWidth()) { open(t) } }
+                if (hits.isNotEmpty()) {
+                    Label("In your records")
+                    hits.take(5).forEach { m -> Hit(m, now) { openTimeline(query) } }
+                    if (timeline != null) Text("See all ${hits.size} in Timeline", Modifier.clip(RoundedCornerShape(50)).clickable { openTimeline(query) }.padding(horizontal = 12.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                }
+                if (found.isEmpty() && hits.isEmpty()) Text("Nothing called that, in tools or in your records.", Modifier.padding(8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -214,3 +248,41 @@ private fun Pill(icon: ImageVector, label: String, modifier: Modifier, busy: Boo
         if (busy) { Spacer(Modifier.width(6.dp)); Box(Modifier.size(7.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error)) }
     }
 }
+
+/** Today's numbers from every record, as chips; tap for the whole day in Timeline. */
+@Composable
+private fun TodayStrip(today: List<Moment>, onOpen: () -> Unit) {
+    val src = Source.entries
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        src.forEach { s ->
+            val of = today.filter { it.source == s }
+            if (of.isEmpty()) return@forEach
+            val span = of.sumOf { it.end - it.at }
+            val text = when (s) {
+                Source.Notification -> "${of.size} notifications"
+                Source.Clip -> "${of.size} copied"
+                Source.Watched -> "${span / 60_000} min played"
+                Source.Focus -> "${span / 60_000} min focused"
+            }
+            Row(Modifier.pressScale(0.95f).clip(RoundedCornerShape(50)).background(s.chipColor().copy(alpha = 0.16f)).clickable(onClick = onOpen).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(s.chipIcon(), null, Modifier.size(16.dp), tint = s.chipColor()); Spacer(Modifier.width(6.dp)); Text(text, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+/** A matching record: what it is, from where, and when. */
+@Composable
+private fun Hit(m: Moment, now: Long, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().pressScale(0.97f).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable(onClick = onClick).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(m.source.chipIcon(), null, Modifier.size(20.dp), tint = m.source.chipColor()); Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(m.title, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(listOf(m.app, dayLabel(m.at, now)).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        }
+    }
+}
+
+@Composable private fun Source.chipColor() = tint()
+private fun Source.chipIcon() = icon
+

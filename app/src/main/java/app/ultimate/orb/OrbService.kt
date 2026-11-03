@@ -107,6 +107,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.geometry.CornerRadius
+import app.ultimate.core.GooeyMath
 
 /** One petal of the bloom: a tool to open (or Home, for null). */
 data class OrbAction(val key: String, val label: String, val icon: ImageVector, val toolId: String?)
@@ -320,7 +322,7 @@ class OrbService : Service() {
         val (sw, sh) = screen()
         val cx = orbParams.x + orbPx / 2f; val cy = orbParams.y + orbPx / 2f
         val list = actions()
-        val spots = OrbMath.layout(cx, cy, list.size, 84 * density, 118 * density, sw.toFloat(), sh.toFloat(), 44 * density)
+        val spots = OrbMath.stack(cx, cy, list.size, 54 * density, PILL_W * density, orbPx / 2f + 14 * density, 26 * density, sw.toFloat(), sh.toFloat(), 16 * density)
         val pinned = mutableStateOf(pins().toSet())
         val open = mutableStateOf(true)
         val origin = MutableStateFlow(IntOffset.Zero)
@@ -439,6 +441,8 @@ private class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelS
 }
 
 private val PETAL = Color(0xFF26262C)
+/** Width of an action pill, in dp. */
+private const val PILL_W = 168f
 private val ORB_BRUSH = Brush.linearGradient(listOf(Color(0xFF8E7CFF), Color(0xFF4FC3F7)))
 
 @Composable
@@ -496,39 +500,35 @@ private fun Bloom(
         val motion = motionOn()
         val ts = remember(actions.size) { List(actions.size) { Animatable(if (motion) 0f else 1f) } }
         actions.indices.forEach { i -> LaunchedEffect(open) { val t = ts[i]; if (!motion) t.snapTo(if (open) 1f else 0f) else if (open) { delay(28L * i); t.animateTo(1f, spring(0.55f, 380f)) } else t.animateTo(0f, tween(180)) } }
-        // The petals' discs, drawn as one gooey layer: each buds out of the orb on a neck of liquid that thins and
-        // snaps as it flies, and is pulled back in the same way. Before Android 12 the discs are simply drawn plain.
-        val toward = remember(spots) { OrbMath.middle(spots, cx, cy) }
-        Canvas(Modifier.fillMaxSize().gooey(12f)) {
+        // The actions are pills in a curved column beside the orb, drawn as one gooey layer: each buds out of the orb
+        // on a neck of liquid that thins and snaps as it slides out to its place. Labels sit inside, so nothing collides.
+        Canvas(Modifier.fillMaxSize().gooey(10f)) {
             val ocx = cx - origin.x; val ocy = cy - origin.y
-            val petal = 27.dp.toPx()
             if (ts.any { it.value < 0.98f }) drawCircle(PETAL, orbPx / 2f - 4.dp.toPx(), Offset(ocx, ocy))
             ts.forEachIndexed { i, t ->
                 val v = t.value; if (v <= 0.01f) return@forEachIndexed
                 val (px, py) = spots[i]
-                val (fx, fy) = OrbMath.fanAt(v, cx, cy, px, py, toward)
-                val x = fx - origin.x; val y = fy - origin.y
-                drawCircle(PETAL, petal * (0.4f + 0.6f * v.coerceIn(0f, 1f)), Offset(x, y))
+                val x = ocx + (px - cx) * v; val y = ocy + (py - cy) * v
+                val pw = GooeyMath.lerp(orbPx * 0.5f, PILL_W.dp.toPx(), v.coerceIn(0f, 1f)); val ph = GooeyMath.lerp(26.dp.toPx(), 46.dp.toPx(), v.coerceIn(0f, 1f))
+                drawRoundRect(PETAL, Offset(x - pw / 2, y - ph / 2), Size(pw, ph), CornerRadius(ph / 2))
                 val neck = (1f - v).coerceIn(0f, 1f)
-                if (neck > 0.05f) for (k in 1..3) { val f = k / 4f; drawCircle(PETAL, petal * 0.55f * neck, Offset(ocx + (x - ocx) * f, ocy + (y - ocy) * f)) }
+                if (neck > 0.05f) for (k in 1..3) { val f = k / 4f; drawCircle(PETAL, 14.dp.toPx() * neck, Offset(ocx + (x - ocx) * f, ocy + (y - ocy) * f)) }
             }
         }
         actions.forEachIndexed { i, a ->
             val t = ts[i]
             val (px, py) = spots[i]
-            val (fx, fy) = OrbMath.fanAt(t.value, cx, cy, px, py, toward)
-            val x = fx - origin.x; val y = fy - origin.y
-            val sizePx = with(d) { 54.dp.toPx() }
-            Column(
-                Modifier.offset { IntOffset((x - sizePx).roundToInt(), (y - sizePx / 2).roundToInt()) }.width(with(d) { (sizePx * 2).toDp() })
-                    .graphicsLayer { alpha = t.value.coerceIn(0f, 1f) },
-                horizontalAlignment = Alignment.CenterHorizontally,
+            val x = cx + (px - cx) * t.value - origin.x; val y = cy + (py - cy) * t.value - origin.y
+            val w = with(d) { PILL_W.dp.toPx() }; val h = with(d) { 46.dp.toPx() }
+            Row(
+                Modifier.offset { IntOffset((x - w / 2).roundToInt(), (y - h / 2).roundToInt()) }.size(PILL_W.dp, 46.dp)
+                    .graphicsLayer { alpha = ((t.value - 0.4f) / 0.6f).coerceIn(0f, 1f) }
+                    .clip(RoundedCornerShape(50)).clickable(enabled = open) { if (a.key == "more") more = true else onPick(a) }.padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(54.dp).clip(CircleShape).clickable(enabled = open) { if (a.key == "more") more = true else onPick(a) }, contentAlignment = Alignment.Center) {
-                    Icon(a.icon, a.label, tint = Color.White, modifier = Modifier.size(24.dp))
-                }
-                Text(a.label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 1,
-                    modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.45f)).padding(horizontal = 6.dp, vertical = 1.dp))
+                Icon(a.icon, null, tint = if (a.key == "more") Color(0xFFB9C2FF) else Color.White, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(12.dp))
+                Text(a.label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         androidx.compose.animation.AnimatedVisibility(

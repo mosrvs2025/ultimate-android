@@ -90,3 +90,30 @@ class OrbLayoutTest {
         assertTrue(pts.all { it.first < 1040f }) // all to the left of an orb on the right edge
     }
 }
+
+class OrbStackTest {
+    private val d = 2.75f; private val w = 1080f; private val h = 2340f
+    private val row = 54 * d; private val pillW = 156 * d; private val pad = 16 * d
+
+    private fun stack(cx: Float, cy: Float, n: Int) = OrbMath.stack(cx, cy, n, row, pillW, 40 * d, 24 * d, w, h, pad)
+
+    @Test fun pillsNeverOverlapAndStayOnScreen() {
+        val places = listOf(1040f to 1230f, 40f to 1230f, 1040f to 120f, 40f to 2250f, 1040f to 2250f, 540f to 1170f)
+        for ((x, y) in places) for (n in 1..8) {
+            val pts = stack(x, y, n)
+            assertEquals(n, pts.size)
+            pts.zipWithNext().forEach { (a, b) -> assertTrue(b.second - a.second >= row - 0.5f) }
+            pts.forEach { (px, py) -> assertTrue("($px,$py)", px - pillW / 2 >= pad - 0.5f && px + pillW / 2 <= w - pad + 0.5f && py >= pad && py <= h - pad) }
+        }
+    }
+
+    @Test fun opensOnTheSideWithRoomAndStaysClearOfTheOrb() {
+        val right = stack(1040f, 1230f, 7)
+        assertTrue(right.all { it.first + pillW / 2 < 1040f - 20 * d }) // all to the left of an orb on the right edge
+        val left = stack(40f, 1230f, 7)
+        assertTrue(left.all { it.first - pillW / 2 > 40f + 20 * d })
+        // Centred on the orb when there is room; slid on screen near the top.
+        assertEquals(1230f, right[3].second, 0.5f)
+        assertTrue(stack(1040f, 120f, 7).first().second >= pad)
+    }
+}

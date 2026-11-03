@@ -33,7 +33,7 @@ data class LibraryItem(
 )
 
 /** Hands a tool what it should start with: videos shared into the app, or a library item to open. */
-class ToolLaunch(val uris: List<Uri> = emptyList(), val openItemId: String? = null) {
+class ToolLaunch(val uris: List<Uri> = emptyList(), val openItemId: String? = null, val query: String? = null) {
     var consumed: Boolean = false
 }
 

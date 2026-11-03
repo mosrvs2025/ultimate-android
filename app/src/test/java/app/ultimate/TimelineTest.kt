@@ -1,0 +1,104 @@
+package app.ultimate
+
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTextInput
+import androidx.test.core.app.ApplicationProvider
+import app.ultimate.core.UltimateTheme
+import app.ultimate.timeline.Moment
+import app.ultimate.timeline.Source
+import app.ultimate.timeline.TimelineMath
+import app.ultimate.timeline.TimelineScreen
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import java.util.TimeZone
+
+/** A made-up month: focus sessions on some days, WhatsApp pinging during them, codes copied from Gmail, late nights on YouTube. */
+internal object Month {
+    val utc: TimeZone = TimeZone.getTimeZone("UTC")
+    private const val H = 3_600_000L; private const val D = 24 * H
+    val now = 20_030L * D + 18 * H
+    fun build(): List<Moment> = buildList {
+        for (d in 0 until 20) {
+            val day = now - (19 - d) * D - 18 * H
+            val focusDay = d % 3 == 0
+            // Fewer notifications on focus days.
+            repeat(if (focusDay) 10 else 30) { i -> add(Moment(Source.Notification, day + 8 * H + i * 20 * 60_000L, "Message $i", "hi", if (i % 2 == 0) "WhatsApp" else "Slack")) }
+            if (focusDay) {
+                add(Moment(Source.Focus, day + 9 * H, "Essay", "45:00 focused", "Focus", end = day + 9 * H + 45 * 60_000L, focusDrift = 2))
+                add(Moment(Source.Notification, day + 9 * H + 10 * 60_000L, "Mum", "call me", "WhatsApp"))
+            }
+            // Watching: more on busy days.
+            add(Moment(Source.Watched, day + 20 * H, "Video", "Channel", "YouTube", end = day + 20 * H + (if (focusDay) 20 else 90) * 60_000L))
+            // A sign-in code copied a minute after Gmail's notification.
+            if (d % 4 == 0) { add(Moment(Source.Notification, day + 12 * H, "Your code", "123456", "Gmail")); add(Moment(Source.Clip, day + 12 * H + 60_000, "123456", "123456", "Ultimate")) }
+            // Up late on YouTube some nights.
+            if (d % 5 == 0) add(Moment(Source.Watched, day + D + 1 * H, "Late video", "", "YouTube", end = day + D + 2 * H))
+        }
+    }.sortedBy { it.at }
+}
+
+class TimelineMathTest {
+    private val all = Month.build()
+
+    @Test fun searchMatchesEveryWordAcrossKinds() {
+        assertTrue(TimelineMath.search(all, "code gmail").all { it.app == "Gmail" })
+        assertEquals(5, TimelineMath.search(all, "123456").count { it.source == Source.Clip })
+        assertTrue(TimelineMath.search(all, "   ").isEmpty())
+        val hits = TimelineMath.search(all, "video"); assertTrue(hits.zipWithNext().all { (a, b) -> a.at >= b.at }) // newest first
+    }
+
+    @Test fun daysAndHoursAddUp() {
+        val days = TimelineMath.days(all, 30, Month.now, Month.utc)
+        assertEquals(30, days.size); assertEquals(TimelineMath.dayOf(Month.now, Month.utc), days.last().day)
+        assertEquals(all.count { it.source == Source.Notification }, days.sumOf { it.notifications })
+        val today = TimelineMath.onDay(all, TimelineMath.dayOf(Month.now, Month.utc), Month.utc)
+        assertEquals(today.size, TimelineMath.hours(today, Month.utc).sumOf { it.sum() })
+    }
+
+    @Test fun findingsOnlyVisibleAcrossRecords() {
+        val said = TimelineMath.insights(all, Month.now, Month.utc)
+        assertTrue(said.toString(), said.any { "pinged you" in it && "while you were focusing" in it && "28 interruptions across 7 sessions" in it })
+        assertTrue(said.toString(), said.any { "On days you used Focus you got" in it && "fewer notifications" in it })
+        assertTrue(said.toString(), said.any { "as much on your busiest notification days" in it })
+        assertTrue(said.toString(), said.any { "things you copied came right after a notification, most often from Gmail" in it })
+        assertTrue(said.toString(), said.any { "up past midnight" in it && "YouTube" in it })
+    }
+
+    @Test fun aNewPhoneSaysNothingRatherThanGuess() {
+        assertTrue(TimelineMath.insights(all.take(5), Month.now, Month.utc).isEmpty())
+        assertTrue(TimelineMath.insights(emptyList(), Month.now, Month.utc).isEmpty())
+    }
+
+    @Test fun dayStartsLineUpWithDays() {
+        val d = TimelineMath.dayOf(Month.now, Month.utc)
+        assertEquals(d, TimelineMath.dayOf(TimelineMath.startOf(d, Month.utc), Month.utc))
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = UltimateApp::class)
+class TimelineScreenTest {
+    @get:Rule val compose = createComposeRule()
+
+    @Test fun showsFindingsAndSearchesEverything() {
+        val app = ApplicationProvider.getApplicationContext<UltimateApp>()
+        val now = System.currentTimeMillis()
+        val moments = listOf(
+            Moment(Source.Notification, now - 3_600_000, "Dinner at 7?", "From Mum", "WhatsApp"),
+            Moment(Source.Clip, now - 1_800_000, "https://example.com/recipe", "https://example.com/recipe", "Ultimate"),
+            Moment(Source.Watched, now - 900_000, "Pasta in 10 minutes", "Chef", "YouTube", end = now - 300_000),
+        )
+        compose.setContent { UltimateTheme { TimelineScreen(app, "", {}, preset = moments) } }
+        compose.onNodeWithText("What your records say together").assertExists()
+        compose.onNode(hasSetTextAction()).performTextInput("pasta")
+        compose.onNodeWithText("1 found").assertExists()
+        compose.onNodeWithText("Pasta in 10 minutes").assertExists()
+    }
+}

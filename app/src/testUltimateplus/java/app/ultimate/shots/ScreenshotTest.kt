@@ -72,6 +72,8 @@ import app.ultimate.focus.Check
 import app.ultimate.focus.FocusScreen
 import app.ultimate.focus.FocusStore
 import app.ultimate.focus.Verdict
+import app.ultimate.timeline.TimelineScreen
+import app.ultimate.Month
 
 /**
  * Renders the app's real screens to PNG files for the README: the actual Compose code, drawn on a simulated phone with sample
@@ -278,6 +280,13 @@ class ScreenshotTest {
         compose.mainClock.advanceTimeBy(1200)
         save("focus")
         store.end()
+    }
+
+    @Test fun timeline() {
+        val moments = Month.build().map { it.copy(at = it.at - Month.now + System.currentTimeMillis(), end = it.end - Month.now + System.currentTimeMillis()) }
+        show { TimelineScreen(app, "", {}, preset = moments) }
+        compose.mainClock.advanceTimeBy(1200)
+        save("timeline")
     }
 
     @Test fun about() {

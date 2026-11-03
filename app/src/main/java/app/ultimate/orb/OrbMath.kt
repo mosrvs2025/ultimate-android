@@ -122,6 +122,27 @@ object OrbMath {
         return pts.map { it[0] to it[1] }
     }
 
+    /**
+     * The actions as a tidy column of pills beside the orb, curving gently around it like a bracket: [count] rows
+     * [row] apart, centred on the orb's height but slid up or down to stay on screen, on the side with more room.
+     * Returns each pill's centre. Rows can never overlap, and labels sit inside the pills, so nothing collides.
+     */
+    fun stack(cx: Float, cy: Float, count: Int, row: Float, pillW: Float, gapFromOrb: Float, curve: Float, w: Float, h: Float, pad: Float): List<Pair<Float, Float>> {
+        if (count <= 0) return emptyList()
+        val toLeft = cx > w / 2
+        val height = row * (count - 1)
+        val top = (cy - height / 2).coerceIn(pad + row / 2, maxOf(pad + row / 2, h - pad - row / 2 - height))
+        val mid = (count - 1) / 2f
+        return (0 until count).map { i ->
+            val y = top + i * row
+            // Nearest the orb's height sits closest; rows further up or down bow away a little.
+            val bow = curve * ((i - mid) / maxOf(mid, 1f)).let { it * it }
+            val dx = gapFromOrb + pillW / 2 + bow
+            val x = (if (toLeft) cx - dx else cx + dx).coerceIn(pad + pillW / 2, w - pad - pillW / 2)
+            x to y
+        }
+    }
+
     /** True when the orb's center is close enough to the dismiss target to drop it there. */
     fun overTarget(cx: Float, cy: Float, tx: Float, ty: Float, reach: Float) = hypot(cx - tx, cy - ty) <= reach
 
