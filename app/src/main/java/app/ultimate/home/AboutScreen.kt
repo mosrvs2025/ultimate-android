@@ -66,6 +66,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import app.ultimate.BuildConfig
 import app.ultimate.UltimateApp
+import app.ultimate.ai.LocalAi
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.checkup.engine.Collector
 import app.ultimate.core.relativeTime
 import app.ultimate.files.UpdateInstallActivity
@@ -144,6 +146,7 @@ internal fun AboutContent(app: UltimateApp, onClose: () -> Unit) {
                     OutlinedButton({ shareWhatItIs(context, edition, app.tools.size) }) { Text("Share what it is") }
                 }
             }
+            app.localAi?.let { ai -> item { LocalAiCard(ai) } }
             item { Section("What's new") }
             items(Changelog.recent(BuildConfig.VERSION_NAME)) { e ->
                 Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
@@ -191,7 +194,7 @@ internal fun AboutContent(app: UltimateApp, onClose: () -> Unit) {
             item { Section("Open-source parts") }
             item {
                 Text(
-                    "Jetpack Compose, AndroidX, Media3 and CameraX (Apache 2.0) · Termux terminal view and emulator (Apache 2.0) · Apache MINA SSHD (Apache 2.0, Ultimate+) · ZXing (Apache 2.0) · jump3r (LGPL)",
+                    "Jetpack Compose, AndroidX, Media3 and CameraX (Apache 2.0) · Termux terminal view and emulator (Apache 2.0) · Apache MINA SSHD (Apache 2.0, Ultimate+) · ZXing (Apache 2.0) · Cactus Needle local AI (Apache 2.0, Ultimate editions) · jump3r (LGPL)",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -224,4 +227,40 @@ private fun setupList(c: Context): List<Setup> = buildList {
     if (BuildConfig.HAS_RULES) add(Setup("Do Not Disturb access", "So rules can silence the phone.", nm.isNotificationPolicyAccessGranted, Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)))
     if (BuildConfig.HAS_INBOX || BuildConfig.HAS_SEND || BuildConfig.HAS_RULES) add(Setup("Keep running in the background", "So notifications, rules and sharing aren't stopped to save battery.",
         c.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(pkg), Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$pkg"))))
+}
+
+
+/** Local AI: what it is, whether it is ready, and how to get the model. Nothing it does leaves the phone. */
+@Composable
+private fun LocalAiCard(ai: LocalAi) {
+    val state by ai.state.collectAsStateWithLifecycle()
+    val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri -> uri?.let(ai::import) }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Local AI", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Needle, a small AI model by Cactus, runs on this phone and turns what you type on Home into actions, like \"turn the volume down to 20\". It only suggests; you tap to do it. Nothing you type leaves the phone.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        when (val s = state) {
+            LocalAi.State.Unsupported -> Text("Not available on this phone's processor.", style = MaterialTheme.typography.bodyMedium)
+            LocalAi.State.Missing -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (ai.canDownload) Button(ai::download) { Text("Download the model (35 MB)") }
+                OutlinedButton({ pick.launch(arrayOf("*/*")) }) { Text(if (ai.canDownload) "Import a file" else "Import needle3.cact") }
+            }
+            is LocalAi.State.Downloading -> Column { Text("Downloading… %.0f%%".format(s.fraction * 100)); androidx.compose.material3.LinearProgressIndicator(progress = { s.fraction }, Modifier.fillMaxWidth()) }
+            LocalAi.State.Loading -> Text("Loading the model…")
+            LocalAi.State.Ready -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Ready. Try typing on Home.", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
+                androidx.compose.material3.TextButton(ai::remove) { Text("Remove") }
+            }
+            is LocalAi.State.Failed -> Column {
+                Text(s.why, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (ai.canDownload) Button(ai::download) { Text("Try again") }
+                    OutlinedButton({ pick.launch(arrayOf("*/*")) }) { Text("Import a file") }
+                }
+            }
+        }
+        if (!ai.canDownload) Text("This edition never goes online. Get needle3.cact from huggingface.co/Cactus-Compute/needle3 on a computer and copy it to the phone.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+    }
 }

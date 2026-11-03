@@ -71,6 +71,8 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
     val rules by lazy { app.ultimate.rules.RuleEngine(this) }
     /** The shared senses bus and the list of live sessions, each with Stop. */
     val senses = app.ultimate.core.Senses()
+    /** Local AI (Cactus Needle) in the editions that include it; null elsewhere. */
+    val localAi: app.ultimate.ai.LocalAi? by lazy { if (BuildConfig.HAS_LOCAL_AI) app.ultimate.ai.LocalAi(this) else null }
     val terminal by lazy { app.ultimate.terminal.TerminalManager(this) }
     val sendServer by lazy { app.ultimate.send.SendServer(this) }
     val transcripts by lazy { app.ultimate.speech.TranscriptStore(this) }

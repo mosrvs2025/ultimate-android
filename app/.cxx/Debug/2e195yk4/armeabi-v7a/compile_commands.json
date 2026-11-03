@@ -1,0 +1,7 @@
+[
+{
+  "directory": "/home/user/ultimate-android/app/.cxx/Debug/2e195yk4/armeabi-v7a",
+  "command": "/opt/android-sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=armv7-none-linux-androideabi29 --sysroot=/opt/android-sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DHAVE_NEEDLE=1 -Dultimate_needle_EXPORTS -I/home/user/ultimate-android/app/src/main/cpp/needle/armeabi-v7a -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -march=armv7-a -mthumb -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -o CMakeFiles/ultimate_needle.dir/needle_jni.c.o -c /home/user/ultimate-android/app/src/main/cpp/needle_jni.c",
+  "file": "/home/user/ultimate-android/app/src/main/cpp/needle_jni.c"
+}
+]

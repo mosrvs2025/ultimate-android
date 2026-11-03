@@ -7,3 +7,4 @@ local.properties
 *.keystore
 .idea/
 .kotlin/
+app/src/main/cpp/needle/

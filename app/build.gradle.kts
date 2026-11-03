@@ -7,6 +7,11 @@ plugins {
 android {
     namespace = "app.ultimate"
     compileSdk = 35
+    ndkVersion = "27.2.12479018"
+
+    // Local AI: a small JNI bridge to Cactus Needle. The engine is fetched by scripts/fetch-needle.sh; without it the
+    // bridge builds as a stub and the feature says so.
+    externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
 
     // Screens are drawn in a simulated Android in unit tests, which needs the merged manifest and resources.
     testOptions { unitTests { isIncludeAndroidResources = true } }
@@ -16,8 +21,8 @@ android {
         minSdk = 29
         targetSdk = 35
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 64
-        versionName = "1.55.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 65
+        versionName = "1.56.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -28,6 +33,8 @@ android {
         create("ultimate") {
             dimension = "edition"
             applicationId = "app.ultimate"
+            externalNativeBuild { cmake { arguments += listOf("-DWITH_NEEDLE=ON", "-DANDROID_STL=c++_static") } }
+            buildConfigField("boolean", "HAS_LOCAL_AI", "true")
             resValue("string", "app_name", "Ultimate")
             buildConfigField("boolean", "HAS_SQUEEZE", "true")
             buildConfigField("boolean", "HAS_AUDIO", "true")
@@ -57,6 +64,8 @@ android {
         create("ultimateplus") {
             proguardFile("src/ultimateplus/java/app/ultimate/ssh/mina-rules.pro")
             dimension = "edition"
+            externalNativeBuild { cmake { arguments += listOf("-DWITH_NEEDLE=ON", "-DANDROID_STL=c++_static") } }
+            buildConfigField("boolean", "HAS_LOCAL_AI", "true")
             applicationId = if (providers.gradleProperty("companionBuild").orNull == "true") "app.ultimate.companion" else "app.ultimate.plus"
             resValue("string", "app_name", if (providers.gradleProperty("companionBuild").orNull == "true") "Ultimate Companion" else "Ultimate+")
             buildConfigField("boolean", "HAS_SQUEEZE", "true")
@@ -84,6 +93,7 @@ android {
             buildConfigField("boolean", "HAS_FOCUS", "true")
         }
         create("studio") {
+            buildConfigField("boolean", "HAS_LOCAL_AI", "false")
             dimension = "edition"
             applicationId = "app.ultimate.studio"
             resValue("string", "app_name", "Studio")
@@ -112,6 +122,7 @@ android {
             buildConfigField("boolean", "HAS_FOCUS", "false")
         }
         create("traffic") {
+            buildConfigField("boolean", "HAS_LOCAL_AI", "false")
             dimension = "edition"
             applicationId = "app.ultimate.traffic"
             resValue("string", "app_name", "Traffic Inspector")
@@ -140,6 +151,7 @@ android {
             buildConfigField("boolean", "HAS_FOCUS", "false")
         }
         create("squeeze") {
+            buildConfigField("boolean", "HAS_LOCAL_AI", "false")
             dimension = "edition"
             applicationId = "app.squeeze"
             resValue("string", "app_name", "Squeeze")
@@ -168,6 +180,7 @@ android {
             buildConfigField("boolean", "HAS_FOCUS", "false")
         }
         create("audio") {
+            buildConfigField("boolean", "HAS_LOCAL_AI", "false")
             dimension = "edition"
             applicationId = "app.ultimate.audio"
             resValue("string", "app_name", "Video to Audio")
@@ -196,6 +209,7 @@ android {
             buildConfigField("boolean", "HAS_FOCUS", "false")
         }
         create("pluck") {
+            buildConfigField("boolean", "HAS_LOCAL_AI", "false")
             dimension = "edition"
             applicationId = "app.pluck"
             resValue("string", "app_name", "Pluck")

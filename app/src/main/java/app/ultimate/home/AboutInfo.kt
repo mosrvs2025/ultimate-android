@@ -61,6 +61,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.56.0", listOf(
+            "Local AI: Needle, a small AI model by Cactus, now runs on your phone. Type on Home, like \"turn the volume down to 20\" or \"free up some space\", and it suggests the action; tap to do it. Nothing you type leaves the phone.",
+            "Turn it on in About and settings → Local AI (a one-time 35 MB download in Ultimate+; Ultimate imports the file).",
+            "Typing \"when …\" on Home offers to make it a rule.",
+        )),
         Entry("1.55.0", listOf(
             "Echo measures your hand properly: your last test read 4 cm whatever you did, because your hand changes how the speaker reaches the mic. Echo now models the speaker's own sound and the room separately, frame by frame, and keeps only what really moved.",
             "Gestures: push your hand toward the phone, pull it away, or hold it still. Rules can act on them, like \"When I push toward the phone, turn on the flashlight\".",

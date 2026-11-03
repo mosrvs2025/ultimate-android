@@ -70,6 +70,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.UltimateApp
+import app.ultimate.ai.AiCall
+import app.ultimate.ai.AiTools
+import app.ultimate.ai.AiActions
+import app.ultimate.ai.LocalAi
 import app.ultimate.echo.EchoTool
 import app.ultimate.echo.SonarState
 import app.ultimate.echo.EchoState
@@ -367,6 +371,7 @@ private fun AskBar(app: UltimateApp) {
                 else androidx.compose.material3.IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear") }
             },
         )
+        AiSuggestion(app, query) { query = "" }
         androidx.compose.animation.AnimatedVisibility(results.isNotEmpty() || query.length >= 2) {
             Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (results.isEmpty()) Text("Nothing matches yet. Try \"make a video smaller\" or \"record my voice\".", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 12.dp))
@@ -460,6 +465,48 @@ private fun SensesCard(app: UltimateApp, echo: EchoTool) {
         androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
             Text("Senses · Echo", color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(line, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+
+/**
+ * Local AI's answer to what was typed: a proposal to confirm, never an action taken by itself. "When…" requests are
+ * rules, handed to the rule maker; the rest go to Needle after a short pause in typing, and only a confident answer shows.
+ */
+@Composable
+private fun AiSuggestion(app: UltimateApp, query: String, onDone: () -> Unit) {
+    val ai = app.localAi ?: return
+    val state by ai.state.collectAsStateWithLifecycle()
+    var calls by remember { mutableStateOf<List<AiCall>>(emptyList()) }
+    val q = query.trim()
+    LaunchedEffect(q, state) {
+        calls = emptyList()
+        if (q.length < 4 || state != LocalAi.State.Ready || AiTools.isRule(q)) return@LaunchedEffect
+        kotlinx.coroutines.delay(600)
+        calls = ai.propose(q)
+    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    if (q.length >= 4 && AiTools.isRule(q) && app.tools.any { it.id == "rules" }) {
+        SuggestionRow("Make this a rule", q) { app.tools.firstOrNull { it.id == "rules" }?.let { app.shell.open(it, ToolLaunch(query = q)) }; onDone() }
+    }
+    calls.firstOrNull()?.let { c ->
+        SuggestionRow(AiTools.describe(c), "Local AI · %.0f%% sure · tap to do it".format(c.confidence * 100)) {
+            android.widget.Toast.makeText(context, AiActions.run(app, c), android.widget.Toast.LENGTH_SHORT).show(); onDone()
+        }
+    }
+}
+
+@Composable
+private fun SuggestionRow(title: String, detail: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.primaryContainer).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.AutoAwesome, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
         }
     }
 }

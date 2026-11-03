@@ -1,0 +1,1 @@
+/home/user/ultimate-android/app/build/intermediates/cxx/RelWithDebInfo/a834x4o5/obj/x86
