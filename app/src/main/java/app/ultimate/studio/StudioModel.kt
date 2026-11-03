@@ -88,10 +88,10 @@ object Timeline {
     fun boundaries(project: StudioProject): List<Long> = project.clips.runningFold(0L) { at, c -> at + c.durationMs }
 
     /** Moves the in-point, keeping at least [MIN_CLIP_MS] and staying inside the source. */
-    fun trimStart(c: StudioClip, startMs: Long): StudioClip = c.copy(startMs = startMs.coerceIn(0, c.endMs - MIN_CLIP_MS))
+    fun trimStart(c: StudioClip, startMs: Long): StudioClip = c.copy(startMs = startMs.coerceIn(0, (c.endMs - MIN_CLIP_MS).coerceAtLeast(0)))
 
     /** Moves the out-point, keeping at least [MIN_CLIP_MS] and staying inside the source. */
-    fun trimEnd(c: StudioClip, endMs: Long): StudioClip = c.copy(endMs = endMs.coerceIn(c.startMs + MIN_CLIP_MS, c.sourceMs))
+    fun trimEnd(c: StudioClip, endMs: Long): StudioClip = c.copy(endMs = endMs.coerceIn(c.startMs + MIN_CLIP_MS, maxOf(c.sourceMs, c.startMs + MIN_CLIP_MS)))
     fun split(clip: StudioClip, outputPositionMs: Long): List<StudioClip> {
         val sourceAt = clip.startMs + (outputPositionMs * clip.speed).roundToLong()
         require(sourceAt - clip.startMs >= MIN_CLIP_MS && clip.endMs - sourceAt >= MIN_CLIP_MS) { "Move the playhead away from the clip edges" }

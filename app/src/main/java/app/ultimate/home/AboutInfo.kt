@@ -34,6 +34,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.49.1", listOf(
+            "Fixed a crash when a panel was measured at a negative size for a moment (the jump panel while the screen resized, and the Squeeze before-and-after view).",
+            "Studio: fixed a crash when trimming a clip that has a title very short (the title no longer tries to squeeze into no room).",
+            "Crash reports now say where in Ultimate they happened: tap one under Recent crashes to see it, and Copy to send.",
+        )),
         Entry("1.49.0", listOf(
             "Fixed a crash in You when two identical notifications arrived in the same moment (upload progress), and Back from You or any tool now returns to Home instead of leaving the app.",
             "Uploads and downloads are one notification entry that updates in place, ending with how they finished.",

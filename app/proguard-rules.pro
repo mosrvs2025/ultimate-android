@@ -11,3 +11,9 @@
 
 # Termux's terminal starts the shell through JNI; the native library looks these up by name.
 -keep class com.termux.terminal.JNI { *; }
+
+# Crash reports (About › Recent crashes) should say where in Ultimate a crash happened. Keep Ultimate's own class and
+# method names and line numbers; everything is still shrunk and optimised, only these names stay readable.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
+-keepnames class app.ultimate.** { *; }

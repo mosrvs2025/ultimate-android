@@ -139,7 +139,8 @@ internal fun JumpPanel(app: UltimateApp, current: Tool, running: Set<String>, op
             }
         }
         val inside = ((t.value - 0.55f) / 0.45f).coerceIn(0f, 1f)
-        if (inside > 0f) Box(
+        // Never measure the panel at a negative size (it can be, for a frame, while the screen itself is resizing).
+        if (inside > 0f && panel.width > 1f && panel.height > 1f) Box(
             Modifier.offset { IntOffset(panel.left.roundToInt(), panel.top.roundToInt()) }.size(with(density) { panel.width.toDp() }, with(density) { panel.height.toDp() })
                 .alpha(inside).clickable(remember { MutableInteractionSource() }, null) {},
         ) {

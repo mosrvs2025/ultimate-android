@@ -529,9 +529,10 @@ private fun TimelineView(
                 // Titles sit under the clip they belong to.
                 Row {
                     clips.forEach { c ->
-                        val w = with(density) { (c.durationMs * pxPerMs).toDp() }
+                        val w = with(density) { (c.durationMs * pxPerMs).coerceAtLeast(0f).toDp() }
                         Box(Modifier.width(w).height(20.dp).padding(end = 2.dp)) {
-                            if (c.title.isNotBlank()) {
+                            // A clip trimmed very short leaves no room for its title: text laid out in almost no width crashes.
+                            if (c.title.isNotBlank() && w >= 28.dp) {
                                 Text(
                                     "T  ${c.title.lineSequence().first()}", color = Color.White, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)).background(TextColor).clickable(enabled = enabled) { onText(c.id) }.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -642,7 +643,7 @@ private fun ClipStrip(
     val move by androidx.compose.runtime.rememberUpdatedState(onLiftMove)
     val end by androidx.compose.runtime.rememberUpdatedState(onLiftEnd)
     val density = LocalDensity.current
-    val widthPx = c.durationMs * pxPerMs
+    val widthPx = (c.durationMs * pxPerMs).coerceAtLeast(1f)
     val width = with(density) { widthPx.toDp() }
     val tilePx = with(density) { TILE.toPx() }
     val shape = RoundedCornerShape(6.dp)

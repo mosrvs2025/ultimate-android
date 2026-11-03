@@ -163,8 +163,8 @@ fun LiveCompare(
             AndroidView({ ctx -> TextureView(ctx).also { b.setVideoTextureView(it) } }, Modifier.fillMaxSize())
 
             // The original sits on top, clipped to the left of the handle by layout so it works with any video surface.
-            Box(Modifier.width(w * fraction).fillMaxHeight().clipToBounds()) {
-                Box(Modifier.wrapContentSize(Alignment.TopStart, unbounded = true).requiredSize(w, h)) {
+            Box(Modifier.width((w * fraction).coerceIn(0.dp, 4000.dp)).fillMaxHeight().clipToBounds()) {
+                Box(Modifier.wrapContentSize(Alignment.TopStart, unbounded = true).requiredSize(w.coerceIn(0.dp, 4000.dp), h.coerceIn(0.dp, 4000.dp))) {
                     beforeStill?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
                     AndroidView({ ctx -> TextureView(ctx).also { a.setVideoTextureView(it) } }, Modifier.fillMaxSize())
                 }

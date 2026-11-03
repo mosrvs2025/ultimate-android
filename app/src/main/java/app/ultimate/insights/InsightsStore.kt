@@ -88,7 +88,11 @@ class InsightsStore(context: Context, private val version: String) {
         Thread.setDefaultUncaughtExceptionHandler { thread, e ->
             runCatching {
                 val root = generateSequence(e) { it.cause }.last()
-                val frames = (e.stackTrace + root.stackTrace).filter { it.className.startsWith("app.ultimate") }.distinct().take(12).map { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" }
+                val all = (root.stackTrace + e.stackTrace).toList()
+                // Ultimate's own frames say where it went wrong; if a crash is entirely inside a library (a layout
+                // measuring itself, say), keep the top of the stack instead so there is still something to go on.
+                val own = all.filter { it.className.startsWith("app.ultimate") }
+                val frames = (own.ifEmpty { all.take(8) }).distinct().take(12).map { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" }
                 val o = JSONObject().put("at", System.currentTimeMillis()).put("version", version).put("type", root.javaClass.name).put("message", root.message ?: "").put("frames", JSONArray(frames))
                 val list = runCatching { JSONArray(crashFile.readText()) }.getOrDefault(JSONArray())
                 val kept = JSONArray().apply { val start = maxOf(0, list.length() - 4); for (k in start until list.length()) put(list.get(k)); put(o) }

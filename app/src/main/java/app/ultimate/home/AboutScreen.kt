@@ -75,6 +75,7 @@ import app.ultimate.files.hasAllFiles
 import app.ultimate.insights.InsightsSheet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import app.ultimate.core.copyText
 
 private class Setup(val title: String, val why: String, val granted: Boolean, val open: Intent)
 
@@ -165,7 +166,18 @@ internal fun AboutContent(app: UltimateApp, onClose: () -> Unit) {
             item { Text(app.tools.joinToString(" · ") { it.title }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             item { Section(if (crashes.isEmpty()) "Crashes · none" else "Recent crashes") }
             if (crashes.isNotEmpty()) {
-                items(crashes.take(5)) { c -> Text(AboutInfo.crashLine(c, relativeTime(c.at)) + "  (v${c.version})", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.error) }
+                // Tap a crash to see where it happened (and copy it, to send).
+                items(crashes.take(5)) { c ->
+                    var open by remember { mutableStateOf(false) }
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    Column(Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp)).clickable { open = !open }.padding(vertical = 4.dp)) {
+                        Text(AboutInfo.crashLine(c, relativeTime(c.at)) + "  (v${c.version})", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.error)
+                        if (open) {
+                            Text(c.frames.joinToString("\n") { "  at $it" }.ifBlank { "  (no stack kept for this one)" }, style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            TextButton({ copyText(ctx, "Crash", "Ultimate ${c.version}\n${c.type}: ${c.message.orEmpty()}\n" + c.frames.joinToString("\n") { "  at $it" }) }) { Text("Copy to send") }
+                        }
+                    }
+                }
                 item { TextButton({ app.insights.clearCrashes(); tick++ }) { Text("Clear the list") } }
             }
             item { Section("Open-source parts") }
