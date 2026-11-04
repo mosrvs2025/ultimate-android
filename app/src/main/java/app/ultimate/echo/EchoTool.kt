@@ -264,7 +264,7 @@ private fun DistanceView(tool: EchoTool) {
                 val f = s.frame
                 if (f.phoneMoving) Text("The phone is moving, so readings are paused: everything seems to move when the phone does.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.tertiary)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Readout("distance", if (f.fix.rangeM.isNaN()) "—" else "%.0f cm".format(f.fix.rangeM * 100), Truth.Measured)
+                    Readout(if (f.calibrated) "distance · calibrated" else "distance", if (f.fix.rangeM.isNaN()) "—" else "%.0f cm".format(f.fix.rangeM * 100), Truth.Measured)
                     Readout("speed", if (f.fix.velocity.isNaN()) "—" else "%+.2f m/s".format(f.fix.velocity), Truth.Estimate)
                     Readout("direction", f.bearingDeg?.let { "%+.0f°".format(it) } ?: f.lean?.let { when (it) { -1 -> "left"; 1 -> "right"; else -> "centre" } } ?: if (f.stereo) "—" else "1 mic", Truth.Estimate)
                 }
@@ -350,7 +350,7 @@ private fun BenchDialog(bench: EchoBench, sonar: SonarEngine, onClose: () -> Uni
                     listOf(
                         "1" to "Lay the phone flat on a table, screen up, with the media volume at half or more.",
                         "2" to "For the first 12 seconds, keep your hands away. Echo learns the room and counts false alarms.",
-                        "3" to "Then hold your palm over the top of the screen at 10, 20 and 30 cm. The screen shows where, and what Echo reads.",
+                        "3" to "Then hold your palm over the bottom edge of the phone (where its speaker and microphone are) at 10, 20 and 30 cm, arm coming in from the side so your hand is the nearest thing. The screen shows what Echo reads.",
                         "4" to "For exact heights, measure a mug, a box or a stack of books with the Ruler, stand it beside the phone and hold your palm level with its top.",
                     ).forEach { (n, t) ->
                         Row(verticalAlignment = Alignment.Top) {
@@ -398,6 +398,7 @@ private fun BenchDialog(bench: EchoBench, sonar: SonarEngine, onClose: () -> Uni
                         }
                         item { Text(r.text, style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
+                    CalibrateRow(r, sonar)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button({ app.ultimate.core.copyText(context, "Echo bench", r.text); android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show() }, Modifier.weight(1f)) { Text("Copy results") }
                         androidx.compose.material3.OutlinedButton({ bench.reset() }, Modifier.weight(1f)) { Text("Run again") }
@@ -495,6 +496,29 @@ private fun LogCard(sonar: SonarEngine) {
                     context.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/csv").putExtra(android.content.Intent.EXTRA_STREAM, uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share Echo session"))
                 }
             }) { Text("Stop and share") }
+        }
+    }
+}
+
+
+/**
+ * After a bench run: fit this phone's correction from the heights you held and what Echo read, and say how close the
+ * fit gets, so a calibration is never mistaken for accuracy it doesn't have.
+ */
+@Composable
+private fun CalibrateRow(r: BenchReport, sonar: SonarEngine) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val fit = androidx.compose.runtime.remember(r) { EchoCalibration.fit(r.rows.map { it.heldCm.toDouble() }, r.rows.map { it.medianCm ?: Double.NaN }) }
+    var active by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(sonar.calibration) }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.secondaryContainer).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Calibrate for this phone", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+        if (fit == null) Text("These results can't be turned into a correction: Echo read about the same at every height, or missed too many. Try again with the hand over the bottom edge.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+        else {
+            Text("Corrects Echo's readings to the heights you held. After correcting, it would still miss by about ±%.0f cm on these results.".format(fit.rmsErrorCm), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button({ EchoCalibration.save(context, fit); sonar.calibration = fit; active = fit; android.widget.Toast.makeText(context, "Calibrated", android.widget.Toast.LENGTH_SHORT).show() }) { Text(if (active != null) "Calibrate again" else "Use this calibration") }
+                if (active != null) TextButton({ EchoCalibration.save(context, null); sonar.calibration = null; active = null }) { Text("Remove") }
+            }
         }
     }
 }

@@ -48,8 +48,8 @@ class EchoBench(private val engine: SonarEngine) {
         val still = collect("Stay still", "Counting false alarms: anything Echo reports now is a mistake.", 5, 2)
         if (_step.value is Step.Failed) { engine.stop(); return }
         val holds = listOf(10, 20, 30).mapIndexed { i, cm ->
-            collect("Get ready: $cm cm", "Bring your hand to about $cm cm above the top of the screen, palm down.", 2, 3 + i, cm, handAway = false)
-            cm to collect("Hold at $cm cm", "Keep your palm about $cm cm above the top of the screen and wiggle it gently up and down a centimetre.", 4, 3 + i, cm, handAway = false)
+            collect("Get ready: $cm cm", "Bring your palm to $cm cm above the bottom edge of the phone, arm coming in from the side.", 2, 3 + i, cm, handAway = false)
+            cm to collect("Hold at $cm cm", "Palm $cm cm above the bottom edge of the phone, where its speaker and microphone are. Bring your arm in from the side, and wiggle gently.", 4, 3 + i, cm, handAway = false)
         }
         engine.stop()
         if (_step.value is Step.Failed) return
@@ -72,12 +72,12 @@ object BenchMath {
     fun spread(x: List<Double>): Double? = if (x.size < 4) null else x.sorted().let { s -> (s[s.size * 3 / 4] - s[s.size / 4]) / 2 }
 
     fun row(heldCm: Int, frames: List<SonarFrame>): Row {
-        val r = frames.filter { !it.phoneMoving }.map { it.fix.rangeM * 100 }.filter { !it.isNaN() }
+        val r = frames.filter { !it.phoneMoving }.map { it.rawRangeM * 100 }.filter { !it.isNaN() }
         return Row(heldCm, median(r), spread(r), if (frames.isEmpty()) 0.0 else r.size.toDouble() / frames.size)
     }
 
     fun report(model: String, still: List<SonarFrame>, holds: List<Pair<Int, List<SonarFrame>>>, procMs: List<Float>, idleMa: List<Double>, sensingMa: List<Double>, stereo: Boolean): BenchReport {
-        val falseRate = if (still.isEmpty()) 0.0 else still.count { !it.fix.rangeM.isNaN() }.toDouble() / still.size
+        val falseRate = if (still.isEmpty()) 0.0 else still.count { !it.rawRangeM.isNaN() }.toDouble() / still.size
         val rows = holds.map { (cm, f) -> row(cm, f) }
         val text = buildString {
             appendLine("Echo bench · $model · ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date())}")

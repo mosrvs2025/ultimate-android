@@ -71,6 +71,9 @@ data class SonarFrame(
     /** Milliseconds this phone took to process the frame. */
     val processMs: Float,
     val stereo: Boolean,
+    /** The distance before calibration, for the bench and the session log, which always work from what was measured. */
+    val rawRangeM: Double = fix.rangeM,
+    val calibrated: Boolean = false,
 )
 
 sealed interface SonarState {
@@ -90,6 +93,9 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
     private val _state = MutableStateFlow<SonarState>(SonarState.Off)
     val state: StateFlow<SonarState> = _state
     val running get() = job?.isActive == true
+
+    /** This phone's correction, fitted from a bench run; applied to everything shown and to gestures. */
+    @Volatile var calibration: EchoCalibration? = EchoCalibration.load(context)
 
     /** The last gesture and when it happened, for the screen to answer it visibly. */
     val lastGesture = MutableStateFlow<Pair<EchoGestures.Gesture, Long>?>(null)
@@ -148,7 +154,9 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
                     if (channels == 2 && distinct == null) distinct = (0 until Sonar.PERIOD).sumOf { abs(a[it] - b[it]).toDouble() } > 1e-3 * Sonar.PERIOD
                     val now = System.currentTimeMillis()
                     matched.profile(a, re, im)
-                    val fix = t1.feed(re, im, now)
+                    val raw = t1.feed(re, im, now)
+                    val cal = calibration
+                    val fix = if (cal == null) raw else raw.copy(rangeM = cal.apply(raw.rangeM), velocity = raw.velocity * cal.gain)
                     val fix2 = if (distinct == true) { matched.profile(b, re2, im2); t2.feed(re2, im2, now) } else null
                     val moving = turnRate > 0.3f
                     var bearing: Double? = null; var lean: Int? = null
@@ -177,7 +185,7 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
                     val ms = (System.nanoTime() - t0) / 1e6f
                     if (now - lastShown >= 50) {
                         lastShown = now
-                        _state.value = if (fix.linkSnr > 0 && t1Warm(fix)) SonarState.Running(SonarFrame(fix, fix2?.motion, bearing, lean, Fft.band(a, 16_000.0, 22_000.0), moving, ms, distinct == true)) else SonarState.Warming
+                        _state.value = if (fix.linkSnr > 0 && t1Warm(fix)) SonarState.Running(SonarFrame(fix, fix2?.motion, bearing, lean, Fft.band(a, 16_000.0, 22_000.0), moving, ms, distinct == true, raw.rangeM, cal != null)) else SonarState.Warming
                     }
                 }
             } finally {

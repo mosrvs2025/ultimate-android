@@ -241,7 +241,7 @@ fun ReachView(rangeM: Double, confidence: Double, velocity: Double, farthestM: D
         }
         // Words: the distance (measured) and the gesture, if one was just recognised.
         Column(Modifier.align(Alignment.TopStart).padding(12.dp)) {
-            Text(if (present) "%.0f cm".format(rangeM * 100) else if (live) "Bring a hand over the top of the phone" else "Press Start to feel your hand", color = Color.White, fontSize = if (present) 34.sp else 15.sp, fontWeight = FontWeight.Bold)
+            Text(if (present) "%.0f cm".format(rangeM * 100) else if (live) "Hold a hand over the bottom edge, arm from the side" else "Press Start to feel your hand", color = Color.White, fontSize = if (present) 34.sp else 15.sp, fontWeight = FontWeight.Bold)
             if (present) TruthTag(Truth.Measured)
             if (farthestM > 0) Text("Farthest seen: %.0f cm".format(farthestM * 100), color = Color(0xFF3DDC97), fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
         }

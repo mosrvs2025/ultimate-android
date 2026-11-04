@@ -61,6 +61,10 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.58.0", listOf(
+            "Echo calibration: after the Echo test, one tap fits a correction to the heights you held, so distances read true on your phone. It tells you how close the correction gets.",
+            "Hold your hand over the bottom edge, where the speaker and microphone are, with your arm coming in from the side. Over the top of the screen, Echo measured a slanted path and often your forearm instead of your hand.",
+        )),
         Entry("1.57.0", listOf(
             "Ruler: a true-size ruler on your screen in centimetres and inches, checked once against a bank card so it's exact on your phone.",
             "The Echo test tells you how to measure real heights: measure a mug or a stack of books with the Ruler, stand it beside the phone and hold your palm level with its top. The ruler opens from the test.",

@@ -286,3 +286,33 @@ Every view carries a tag:
 
 Echo runs only after you press Start. It shows a notification with Stop and appears under Live now on Home. It
 records and keeps no audio.
+
+
+#### Bench 4: same phone, 1.57.0 (heights measured with the in-app ruler)
+
+**Results:**
+- **False detections:** 0%.
+- **Hand at 10 / 20 / 30 cm:** read 14.4 / 15.2 / 21.1 cm, detected in 100% of frames at every height. This is the
+  first fully reliable detection.
+- **Battery:** +76 mA.
+
+**Diagnosis:** the sensor works; the scale is compressed. Two causes:
+1. **Geometry.**
+   - The Fold's loudspeaker and the microphone Echo records are both at the bottom (mic 1 at y = 0.6 cm, as reported
+     by the phone).
+   - A palm held "over the top of the screen" sits about 13 cm along the phone from them.
+   - So Echo measures a slanted path, not straight up.
+2. **The forearm.**
+   - With the hand over the top, the forearm crosses the bottom of the phone, right beside the speaker and mic.
+   - It is then the nearest moving reflector, and nearest-return correctly reports it.
+
+**Changes in 1.58.0:**
+- **Hand placement:** the bench and the Reach view now ask for the palm over the bottom edge, arm coming in from the
+  side.
+- **Per-phone calibration (`EchoCalibration`):**
+  - It fits true = offset + gain × read by least squares from a bench run.
+  - It refuses fits that run backwards or are flat.
+  - It reports its remaining RMS error.
+  - On bench 4's numbers it maps 21 cm to 30 cm and still misses by about ±4 cm, which it says. That error is the
+    forearm, not noise.
+- **The bench always fits from raw readings**, so recalibrating never compounds a previous correction.
