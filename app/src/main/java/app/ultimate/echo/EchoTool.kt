@@ -59,6 +59,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material.icons.rounded.Straighten
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.systemBars
 import app.ultimate.UltimateApp
 import app.ultimate.core.LibraryItem
 import app.ultimate.core.Signal
@@ -330,18 +332,22 @@ private fun BenchCard(bench: EchoBench, sonar: SonarEngine, sensing: Boolean) {
 
 @Composable
 private fun BenchDialog(bench: EchoBench, sonar: SonarEngine, onClose: () -> Unit) {
+    // Measured here, in the app's own window, where Android reports the system bars; a dialog's window often reports
+    // none, which hid the bottom buttons behind the navigation bar on the Fold's cover screen.
+    val bars = androidx.compose.foundation.layout.WindowInsets.systemBars.asPaddingValues()
+    val top = bars.calculateTopPadding(); val bottom = bars.calculateBottomPadding()
     val step by bench.step.collectAsStateWithLifecycle()
     val live by sonar.state.collectAsStateWithLifecycle()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     var job by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var showRuler by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    if (showRuler) androidx.compose.ui.window.Dialog({ showRuler = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) { app.ultimate.ruler.RulerScreen { showRuler = false } }
+    if (showRuler) androidx.compose.ui.window.Dialog({ showRuler = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) { androidx.compose.foundation.layout.Box(Modifier.padding(top = top, bottom = bottom)) { app.ultimate.ruler.RulerScreen { showRuler = false } } }
     fun close() { job?.cancel(); if (step is EchoBench.Step.Prompt) { sonar.stop(); bench.reset() }; onClose() }
     androidx.compose.ui.window.Dialog(::close, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(
             // Inside the safe area: on the Fold's cover screen the navigation bar otherwise hides the bottom buttons.
-            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).safeDrawingPadding().padding(horizontal = 20.dp, vertical = 16.dp),
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).padding(top = top, bottom = bottom).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {

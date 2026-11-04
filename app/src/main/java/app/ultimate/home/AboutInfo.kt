@@ -61,6 +61,13 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.60.0", listOf(
+            "Search everything from Home, like a command palette: apps to launch, Ultimate's tools, contacts, notifications, things you copied, files, Android settings, what you watched and played, Echo's readings and your rules, in one list.",
+            "The best match sits on top; everything else is grouped with a badge, so a contact, a message and an app with the same name are told apart at a glance.",
+            "Contacts are searched once you allow it, from \"Search your contacts too\".",
+            "Echo detects your hand again: 1.59's voice filter mistook a real hand (which moves its arm and stirs nearby reflections) for noise. It now judges other sound by the far distances only, where a voice shows and a hand doesn't, and no longer learns from bursts of noise.",
+            "The Echo test's buttons sit above the navigation bar on the cover screen.",
+        )),
         Entry("1.59.0", listOf(
             "Echo no longer mistakes your voice for your hand: talking, music or a hiss reaches Echo's sound band, but it changes every distance at once, so it is now recognised and ignored (and Echo says so).",
             "Stop always stops: the button follows what Echo is really doing, and starting again waits for the microphone to be free.",

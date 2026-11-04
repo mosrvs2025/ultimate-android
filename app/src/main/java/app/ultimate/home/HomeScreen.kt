@@ -70,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.UltimateApp
+import app.ultimate.search.PaletteResults
 import app.ultimate.ai.AiCall
 import app.ultimate.ai.AiTools
 import app.ultimate.ai.AiActions
@@ -364,7 +365,7 @@ private fun AskBar(app: UltimateApp) {
     Column(Modifier.padding(top = 4.dp)) {
         androidx.compose.material3.OutlinedTextField(
             query, { query = it }, Modifier.fillMaxWidth(),
-            placeholder = { Text("What do you want to do?") }, singleLine = true, shape = RoundedCornerShape(28.dp),
+            placeholder = { Text("Search apps, people, messages, files…") }, singleLine = true, shape = RoundedCornerShape(28.dp),
             leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary) },
             trailingIcon = {
                 if (query.isEmpty()) androidx.compose.material3.IconButton({ picker.launch(arrayOf("video/*", "image/*", "audio/*")) }) { Icon(Icons.Rounded.AttachFile, "Open a file") }
@@ -372,26 +373,8 @@ private fun AskBar(app: UltimateApp) {
             },
         )
         AiSuggestion(app, query) { query = "" }
-        androidx.compose.animation.AnimatedVisibility(results.isNotEmpty() || query.length >= 2) {
-            Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (results.isEmpty()) Text("Nothing matches yet. Try \"make a video smaller\" or \"record my voice\".", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 12.dp))
-                results.take(4).forEach { a ->
-                    val tool = app.tools.firstOrNull { it.id == a.toolId } ?: return@forEach
-                    Row(
-                        Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow)
-                            .clickable { app.insights.count("home.ask.${a.id}"); query = ""; app.shell.open(tool) }.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(tool.icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(a.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                            Text(a.detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-        }
+        // The command palette: apps, people, messages, files, settings, records and Ultimate's own tools, in one list.
+        PaletteResults(app, query) { app.insights.count("home.palette"); query = "" }
     }
 }
 

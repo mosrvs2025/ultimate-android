@@ -338,3 +338,35 @@ louder than the hand. It was reported as a target in 30 of 30 frames.
 - A raised floor with nothing standing out is flagged as interference and shown as such.
 - Motion mode gets the same treatment, using its noise band 700 Hz either side of the tone, which a hand's Doppler
   shift doesn't reach. Covered by `EchoTest.aHissIsNotMotion`.
+
+#### Regression in 1.59.0, fixed in 1.60.0
+
+**What happened:** bench on the Fold with 1.59.0 gave 0% false alarms, but the hand was "not detected" at 10, 20 and
+30 cm, in every frame.
+
+**Cause:**
+- The voice filter judged interference by the median change over all distances.
+- A real hand moves its arm too, and stirs reflections between them.
+- Through a real speaker and mic, whose response colours the chirp so the direct path no longer matches the ideal
+  shape, a hand's presence also leaves a broad residue.
+- So a hand raised the median, and the filter dropped it.
+
+**Reproduced** in `SonarRealismTest.aRealHandWithArmAndClutterIsStillDetected`. It adds 8 clutter reflections and a
+coloured speaker/mic response (taps at 1, 3 and 7 samples). The hand at 20 cm fell to 13/20 frames.
+
+**Measured with that simulation:**
+
+| Signal | Far distances (60–100 cm), × their usual change | Best peak ÷ far level |
+|---|---|---|
+| Hand | 1.3–8.6 | ≥ 17 |
+| Hiss | 25–725 | ≤ 8 |
+
+**Fix:**
+- Interference requires the far level to be above 12 with nothing standing 8× above it.
+- Nothing is learned during interference. Otherwise "usual" rises to match the burst and it gets through (seen:
+  26/30).
+- After about 3 s of constant interference, the room is assumed to have changed and learning resumes.
+
+**Also seen:** through the coloured response, ranging can lock onto leakage around 8 cm. That is real-phone behaviour
+too, and part of why per-phone calibration exists. Next step: model the direct path's actual shape by learning it from
+the first second, instead of assuming the ideal chirp.

@@ -135,6 +135,7 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
     private var lastAt = 0L
     private var velocity = 0.0
     var lastTypical = 0.0
+    private var noisyRun = 0
 
     /** One measurement. All distances are from the direct path, so they measure from the phone itself. */
     data class Fix(
@@ -228,15 +229,19 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
         }
         // Other sound in the band (a voice's "s", music, a hiss) changes every distance at once; a hand changes one. Measure
         // how much the typical distance changed, and ask a target to stand out from that, not just from silence.
-        val window = motion.copyOfRange(start, bins).sortedArray()
-        val typical = window[window.size / 2].toDouble()
+        // Other sound in the band (a voice's "s", music, a hiss) raises every distance at once, far ones included. A hand
+        // only changes the near ones, together with its arm and their reflections (bench on a Fold, 1.59.0: judging by all
+        // distances took a real hand for noise). So interference is judged by the far distances alone, 60 cm to 1 m.
+        val farFrom = (0.6 / Sonar.M_PER_SAMPLE).toInt().coerceAtMost(bins - 8)
+        val far = motion.copyOfRange(farFrom, bins).sortedArray()
+        val typical = far[far.size / 2].toDouble()
         lastTypical = typical
-        // Measured on synthesised frames: a hand's peak stands 20-75x above the typical distance; a hiss's best only
-        // 1.6-3x. So a target must stand 5x above the typical (well clear of the hiss), and a raised floor with nothing standing out is interference.
-        val standsOut = bestScore >= STANDOUT * typical
-        val interference = typical > 3.0 && !standsOut
+        val raised = typical > FAR_NOISY && bestScore < STANDOUT * typical
+        noisyRun = if (raised) noisyRun + 1 else 0
+        // Three seconds of it is no burst: the room itself changed, so accept it and learn again.
+        val interference = raised && noisyRun < 70
         val warm = frames > WARMUP
-        val detected = warm && bestScore >= CONFIDENT && standsOut
+        val detected = warm && bestScore >= CONFIDENT && !interference
         val pk = if (best in start + 1 until bins - 1) {
             val a = motion[best - 1].toDouble(); val b = motion[best].toDouble(); val c = motion[best + 1].toDouble()
             val d = a - 2 * b + c; if (d == 0.0) best.toDouble() else best + 0.5 * (a - c) / d
@@ -251,8 +256,9 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
         } else if (now - lastAt > 400) { lastRange = Double.NaN; velocity = 0.0 }
         // Learn the still scene and its usual jitter; barely while something is moving, so a hand held still fades in slowly
         // and a moving hand doesn't teach the tracker that its own bins are noisy.
-        val rate = if (detected) learn * 0.15 else learn
-        val sRate = if (!warm) 0.3 else if (detected) 0.0 else 0.04
+        // Nothing is learned from a burst of other sound: otherwise "usual" would rise to match it and it would get through.
+        val rate = if (interference) 0.0 else if (detected) learn * 0.15 else learn
+        val sRate = if (!warm) 0.3 else if (detected || interference) 0.0 else 0.04
         for (i in 0 until n) {
             sig[i] += (diff[i] - sig[i]) * sRate
             bgRe[i] += (wr[i] * scale - bgRe[i]) * rate; bgIm[i] += (wi[i] * scale - bgIm[i]) * rate
@@ -265,7 +271,13 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
     companion object {
         const val WARMUP = 24 // about a second of learning the room and its jitter
         const val CONFIDENT = 5.0
-        const val STANDOUT = 5.0
+        const val STANDOUT = 8.0
+        /**
+         * Measured on synthesised frames through a coloured speaker and mic: with a real hand, arm and clutter the far
+         * distances read 1.3-8.6x their usual change and the best peak stands 17x or more above them; a hiss reads 25-725x
+         * and its best only up to 8x. So interference is a far level above 12 with nothing standing 8x above it.
+         */
+        const val FAR_NOISY = 12.0
     }
 }
 

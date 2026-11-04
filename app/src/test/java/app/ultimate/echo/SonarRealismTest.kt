@@ -106,4 +106,37 @@ class SonarRealismTest {
         }
         assertTrue("hiss reported as a target in $reported of 30 frames", reported <= 1)
     }
+
+    /**
+     * Galaxy Fold, 1.59.0: after the voice filter, a hand held at 10, 20 or 30 cm was "not detected" in every frame. A
+     * real hand comes with an arm, a wrist and reflections between them, so it changes many near distances at once. The
+     * voice filter judged by all distances and took that for noise. A hand must stay detected through that clutter.
+     */
+    @Test fun aRealHandWithArmAndClutterIsStillDetected() {
+        for (cm in listOf(10, 20, 30)) {
+            val t = SonarTracker()
+            val still = listOf(direct to 1.0, direct + samples(0.04) to 0.3, direct + samples(0.20) to 0.05)
+            repeat(40) { coloured(t, still, it) }
+            val reads = (40 until 60).map { k ->
+                val w = 0.004 * (k % 3)
+                // The palm, then wrist, forearm and elbow reflections spread out behind it, all moving.
+                val clutter = (1..8).map { j -> (direct + samples(cm / 100.0 + 0.03 * j + w * j)) to 0.006 }
+                coloured(t, listOf(direct to 0.85) + still.drop(1) + ((direct + samples(cm / 100.0 + w)) to 0.01) + clutter, k).rangeM
+            }.filter { !it.isNaN() }
+            // Detection is what the voice filter must not take away. (Through a coloured speaker the range can lock onto
+            // leakage near the phone; that's what per-phone calibration and the hand-over-the-bottom-edge advice address.)
+            assertTrue("hand at $cm cm with clutter detected in ${reads.size}/20", reads.size >= 14)
+        }
+    }
+
+    /** Like [fix], but through a real speaker and mic: their response colours the sound, so the direct path's shape no
+     *  longer matches the ideal chirp exactly, as on any phone. */
+    private fun coloured(t: SonarTracker, paths: List<Pair<Double, Double>>, frame: Int): SonarTracker.Fix {
+        val x = receive(paths, frame)
+        val y = FloatArray(x.size) { i -> x[i] + 0.45f * x[Math.floorMod(i - 1, x.size)] - 0.25f * x[Math.floorMod(i - 3, x.size)] + 0.1f * x[Math.floorMod(i - 7, x.size)] }
+        val re = DoubleArray(Sonar.PERIOD); val im = DoubleArray(Sonar.PERIOD)
+        matched.profile(y, re, im)
+        return t.feed(re, im, frame * 43L)
+    }
+
 }
