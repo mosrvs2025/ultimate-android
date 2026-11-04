@@ -132,6 +132,20 @@ class EchoTool(private val app: UltimateApp) : Tool {
                     )
                 }
                 if (distanceMode) {
+                    app.tools.firstOrNull { it.id == "echo-camera" }?.let { cam ->
+                        item {
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.tertiaryContainer).clickable { sonar.stop(); app.shell.open(cam) }.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Calibrate with the camera", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                                    Text("The camera sees your hand while Echo hears it: 20 seconds gives a correction fitted to hundreds of readings", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                                }
+                                Icon(cam.icon, null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                            }
+                        }
+                    }
                     item { BenchCard(bench, sonar, running) }
                     item { LogCard(sonar) }
                 }

@@ -9,3 +9,4 @@ local.properties
 .kotlin/
 app/src/main/cpp/needle/
 app/.cxx/
+app/src/vision/assets/

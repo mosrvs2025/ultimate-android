@@ -46,7 +46,7 @@ jobs:
           test -n "$KEYSTORE" && test -n "$PASSWORD" || { echo 'Add the ULTIMATE_KEYSTORE_BASE64 and ULTIMATE_KEYSTORE_PASSWORD repository secrets first (see README, "Publishing a release").'; exit 1; }
           printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/ultimate.jks"
       - name: Fetch the local AI engine (Cactus Needle, Apache-2.0)
-        run: ./scripts/fetch-needle.sh
+        run: ./scripts/fetch-models.sh
       - name: Test and build every edition
         env:
           ULTIMATE_KEYSTORE_FILE: ${{ runner.temp }}/ultimate.jks

@@ -27,7 +27,7 @@ jobs:
         with:
           gradle-version: '8.9'
       - name: Fetch the local AI engine (Cactus Needle, Apache-2.0)
-        run: ./scripts/fetch-needle.sh
+        run: ./scripts/fetch-models.sh
       - name: Test, lint and build minified release
         run: gradle --no-daemon :app:testUltimateplusDebugUnitTest :app:lintUltimateplusRelease :app:assembleUltimateplusRelease :app:assembleUltimateRelease
       - uses: actions/upload-artifact@v4

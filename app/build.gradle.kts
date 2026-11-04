@@ -21,8 +21,8 @@ android {
         minSdk = 29
         targetSdk = 35
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 69
-        versionName = "1.60.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 70
+        versionName = "1.61.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -286,9 +286,14 @@ android.sourceSets {
     (getByName("test").java as org.gradle.api.tasks.util.PatternFilterable).exclude("app/ultimate/ssh/**")
     getByName("testUltimateplus").java.srcDir("src/test/java/app/ultimate/ssh")
     listOf("ultimate", "studio", "traffic", "squeeze", "audio", "pluck").forEach { getByName(it).java.srcDir("src/noai/java") }
+    // Vision (camera hand tracking) in the two full editions only: it carries MediaPipe's native code and model.
+    listOf("ultimate", "ultimateplus").forEach { getByName(it).java.srcDir("src/vision/java"); getByName(it).assets.srcDir("src/vision/assets") }
 }
 
 dependencies {
+    // Hand tracking for camera-assisted Echo calibration (Apache-2.0). Model fetched by scripts/fetch-models.sh.
+    "ultimateImplementation"("com.google.mediapipe:tasks-vision:0.10.20")
+    "ultimateplusImplementation"("com.google.mediapipe:tasks-vision:0.10.20")
     "ultimateplusImplementation"("org.apache.sshd:sshd-core:2.20.1")
     "ultimateplusImplementation"("org.apache.sshd:sshd-sftp:2.20.1")
     // Ed25519 support on Android releases without Java's native EdEC implementation.

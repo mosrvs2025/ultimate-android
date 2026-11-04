@@ -61,6 +61,10 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.61.0", listOf(
+            "Echo camera calibration: the front camera finds your hand (21 points, on the phone) and estimates its distance from your palm's size, while Echo measures the same hand by sound. 20 seconds of moving your hand gives a correction fitted to hundreds of matched readings, with how closely they then agree.",
+            "Open it from Echo → Distance → Calibrate with the camera. Set your palm's width once (measure it with the Ruler) for exact distances. Frames are looked at and dropped; nothing is saved.",
+        )),
         Entry("1.60.0", listOf(
             "Search everything from Home, like a command palette: apps to launch, Ultimate's tools, contacts, notifications, things you copied, files, Android settings, what you watched and played, Echo's readings and your rules, in one list.",
             "The best match sits on top; everything else is grouped with a badge, so a contact, a message and an app with the same name are told apart at a glance.",

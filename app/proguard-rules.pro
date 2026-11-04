@@ -17,3 +17,16 @@
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
 -keepnames class app.ultimate.** { *; }
+
+# Camera calibration (full editions): created by name, so keep its constructor; MediaPipe calls into its Java classes
+# from native code and reads protobuf messages reflectively, so keep those whole. Harmless where they are absent.
+-keep class app.ultimate.vision.HandCalibrationTool { public <init>(app.ultimate.UltimateApp); }
+-keep class com.google.mediapipe.** { *; }
+-keep class com.google.protobuf.** { *; }
+-dontwarn com.google.mediapipe.**
+-dontwarn com.google.protobuf.**
+# MediaPipe's library also ships AutoValue's annotation processor, which refers to the Java compiler's javax.lang.model
+# API. None of it runs on a phone; tell R8 so.
+-dontwarn javax.lang.model.**
+-dontwarn autovalue.shaded.**
+-dontwarn com.google.auto.value.**
