@@ -134,6 +134,7 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
     private var lastRange = Double.NaN
     private var lastAt = 0L
     private var velocity = 0.0
+    var lastTypical = 0.0
 
     /** One measurement. All distances are from the direct path, so they measure from the phone itself. */
     data class Fix(
@@ -151,6 +152,8 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
         val motion: FloatArray,
         /** Echo strength at each bin relative to the direct path, the still scene included. */
         val echo: FloatArray,
+        /** True when the frame was swamped by other sound in the band (talking, music, a hiss), so it was ignored. */
+        val interference: Boolean = false,
     )
 
     val bins: Int = (maxRangeM / Sonar.M_PER_SAMPLE).toInt()
@@ -223,8 +226,17 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
             val raw = diff[(d0 + best) % n]
             for (k in start + 2 until best) if (motion[k] >= bar && isPeak(k) && diff[(d0 + k) % n] >= raw * 0.4) { best = k; break }
         }
+        // Other sound in the band (a voice's "s", music, a hiss) changes every distance at once; a hand changes one. Measure
+        // how much the typical distance changed, and ask a target to stand out from that, not just from silence.
+        val window = motion.copyOfRange(start, bins).sortedArray()
+        val typical = window[window.size / 2].toDouble()
+        lastTypical = typical
+        // Measured on synthesised frames: a hand's peak stands 20-75x above the typical distance; a hiss's best only
+        // 1.6-3x. So a target must stand 5x above the typical (well clear of the hiss), and a raised floor with nothing standing out is interference.
+        val standsOut = bestScore >= STANDOUT * typical
+        val interference = typical > 3.0 && !standsOut
         val warm = frames > WARMUP
-        val detected = warm && bestScore >= CONFIDENT
+        val detected = warm && bestScore >= CONFIDENT && standsOut
         val pk = if (best in start + 1 until bins - 1) {
             val a = motion[best - 1].toDouble(); val b = motion[best].toDouble(); val c = motion[best + 1].toDouble()
             val d = a - 2 * b + c; if (d == 0.0) best.toDouble() else best + 0.5 * (a - c) / d
@@ -245,7 +257,7 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
             sig[i] += (diff[i] - sig[i]) * sRate
             bgRe[i] += (wr[i] * scale - bgRe[i]) * rate; bgIm[i] += (wi[i] * scale - bgIm[i]) * rate
         }
-        return Fix(direct, range, bestScore, if (lastRange.isNaN()) Double.NaN else velocity, linkSnr, motion, echo)
+        return Fix(direct, range, bestScore, if (lastRange.isNaN()) Double.NaN else velocity, linkSnr, motion, echo, interference)
     }
 
     private fun circular(d: Double): Double { var x = d % n; if (x > n / 2) x -= n; if (x < -n / 2) x += n; return x }
@@ -253,6 +265,7 @@ class SonarTracker(private val maxRangeM: Double = 1.0, private val learn: Doubl
     companion object {
         const val WARMUP = 24 // about a second of learning the room and its jitter
         const val CONFIDENT = 5.0
+        const val STANDOUT = 5.0
     }
 }
 

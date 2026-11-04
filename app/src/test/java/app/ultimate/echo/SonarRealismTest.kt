@@ -83,4 +83,27 @@ class SonarRealismTest {
             assertEquals("hand at $cm cm", cm / 100.0, reads.sorted()[reads.size / 2], 0.025)
         }
     }
+
+    /**
+     * Galaxy S10, 1.57.0: talking near the phone read as "something came closer". Speech, its "s" and "sh" sounds above
+     * all, reaches into the 17-20 kHz band; the matched filter turns that into change at every distance at once, unlike a
+     * hand, which changes one. A loud hiss burst with nobody's hand there must not be reported.
+     */
+    @Test fun aHissInTheChirpBandIsNotAHand() {
+        val t = SonarTracker()
+        val still = listOf(direct to 1.0, direct + samples(0.04) to 0.3, direct + samples(0.20) to 0.05)
+        repeat(40) { fix(t, still, it) }
+        val r = java.util.Random(9)
+        var reported = 0
+        for (k in 40 until 70) {
+            val clean = receive(still, k)
+            // A sibilant: many tones with random phases across 16-21 kHz, louder than any echo of the chirp.
+            val tones = List(160) { Triple(16_000.0 + 5_000.0 * r.nextDouble(), r.nextDouble() * 6.283, 0.02) }
+            val hiss = FloatArray(Sonar.PERIOD) { i -> (clean[i] + tones.sumOf { (f, p, a) -> a * kotlin.math.sin(6.283 * f * i / Sonar.RATE + p) }).toFloat() }
+            val re = DoubleArray(Sonar.PERIOD); val im = DoubleArray(Sonar.PERIOD)
+            matched.profile(hiss, re, im)
+            if (!t.feed(re, im, k * 43L).rangeM.isNaN()) reported++
+        }
+        assertTrue("hiss reported as a target in $reported of 30 frames", reported <= 1)
+    }
 }

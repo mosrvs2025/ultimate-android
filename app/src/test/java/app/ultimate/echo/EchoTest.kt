@@ -94,4 +94,21 @@ class EchoTest {
         assertEquals("echo:hover", trig("when I hover over the phone, vibrate").contains)
         assertEquals("echo:pull", trig("when I pull my hand away from the phone, turn the flashlight off").contains)
     }
+
+    /** Talking near the phone (S10): a hiss across the band must not read as something approaching in motion mode either. */
+    @Test fun aHissIsNotMotion() {
+        val d = EchoDetector()
+        repeat(30) { d.feed(frame(0.0, 0.0, it * EchoMath.FRAME), it * 43L) }
+        val r = java.util.Random(4)
+        var events = 0
+        for (k in 30 until 60) {
+            val tones = List(160) { Triple(16_000.0 + 5_000.0 * r.nextDouble(), r.nextDouble() * 6.283, 0.01) }
+            val x = FloatArray(EchoMath.FRAME) { i ->
+                val t = (k * EchoMath.FRAME + i).toDouble() / EchoMath.RATE
+                ((0.3 * sin(2 * PI * EchoMath.PILOT * t) + tones.sumOf { (f, p, a) -> a * sin(2 * PI * f * t + p) }) * win[i]).toFloat()
+            }
+            if (d.feed(EchoMath.bands(x), k * 43L).second != null) events++
+        }
+        assertEquals(0, events)
+    }
 }

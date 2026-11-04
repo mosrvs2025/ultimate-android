@@ -203,6 +203,11 @@
             android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Local file sharing between the user's own phone and computer on the same Wi-Fi" />
         </service>
+        <!-- Home screen widget: one-tap actions and the last thing sensed. -->
+        <receiver android:name=".home.QuickActionsWidget" android:exported="false" android:label="Ultimate">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_actions_info" />
+        </receiver>
         <!-- Echo: sonar sensing with the speaker and mic, only while the user runs it; a notification with Stop is shown throughout. -->
         <service
             android:name=".echo.EchoService"

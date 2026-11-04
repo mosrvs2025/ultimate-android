@@ -61,6 +61,13 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.59.0", listOf(
+            "Echo no longer mistakes your voice for your hand: talking, music or a hiss reaches Echo's sound band, but it changes every distance at once, so it is now recognised and ignored (and Echo says so).",
+            "Stop always stops: the button follows what Echo is really doing, and starting again waits for the microphone to be free.",
+            "Long-press the app icon on your home screen for Echo, Ruler, Record and Clean up.",
+            "New home screen widget: Echo, Ruler, Record and the flashlight in one tap, with the last thing your phone sensed.",
+            "The Echo test's buttons and the ruler no longer hide behind the navigation bar.",
+        )),
         Entry("1.58.0", listOf(
             "Echo calibration: after the Echo test, one tap fits a correction to the heights you held, so distances read true on your phone. It tells you how close the correction gets.",
             "Hold your hand over the bottom edge, where the speaker and microphone are, with your arm coming in from the side. Over the top of the screen, Echo measured a slanted path and often your forearm instead of your hand.",

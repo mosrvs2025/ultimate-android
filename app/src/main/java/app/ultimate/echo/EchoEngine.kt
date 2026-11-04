@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.coroutines.coroutineContext
 
 /** Echo's state for the screen. */
 sealed interface EchoState {
@@ -36,6 +37,8 @@ sealed interface EchoState {
 class EchoEngine(private val context: Context, private val senses: Senses) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
+    /** The microphone of the current run, so Stop can release a blocked read at once. */
+    @Volatile private var liveRec: AudioRecord? = null
     private val _state = MutableStateFlow<EchoState>(EchoState.Off)
     val state: StateFlow<EchoState> = _state
 
@@ -55,7 +58,9 @@ class EchoEngine(private val context: Context, private val senses: Senses) {
         senses.begin(SESSION, "echo", "Echo is listening for movement", sensitive = true) { stop() }
         runCatching { context.startForegroundService(android.content.Intent(context, EchoService::class.java)) }
         _state.value = EchoState.Calibrating
+        val previous = job
         job = scope.launch {
+            previous?.join() // the last run must let go of the microphone first
             val tone = EchoMath.tone()
             val track = runCatching {
                 AudioTrack.Builder()
@@ -77,6 +82,7 @@ class EchoEngine(private val context: Context, private val senses: Senses) {
                 senses.end(SESSION); runCatching { context.stopService(android.content.Intent(context, EchoService::class.java)) }; return@launch
             }
             try {
+                liveRec = rec
                 rec.startRecording()
                 val pcm = ShortArray(EchoMath.FRAME); val frame = FloatArray(EchoMath.FRAME); val win = EchoMath.window()
                 val det = EchoDetector()
@@ -98,14 +104,17 @@ class EchoEngine(private val context: Context, private val senses: Senses) {
             } finally {
                 runCatching { rec.stop() }; rec.release()
                 runCatching { track.stop() }; track.release()
-                senses.end(SESSION)
-                runCatching { context.stopService(android.content.Intent(context, EchoService::class.java)) }
-                if (_state.value !is EchoState.Failed) _state.value = EchoState.Off
+                // Only the current run tidies up: an older run finishing late must not stop the one that replaced it.
+                if (job == null || job === coroutineContext[Job]) {
+                    senses.end(SESSION)
+                    runCatching { context.stopService(android.content.Intent(context, EchoService::class.java)) }
+                    if (_state.value !is EchoState.Failed) _state.value = EchoState.Off
+                }
             }
         }
     }
 
-    fun stop() { job?.cancel(); job = null; senses.end(SESSION); runCatching { context.stopService(android.content.Intent(context, EchoService::class.java)) }; if (_state.value !is EchoState.Failed) _state.value = EchoState.Off }
+    fun stop() { liveRec?.let { runCatching { it.stop() } }; liveRec = null; job?.cancel(); job = null; senses.end(SESSION); runCatching { context.stopService(android.content.Intent(context, EchoService::class.java)) }; if (_state.value !is EchoState.Failed) _state.value = EchoState.Off }
 
     companion object { const val SESSION = "echo" }
 }

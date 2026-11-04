@@ -127,6 +127,11 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
         automations.watchScreenRecordings()
         // Everything sensed is offered to Automations: the modules never need to know who listens.
         if (BuildConfig.HAS_RULES) watch.launch { senses.signals.collect { s -> rules.fire(app.ultimate.rules.Event.Sensed(s.key, s.label)) } }
+        // Long-press menu on the app icon, and the widget's line of what was last sensed.
+        if (BuildConfig.HAS_SOUND) {
+            app.ultimate.home.QuickActions.publishShortcuts(this, tools.map { it.id }.toSet())
+            watch.launch { senses.signals.collect { s -> app.ultimate.home.QuickActionsWidget.show(this@UltimateApp, s.label) } }
+        }
         if (BuildConfig.HAS_FILES) app.ultimate.files.UpdateWatcher.arm(this)
         if (BuildConfig.HAS_FOOTPRINT) app.ultimate.footprint.StepSampler.schedule(this)
         // A focus session that was running when the phone restarted (or Ultimate was closed) picks up where it was.

@@ -316,3 +316,25 @@ records and keeps no audio.
   - On bench 4's numbers it maps 21 cm to 30 cm and still misses by about ±4 cm, which it says. That error is the
     forearm, not noise.
 - **The bench always fits from raw readings**, so recalibrating never compounds a previous correction.
+#### Galaxy S10 report (1.57.0): talking read as "something came closer"
+
+**Cause:**
+- Speech, especially "s" and "sh" sounds, has energy in 17–20 kHz.
+- After matched filtering it raises the change at every distance at once.
+
+**Reproduced** in `SonarRealismTest.aHissInTheChirpBandIsNotAHand`: 160 random-phase tones across 16–21 kHz,
+louder than the hand. It was reported as a target in 30 of 30 frames.
+
+**Measured separation (synthetic):**
+
+| Signal | Best peak ÷ median change across distances |
+|---|---|
+| Hand at 10 or 30 cm | 20–75 |
+| Hiss | 1.6–3.2 |
+
+**Fix (1.59.0):**
+- A target must stand 5× above the typical change. That is well clear of the hiss's 3.2 and keeps heavy-noise ranging
+  at 10/10. An 8× bar dropped σ = 0.03 to 4/10.
+- A raised floor with nothing standing out is flagged as interference and shown as such.
+- Motion mode gets the same treatment, using its noise band 700 Hz either side of the tone, which a hand's Doppler
+  shift doesn't reach. Covered by `EchoTest.aHissIsNotMotion`.

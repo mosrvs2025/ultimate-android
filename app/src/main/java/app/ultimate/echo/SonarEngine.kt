@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.coroutines.coroutineContext
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -90,6 +91,8 @@ sealed interface SonarState {
 class SonarEngine(private val context: Context, private val senses: Senses) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
+    /** The microphone of the current run, so Stop can release a blocked read at once. */
+    @Volatile private var liveRec: AudioRecord? = null
     private val _state = MutableStateFlow<SonarState>(SonarState.Off)
     val state: StateFlow<SonarState> = _state
     val running get() = job?.isActive == true
@@ -116,7 +119,9 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
         sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let { sm.registerListener(gyro, it, SensorManager.SENSOR_DELAY_GAME) }
         _state.value = SonarState.Warming
         val hw = EchoProbe.read(context)
+        val previous = job
         job = scope.launch {
+            previous?.join() // the last run must let go of the microphone first
             val pcm = Sonar.periodPcm(amplitude)
             val track = runCatching {
                 AudioTrack.Builder()
@@ -132,6 +137,7 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
                 cleanup(); return@launch
             }
             try {
+                liveRec = rec
                 rec.startRecording(); track.play()
                 val buf = ShortArray(Sonar.PERIOD * channels)
                 val a = FloatArray(Sonar.PERIOD); val b = FloatArray(Sonar.PERIOD)
@@ -191,8 +197,11 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
             } finally {
                 runCatching { rec.stop() }; rec.release()
                 runCatching { track.stop() }; track.release()
-                cleanup()
-                if (_state.value !is SonarState.Failed) _state.value = SonarState.Off
+                // Only the current run tidies up: an older run finishing late must not stop the one that replaced it.
+                if (job == null || job === coroutineContext[Job]) {
+                    cleanup()
+                    if (_state.value !is SonarState.Failed) _state.value = SonarState.Off
+                }
             }
         }
     }
@@ -224,7 +233,7 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
         runCatching { context.stopService(Intent(context, EchoService::class.java)) }
     }
 
-    fun stop() { job?.cancel(); job = null; cleanup(); if (_state.value !is SonarState.Failed) _state.value = SonarState.Off }
+    fun stop() { liveRec?.let { runCatching { it.stop() } }; liveRec = null; job?.cancel(); job = null; cleanup(); if (_state.value !is SonarState.Failed) _state.value = SonarState.Off }
 
     /** Battery current in milliamps where the phone reports it (many report 0 or nothing). */
     fun currentMa(): Double? = runCatching {

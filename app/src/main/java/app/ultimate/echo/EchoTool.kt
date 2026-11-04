@@ -94,7 +94,10 @@ class EchoTool(private val app: UltimateApp) : Tool {
         var distanceMode by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(true) }
         val recent by app.senses.recent.collectAsStateWithLifecycle()
         val echoes = recent.filter { it.source == "echo" }
-        val running = engine.running || sonar.running
+        // From the engines' live states, so Start and Stop always show what is really happening.
+        val sonarState by sonar.state.collectAsStateWithLifecycle()
+        val motionState by engine.state.collectAsStateWithLifecycle()
+        val running = sonarState is SonarState.Running || sonarState is SonarState.Warming || motionState is EchoState.Sensing || motionState is EchoState.Calibrating
         val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) { if (distanceMode) sonar.start() else engine.start() } }
         val hardware = remember { EchoProbe.read(app) }
         DisposableEffect(Unit) { onDispose { if (!app.rules.rules.value.any { it.enabled && it.trigger.type == TriggerType.Sensed }) { engine.stop(); sonar.stop() } } }
@@ -263,6 +266,7 @@ private fun DistanceView(tool: EchoTool) {
             is SonarState.Running -> {
                 val f = s.frame
                 if (f.phoneMoving) Text("The phone is moving, so readings are paused: everything seems to move when the phone does.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.tertiary)
+                if (f.fix.interference) Text("Other sound in Echo's band (talking, music, a hiss), so this moment is ignored rather than mistaken for a hand.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.tertiary)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Readout(if (f.calibrated) "distance · calibrated" else "distance", if (f.fix.rangeM.isNaN()) "—" else "%.0f cm".format(f.fix.rangeM * 100), Truth.Measured)
                     Readout("speed", if (f.fix.velocity.isNaN()) "—" else "%+.2f m/s".format(f.fix.velocity), Truth.Estimate)
@@ -332,9 +336,9 @@ private fun BenchDialog(bench: EchoBench, sonar: SonarEngine, onClose: () -> Uni
     val context = androidx.compose.ui.platform.LocalContext.current
     var job by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var showRuler by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    if (showRuler) androidx.compose.ui.window.Dialog({ showRuler = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) { app.ultimate.ruler.RulerScreen { showRuler = false } }
+    if (showRuler) androidx.compose.ui.window.Dialog({ showRuler = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) { app.ultimate.ruler.RulerScreen { showRuler = false } }
     fun close() { job?.cancel(); if (step is EchoBench.Step.Prompt) { sonar.stop(); bench.reset() }; onClose() }
-    androidx.compose.ui.window.Dialog(::close, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+    androidx.compose.ui.window.Dialog(::close, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(
             // Inside the safe area: on the Fold's cover screen the navigation bar otherwise hides the bottom buttons.
             Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).safeDrawingPadding().padding(horizontal = 20.dp, vertical = 16.dp),
