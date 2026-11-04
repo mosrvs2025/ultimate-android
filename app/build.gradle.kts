@@ -277,6 +277,9 @@ android {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
         // Keep MINA's license notices and combine its filesystem-provider registrations.
         resources.merges += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE", "META-INF/NOTICE", "META-INF/services/**")
+        // MediaPipe's x86 builds (about 40 MB) serve only emulators; on a phone that lacks them, camera calibration
+        // simply reports that hand tracking isn't available.
+        jniLibs.excludes += setOf("lib/x86/libmediapipe_tasks_vision_jni.so", "lib/x86_64/libmediapipe_tasks_vision_jni.so")
     }
 }
 
