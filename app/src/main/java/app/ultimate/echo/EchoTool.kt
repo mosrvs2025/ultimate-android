@@ -58,6 +58,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.material.icons.rounded.Straighten
 import app.ultimate.UltimateApp
 import app.ultimate.core.LibraryItem
 import app.ultimate.core.Signal
@@ -330,6 +331,8 @@ private fun BenchDialog(bench: EchoBench, sonar: SonarEngine, onClose: () -> Uni
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     var job by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var showRuler by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    if (showRuler) androidx.compose.ui.window.Dialog({ showRuler = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) { app.ultimate.ruler.RulerScreen { showRuler = false } }
     fun close() { job?.cancel(); if (step is EchoBench.Step.Prompt) { sonar.stop(); bench.reset() }; onClose() }
     androidx.compose.ui.window.Dialog(::close, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -348,6 +351,7 @@ private fun BenchDialog(bench: EchoBench, sonar: SonarEngine, onClose: () -> Uni
                         "1" to "Lay the phone flat on a table, screen up, with the media volume at half or more.",
                         "2" to "For the first 12 seconds, keep your hands away. Echo learns the room and counts false alarms.",
                         "3" to "Then hold your palm over the top of the screen at 10, 20 and 30 cm. The screen shows where, and what Echo reads.",
+                        "4" to "For exact heights, measure a mug, a box or a stack of books with the Ruler, stand it beside the phone and hold your palm level with its top.",
                     ).forEach { (n, t) ->
                         Row(verticalAlignment = Alignment.Top) {
                             Box(Modifier.size(28.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) { Text(n, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold) }
@@ -355,6 +359,7 @@ private fun BenchDialog(bench: EchoBench, sonar: SonarEngine, onClose: () -> Uni
                         }
                     }
                     Button({ job = scope.launch { bench.run(android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL) } }, Modifier.fillMaxWidth().height(56.dp)) { Text("Start the test") }
+                    androidx.compose.material3.OutlinedButton({ showRuler = true }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Straighten, null); Text("  Open the ruler") }
                 }
                 is EchoBench.Step.Prompt -> {
                     androidx.compose.material3.LinearProgressIndicator(progress = { (s.index + 1f) / s.total }, Modifier.fillMaxWidth())

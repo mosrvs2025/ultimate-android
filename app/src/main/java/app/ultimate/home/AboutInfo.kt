@@ -61,6 +61,10 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.57.0", listOf(
+            "Ruler: a true-size ruler on your screen in centimetres and inches, checked once against a bank card so it's exact on your phone.",
+            "The Echo test tells you how to measure real heights: measure a mug or a stack of books with the Ruler, stand it beside the phone and hold your palm level with its top. The ruler opens from the test.",
+        )),
         Entry("1.56.0", listOf(
             "Local AI: Needle, a small AI model by Cactus, now runs on your phone. Type on Home, like \"turn the volume down to 20\" or \"free up some space\", and it suggests the action; tap to do it. Nothing you type leaves the phone.",
             "Turn it on in About and settings → Local AI (a one-time 35 MB download in Ultimate+; Ultimate imports the file).",

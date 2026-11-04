@@ -93,6 +93,7 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
             if (BuildConfig.HAS_PLUCK) add(PluckTool(this@UltimateApp))
             if (BuildConfig.HAS_SOUND) add(SoundTool(this@UltimateApp))
             if (BuildConfig.HAS_SOUND && BuildConfig.HAS_RULES) add(app.ultimate.echo.EchoTool(this@UltimateApp))
+            if (BuildConfig.HAS_SOUND) add(app.ultimate.ruler.RulerTool())
             if (BuildConfig.HAS_TRAFFIC) add(TrafficTool(this@UltimateApp))
             if (BuildConfig.HAS_NETWORK) add(app.ultimate.lan.LanTool(lanManager))
             if (BuildConfig.HAS_SEND) add(app.ultimate.send.SendTool(sendServer))
