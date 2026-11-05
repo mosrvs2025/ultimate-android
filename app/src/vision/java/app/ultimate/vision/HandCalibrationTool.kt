@@ -237,7 +237,7 @@ private fun CameraWithHands(app: UltimateApp, palmCm: Double, out: MutableStateF
                     out.value = HandFrame(lm.map { it.x() to it.y() }, d, CameraRange.isFlat(palmPx, kotlin.math.hypot(x0 - x9, y0 - y9) * 0.8), System.currentTimeMillis())
                 }
                 .setErrorListener { out.value = null }.build())
-        }.getOrNull()
+        }.onFailure { android.util.Log.w("EchoCamera", "hand landmarker failed to start", it) }.getOrNull()
     }
     DisposableEffect(Unit) { onDispose { runCatching { landmarker?.close() }; executor.shutdown(); out.value = null } }
     AndroidView({ ctx ->

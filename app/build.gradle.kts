@@ -21,8 +21,8 @@ android {
         minSdk = 29
         targetSdk = 35
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 71
-        versionName = "1.62.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 72
+        versionName = "1.62.1"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -273,6 +273,9 @@ android {
         compose = true
         buildConfig = true
     }
+    // MediaPipe maps its .task models straight out of the APK, which only works when they are stored uncompressed
+    // (on a Fold, 1.61-1.62 compressed them and hand tracking failed to start).
+    androidResources { noCompress += "task" }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
         // Keep MINA's license notices and combine its filesystem-provider registrations.

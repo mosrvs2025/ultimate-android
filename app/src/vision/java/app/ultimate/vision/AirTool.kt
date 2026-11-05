@@ -223,6 +223,7 @@ private fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val executor = remember { Executors.newSingleThreadExecutor() }
+    var problem by remember { mutableStateOf<String?>(null) }
     val recognizer = remember {
         runCatching {
             GestureRecognizer.createFromOptions(context, GestureRecognizer.GestureRecognizerOptions.builder()
@@ -234,11 +235,10 @@ private fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
                     val top = result.gestures().firstOrNull()?.firstOrNull()
                     out.value = HandPose(lm.map { it.x() to it.y() }, top?.categoryName(), top?.score() ?: 0f, System.currentTimeMillis())
                 }
-                .setErrorListener { out.value = null }.build())
-        }.getOrNull()
+                .setErrorListener { e -> out.value = null; problem = e.message }.build())
+        }.onFailure { problem = it.message ?: it.javaClass.simpleName }.getOrNull()
     }
     DisposableEffect(Unit) { onDispose { runCatching { recognizer?.close() }; executor.shutdown(); out.value = null } }
-    if (recognizer == null) { Text("Hand tracking isn't available on this phone.", Modifier.padding(16.dp), color = Color.White); return }
     AndroidView({ ctx ->
         PreviewView(ctx).apply {
             scaleType = PreviewView.ScaleType.FIT_CENTER
@@ -252,7 +252,7 @@ private fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
                     runCatching {
                         val rot = proxy.imageInfo.rotationDegrees
                         val bmp = proxy.toBitmap().let { b -> if (rot == 0) b else Bitmap.createBitmap(b, 0, 0, b.width, b.height, Matrix().apply { postRotate(rot.toFloat()) }, true) }
-                        recognizer.recognizeAsync(BitmapImageBuilder(bmp).build(), System.currentTimeMillis())
+                        recognizer?.recognizeAsync(BitmapImageBuilder(bmp).build(), System.currentTimeMillis())
                     }
                     proxy.close()
                 }
@@ -260,4 +260,6 @@ private fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
             }, ContextCompat.getMainExecutor(ctx))
         }
     }, Modifier.fillMaxSize())
+    // The camera shows even when the gesture model can't start, and the reason is on screen, so it can be reported.
+    problem?.let { Text("Gesture tracking couldn't start: $it", Modifier.padding(16.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(10.dp), color = Color(0xFFFFC857)) }
 }

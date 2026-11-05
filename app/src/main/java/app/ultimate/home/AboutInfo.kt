@@ -61,6 +61,10 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.62.1", listOf(
+            "Air control and camera calibration start properly: their hand-tracking models were packed compressed in the app, which MediaPipe can't read, so it said hand tracking wasn't available and showed no camera.",
+            "The camera picture now shows even if gesture tracking fails, with the reason on screen.",
+        )),
         Entry("1.62.0", listOf(
             "Air control: prop the phone up and control it with your hand from across the room (about 2-3 m). Swipe left or right to change tracks, thumbs up or down for volume, open palm to pause, pinch for the flashlight; push, pull, hold, fist, peace sign, pointing up and I-love-you are there too.",
             "Tap any gesture to choose what it does. Every gesture is also a trigger for Rules, like \"When I give a thumbs up to the camera, …\".",
