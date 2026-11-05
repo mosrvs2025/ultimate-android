@@ -31,3 +31,13 @@
 -dontwarn autovalue.shaded.**
 -dontwarn com.google.auto.value.**
 -keep class app.ultimate.vision.AirTool { public <init>(app.ultimate.UltimateApp); }
+# MediaPipe logs through Flogger, which finds its backend by class name (DefaultPlatform); renamed by R8, the first
+# logger fails in its static initialiser and MediaPipe reports ExceptionInInitializerError (seen on a Fold, 1.62.1).
+-keep class com.google.common.flogger.** { *; }
+-dontwarn com.google.common.flogger.**
+-dontwarn org.checkerframework.**
+# MediaPipe reports usage statistics (which task ran, how fast; no images) to Google through datatransport. Ultimate
+# promises nothing leaves the phone, so every call that would send them is removed from the app at build time.
+-assumenosideeffects interface com.google.mediapipe.tasks.core.logging.LoggingClient { void logEvent(...); }
+-assumenosideeffects class com.google.mediapipe.tasks.core.logging.RemoteLoggingClient { void logEvent(...); }
+-assumenosideeffects class com.google.mediapipe.tasks.core.logging.TasksStatsProtoLogger { void log*(...); void record*(...); }

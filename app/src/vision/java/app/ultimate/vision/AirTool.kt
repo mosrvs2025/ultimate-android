@@ -236,7 +236,11 @@ private fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
                     out.value = HandPose(lm.map { it.x() to it.y() }, top?.categoryName(), top?.score() ?: 0f, System.currentTimeMillis())
                 }
                 .setErrorListener { e -> out.value = null; problem = e.message }.build())
-        }.onFailure { problem = it.message ?: it.javaClass.simpleName }.getOrNull()
+        }.onFailure { e ->
+            // Show the cause underneath wrappers like ExceptionInInitializerError, so a report says what really failed.
+            val root = generateSequence(e) { it.cause }.last()
+            problem = "${root.javaClass.simpleName}: ${root.message ?: e.message ?: ""}".trim().trimEnd(':')
+        }.getOrNull()
     }
     DisposableEffect(Unit) { onDispose { runCatching { recognizer?.close() }; executor.shutdown(); out.value = null } }
     AndroidView({ ctx ->

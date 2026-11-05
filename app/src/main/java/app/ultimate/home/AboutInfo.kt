@@ -61,6 +61,10 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.62.2", listOf(
+            "Air control and camera calibration really start now: the gesture library couldn't find its own logging code in the release build (\"ExceptionInInitializerError\") and gave up.",
+            "Privacy: the gesture library can report anonymous usage statistics to Google; that is now removed from the app, so nothing about your camera use leaves the phone.",
+        )),
         Entry("1.62.1", listOf(
             "Air control and camera calibration start properly: their hand-tracking models were packed compressed in the app, which MediaPipe can't read, so it said hand tracking wasn't available and showed no camera.",
             "The camera picture now shows even if gesture tracking fails, with the reason on screen.",
