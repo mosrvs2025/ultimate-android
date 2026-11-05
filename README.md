@@ -106,6 +106,10 @@ Shows which servers chosen apps talk to, live, using a local VPN. The VPN is onl
 - **Safety:** the relay is covered by JVM tests that drive it with real loopback sockets (handshake, bidirectional data, a 300 KB download under a small window, resets, half-close, DNS, blocking, QUIC refusal). It has not been run against a real phone's tunnel in this repository. Stopping always releases the tunnel.
 - **Why separate editions:** a relay must open internet connections, so it needs the `INTERNET` permission, which the offline editions deliberately never request. The inspector ships as **Traffic Inspector** (standalone) and inside **Ultimate+**; plain **Ultimate** stays offline.
 
+## Octopus Mesh (Ultimate+)
+
+Trusted devices on the same Wi-Fi share work with no server: each device decides for itself where a task runs (small ones stay local as a "reflex", heavy ones go to the cheapest device) and fails over when a device disappears. Off by default; pairing code required; a live bar with Disconnect shows while it runs. Design, measured results, limits and roadmap: [docs/octopus-mesh.md](docs/octopus-mesh.md).
+
 ## Editions: building a tool as its own app
 
 One codebase builds several apps. `app/build.gradle.kts` defines an edition per product flavor, each with its own app id, name, icon (`src/<edition>/res`) and manifest additions (`src/<edition>/AndroidManifest.xml`, e.g. share targets and the app-listing permission only where needed). `HAS_*` flags switch tools on; they are compile-time constants, so R8 strips every tool an edition does not include.
