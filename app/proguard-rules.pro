@@ -30,3 +30,4 @@
 -dontwarn javax.lang.model.**
 -dontwarn autovalue.shaded.**
 -dontwarn com.google.auto.value.**
+-keep class app.ultimate.vision.AirTool { public <init>(app.ultimate.UltimateApp); }

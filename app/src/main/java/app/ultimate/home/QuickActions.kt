@@ -21,6 +21,7 @@ object QuickActions {
 
     val ALL = listOf(
         Item("echo", "Echo", "Feel distance with sound", R.drawable.ic_act_echo),
+        Item("air", "Air control", "Hand gestures from across the room", R.drawable.ic_act_echo),
         Item("ruler", "Ruler", "True-size ruler", R.drawable.ic_act_ruler),
         Item("recorder", "Record", "Record your voice", R.drawable.ic_act_mic),
         Item("cleanup", "Clean up", "Free up space", R.drawable.ic_act_clean),

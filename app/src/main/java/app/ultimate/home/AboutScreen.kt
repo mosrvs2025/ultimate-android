@@ -194,7 +194,7 @@ internal fun AboutContent(app: UltimateApp, onClose: () -> Unit) {
             item { Section("Open-source parts") }
             item {
                 Text(
-                    "Jetpack Compose, AndroidX, Media3 and CameraX (Apache 2.0) · Termux terminal view and emulator (Apache 2.0) · Apache MINA SSHD (Apache 2.0, Ultimate+) · ZXing (Apache 2.0) · MediaPipe hand landmarker (Apache 2.0, Ultimate editions) · Cactus Needle local AI (Apache 2.0, Ultimate editions) · jump3r (LGPL)",
+                    "Jetpack Compose, AndroidX, Media3 and CameraX (Apache 2.0) · Termux terminal view and emulator (Apache 2.0) · Apache MINA SSHD (Apache 2.0, Ultimate+) · ZXing (Apache 2.0) · MediaPipe hand landmarker and gesture recognizer (Apache 2.0, Ultimate editions) · Cactus Needle local AI (Apache 2.0, Ultimate editions) · jump3r (LGPL)",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

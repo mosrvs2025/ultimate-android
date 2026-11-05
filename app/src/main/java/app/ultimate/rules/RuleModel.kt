@@ -220,6 +220,14 @@ object SenseNames {
         "echo:pull" to "I pull my hand away from the phone",
         "echo:hover" to "I hold my hand still over the phone",
         "echo:" to "Echo senses any movement",
+        "air:thumb_up" to "I give a thumbs up to the camera",
+        "air:thumb_down" to "I give a thumbs down to the camera",
+        "air:open_palm" to "I show an open palm to the camera",
+        "air:swipe_left" to "I swipe left in the air",
+        "air:swipe_right" to "I swipe right in the air",
+        "air:pinch" to "I pinch in the air",
+        "air:victory" to "I make a peace sign",
+        "air:" to "the camera sees any gesture",
     )
     fun describe(key: String) = choices.firstOrNull { it.first == key }?.second ?: if (key.isEmpty()) "the phone senses anything" else "the phone senses $key"
 }
