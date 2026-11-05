@@ -61,6 +61,12 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.63.0", listOf(
+            "One app: the separate development versions are combined. Home opens on a living surface with your pinned and usual tools, and the orb inside every tool opens the same Jump panel.",
+            "Home reminds you of jobs that failed (\"Needs another look\"), and Echo, Air control, the camera calibration and Ruler sit together under Senses.",
+            "Ultimate+: Octopus Mesh shares tasks between your own trusted devices on the same Wi-Fi, with no server. It is off until you pair.",
+            "Terminal: Paste and Enter keys, a separate row of arrow keys, and a button that brings the keyboard back.",
+        )),
         Entry("1.62.2", listOf(
             "Air control and camera calibration really start now: the gesture library couldn't find its own logging code in the release build (\"ExceptionInInitializerError\") and gave up.",
             "Privacy: the gesture library can report anonymous usage statistics to Google; that is now removed from the app, so nothing about your camera use leaves the phone.",

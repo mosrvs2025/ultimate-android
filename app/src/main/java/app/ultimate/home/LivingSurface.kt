@@ -174,7 +174,10 @@ private fun rememberInstrumentTilt(enabled: Boolean): Offset {
         val listener = object : SensorEventListener {
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
             override fun onSensorChanged(event: SensorEvent) {
-                val rotation = context.display?.rotation ?: android.view.Surface.ROTATION_0
+                // Context.display is Android 11+; Android 10 (still supported) reads the window manager's display instead.
+                val display = if (android.os.Build.VERSION.SDK_INT >= 30) context.display
+                    else @Suppress("DEPRECATION") context.getSystemService(android.view.WindowManager::class.java)?.defaultDisplay
+                val rotation = display?.rotation ?: android.view.Surface.ROTATION_0
                 val x = event.values[0]; val y = event.values[1]
                 val mapped = when (rotation) {
                     android.view.Surface.ROTATION_90 -> Offset(-y, -x)

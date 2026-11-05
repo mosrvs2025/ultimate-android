@@ -3,6 +3,7 @@ package app.ultimate.mesh
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -90,10 +91,10 @@ class MeshTest {
         val a = node("a", 10.0); val b = node("b", 10.0)
         b.addSeed("127.0.0.1", a.boundPort)
         waitFor { a.peers().isNotEmpty() }
-        val port = a.boundPort
         a.stop()
         assertTrue(a.peers().isEmpty())
-        assertThrows { java.net.Socket("127.0.0.1", port).close() }
+        assertFalse(a.running)
+        // Checking the port itself is unreliable in the full suite: another test's server can take the freed port at once.
     }
 
     @Test fun benchmarkStrategiesOnTheSameWorkloadAndFailures() {

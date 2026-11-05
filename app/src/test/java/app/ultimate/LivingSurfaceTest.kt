@@ -46,6 +46,8 @@ class LivingSurfaceTest {
     }
     @Test fun fullHomeRendersWithNavigation() {
         val app = ApplicationProvider.getApplicationContext<UltimateApp>()
+        // Single-tool editions (Squeeze, Audio...) open straight into their tool and have no Home.
+        org.junit.Assume.assumeTrue(app.tools.size > 1)
         compose.setContent { UltimateTheme { UltimateRoot(app) } }
         // Home is a scrolling list (and a first-run dialog can sit on top), so check the orb and the bar are composed.
         compose.onNodeWithTag("home-orb").assertExists()
