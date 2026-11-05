@@ -343,8 +343,10 @@ private fun ShapeCard(onClick: () -> Unit) {
 internal fun toolSections(tools: List<app.ultimate.core.Tool>): List<Pair<String, List<app.ultimate.core.Tool>>> {
     val families = linkedMapOf(
         "Create" to listOf("studio", "squeeze", "audio", "recorder", "photos", "prompter"),
-        "Phone" to listOf("files", "storage", "cleanup", "inbox", "clips", "checkup", "pluck", "sensors", "sound-meter"),
-        "Network" to listOf("hosts", "ssh", "traffic", "lan", "send"),
+        "Phone" to listOf("files", "storage", "cleanup", "inbox", "clips", "checkup", "pluck", "footprint"),
+        // Spatial sensing: sonar, camera hand tracking and the sensors they build on, together in one place.
+        "Senses" to listOf("echo", "air", "echo-camera", "ruler", "sensors", "sound-meter"),
+        "Network" to listOf("hosts", "ssh", "traffic", "network", "lan", "send", "mesh"),
         "Smart" to listOf("timeline", "focus", "rules", "recipes", "orb", "screentime", "terminal"),
     )
     val placed = families.values.flatten().toSet()
