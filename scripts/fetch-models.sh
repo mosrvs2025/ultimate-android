@@ -4,6 +4,7 @@
 # - Cactus Needle's engine, via fetch-needle.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+mkdir -p app/src/vision/assets
 out=app/src/vision/assets/hand_landmarker.task
 [ -s "$out" ] || curl -fsSL "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task" -o "$out"
 echo "hand model: $(du -h "$out" | cut -f1)"
