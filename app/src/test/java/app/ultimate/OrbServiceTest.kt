@@ -11,6 +11,7 @@ import app.ultimate.orb.OrbService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,6 +25,12 @@ import org.robolectric.shadows.ShadowSettings
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class OrbServiceTest {
+    @Before fun useExplicitAnimationClock() {
+        // The orb animates continuously. Auto-advancing vsync prevents idle() from ever draining.
+        org.robolectric.shadows.ShadowChoreographer.setPaused(true)
+        org.robolectric.shadows.ShadowChoreographer.setFrameDelay(java.time.Duration.ofMillis(16))
+    }
+
     // Robolectric adds its own security provider to the whole test JVM; remove it so TLS tests in the same run see the JDK's.
     @After fun restoreSecurityProviders() {
         java.security.Security.getProviders().filter { it.name.contains("Conscrypt", ignoreCase = true) }.forEach { java.security.Security.removeProvider(it.name) }
@@ -35,7 +42,7 @@ class OrbServiceTest {
     @Test fun orbAppearsAndBloomsWithoutCrashing() {
         ShadowSettings.setCanDrawOverlays(true)
         val controller = Robolectric.buildService(OrbService::class.java).create()
-        shadowOf(Looper.getMainLooper()).idle()
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(32))
         val orb = windows().single()
         orb.measure(View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.AT_MOST), View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.AT_MOST))
         assertTrue(orb.isAttachedToWindow)
@@ -44,7 +51,7 @@ class OrbServiceTest {
         val t = SystemClock.uptimeMillis()
         orb.dispatchTouchEvent(MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, 10f, 10f, 0))
         orb.dispatchTouchEvent(MotionEvent.obtain(t, t + 50, MotionEvent.ACTION_UP, 10f, 10f, 0))
-        shadowOf(Looper.getMainLooper()).idle()
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(32))
         assertEquals(2, windows().size)
 
         // The start counted as healthy, so the next launch starts it again.

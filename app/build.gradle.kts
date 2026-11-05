@@ -20,6 +20,7 @@ android {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
         versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 73
         versionName = "1.62.2"
@@ -348,6 +349,10 @@ dependencies {
     // Renders real screens to PNG in the simulator for the README (run with -Pscreenshots).
     testImplementation("io.github.takahirom.roborazzi:roborazzi:1.43.0")
     testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.43.0")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 

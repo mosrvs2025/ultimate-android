@@ -38,4 +38,20 @@ class TerminalViewTest {
         assertEquals(listOf(session), app.terminal.sessions.value)
         assertEquals(session, app.terminal.current.value)
     }
+
+    // From the codex terminal fix: the typeface can change after setup, and a bad saved size can't stop the view opening.
+    @Test fun typefaceCanChangeAfterSetup() {
+        if (!BuildConfig.HAS_TERMINAL) return
+        val view = TerminalView(app, null)
+        view.prepare(viewClient(app.terminal, view, 32) {}, 32)
+        view.setTypeface(android.graphics.Typeface.MONOSPACE)
+        assertNotNull(view.mRenderer)
+    }
+
+    @Test fun invalidSavedFontDoesNotBreakOpeningTheView() {
+        if (!BuildConfig.HAS_TERMINAL) return
+        val view = TerminalView(app, null)
+        view.prepare(viewClient(app.terminal, view, 0) {}, 0)
+        assertNotNull(view.mRenderer)
+    }
 }
