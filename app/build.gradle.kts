@@ -7,14 +7,23 @@ plugins {
 android {
     namespace = "app.ultimate"
     compileSdk = 35
+    ndkVersion = "27.2.12479018"
+
+    // Local AI: a small JNI bridge to Cactus Needle. The engine is fetched by scripts/fetch-needle.sh; without it the
+    // bridge builds as a stub and the feature says so.
+    externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
+
+    // Screens are drawn in a simulated Android in unit tests, which needs the merged manifest and resources.
+    testOptions { unitTests { isIncludeAndroidResources = true } }
 
     defaultConfig {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 29
-        versionName = "1.27.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 74
+        versionName = "1.63.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -25,6 +34,8 @@ android {
         create("ultimate") {
             dimension = "edition"
             applicationId = "app.ultimate"
+            externalNativeBuild { cmake { arguments += listOf("-DWITH_NEEDLE=ON", "-DANDROID_STL=c++_static") } }
+            buildConfigField("boolean", "HAS_LOCAL_AI", "true")
             resValue("string", "app_name", "Ultimate")
             buildConfigField("boolean", "HAS_SQUEEZE", "true")
             buildConfigField("boolean", "HAS_AUDIO", "true")
@@ -46,13 +57,20 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "true")
             buildConfigField("boolean", "HAS_TERMINAL", "true")
             buildConfigField("boolean", "HAS_ORB", "true")
+            buildConfigField("boolean", "HAS_RULES", "true")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "true")
+            buildConfigField("boolean", "HAS_FOCUS", "true")
         }
         // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
         create("ultimateplus") {
             proguardFile("src/ultimateplus/java/app/ultimate/ssh/mina-rules.pro")
             dimension = "edition"
-            applicationId = if (providers.gradleProperty("companionBuild").orNull == "true") "app.ultimate.companion" else "app.ultimate.plus"
-            resValue("string", "app_name", if (providers.gradleProperty("companionBuild").orNull == "true") "Ultimate Companion" else "Ultimate+")
+            externalNativeBuild { cmake { arguments += listOf("-DWITH_NEEDLE=ON", "-DANDROID_STL=c++_static") } }
+            buildConfigField("boolean", "HAS_LOCAL_AI", "true")
+            val orbitPreview = providers.gradleProperty("orbitPreview").orNull == "true"
+            val companion = providers.gradleProperty("companionBuild").orNull == "true"
+            applicationId = when { orbitPreview -> "app.ultimate.orbitpreview"; companion -> "app.ultimate.companion"; else -> "app.ultimate.plus" }
+            resValue("string", "app_name", when { orbitPreview -> "Ultimate Orbit Preview"; companion -> "Ultimate Companion"; else -> "Ultimate+" })
             buildConfigField("boolean", "HAS_SQUEEZE", "true")
             buildConfigField("boolean", "HAS_AUDIO", "true")
             buildConfigField("boolean", "HAS_PLUCK", "true")
@@ -73,8 +91,12 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "true")
             buildConfigField("boolean", "HAS_TERMINAL", "true")
             buildConfigField("boolean", "HAS_ORB", "true")
+            buildConfigField("boolean", "HAS_RULES", "true")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "true")
+            buildConfigField("boolean", "HAS_FOCUS", "true")
         }
         create("studio") {
+            buildConfigField("boolean", "HAS_LOCAL_AI", "false")
             dimension = "edition"
             applicationId = "app.ultimate.studio"
             resValue("string", "app_name", "Studio")
@@ -98,8 +120,12 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "false")
+            buildConfigField("boolean", "HAS_FOCUS", "false")
         }
         create("traffic") {
+            buildConfigField("boolean", "HAS_LOCAL_AI", "false")
             dimension = "edition"
             applicationId = "app.ultimate.traffic"
             resValue("string", "app_name", "Traffic Inspector")
@@ -123,8 +149,12 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "false")
+            buildConfigField("boolean", "HAS_FOCUS", "false")
         }
         create("squeeze") {
+            buildConfigField("boolean", "HAS_LOCAL_AI", "false")
             dimension = "edition"
             applicationId = "app.squeeze"
             resValue("string", "app_name", "Squeeze")
@@ -148,8 +178,12 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "false")
+            buildConfigField("boolean", "HAS_FOCUS", "false")
         }
         create("audio") {
+            buildConfigField("boolean", "HAS_LOCAL_AI", "false")
             dimension = "edition"
             applicationId = "app.ultimate.audio"
             resValue("string", "app_name", "Video to Audio")
@@ -173,8 +207,12 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "false")
+            buildConfigField("boolean", "HAS_FOCUS", "false")
         }
         create("pluck") {
+            buildConfigField("boolean", "HAS_LOCAL_AI", "false")
             dimension = "edition"
             applicationId = "app.pluck"
             resValue("string", "app_name", "Pluck")
@@ -198,6 +236,9 @@ android {
             buildConfigField("boolean", "HAS_CLIPS", "false")
             buildConfigField("boolean", "HAS_TERMINAL", "false")
             buildConfigField("boolean", "HAS_ORB", "false")
+            buildConfigField("boolean", "HAS_RULES", "false")
+            buildConfigField("boolean", "HAS_FOOTPRINT", "false")
+            buildConfigField("boolean", "HAS_FOCUS", "false")
         }
     }
 
@@ -235,10 +276,16 @@ android {
         compose = true
         buildConfig = true
     }
+    // MediaPipe maps its .task models straight out of the APK, which only works when they are stored uncompressed
+    // (on a Fold, 1.61-1.62 compressed them and hand tracking failed to start).
+    androidResources { noCompress += "task" }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
         // Keep MINA's license notices and combine its filesystem-provider registrations.
         resources.merges += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE", "META-INF/NOTICE", "META-INF/services/**")
+        // MediaPipe's x86 builds (about 40 MB) serve only emulators; on a phone that lacks them, camera calibration
+        // simply reports that hand tracking isn't available.
+        jniLibs.excludes += setOf("lib/x86/libmediapipe_tasks_vision_jni.so", "lib/x86_64/libmediapipe_tasks_vision_jni.so")
     }
 }
 
@@ -248,9 +295,14 @@ android.sourceSets {
     (getByName("test").java as org.gradle.api.tasks.util.PatternFilterable).exclude("app/ultimate/ssh/**")
     getByName("testUltimateplus").java.srcDir("src/test/java/app/ultimate/ssh")
     listOf("ultimate", "studio", "traffic", "squeeze", "audio", "pluck").forEach { getByName(it).java.srcDir("src/noai/java") }
+    // Vision (camera hand tracking) in the two full editions only: it carries MediaPipe's native code and model.
+    listOf("ultimate", "ultimateplus").forEach { getByName(it).java.srcDir("src/vision/java"); getByName(it).assets.srcDir("src/vision/assets") }
 }
 
 dependencies {
+    // Hand tracking for camera-assisted Echo calibration (Apache-2.0). Model fetched by scripts/fetch-models.sh.
+    "ultimateImplementation"("com.google.mediapipe:tasks-vision:0.10.20")
+    "ultimateplusImplementation"("com.google.mediapipe:tasks-vision:0.10.20")
     "ultimateplusImplementation"("org.apache.sshd:sshd-core:2.20.1")
     "ultimateplusImplementation"("org.apache.sshd:sshd-sftp:2.20.1")
     // Ed25519 support on Android releases without Java's native EdEC implementation.
@@ -258,6 +310,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
+    // Footprint: read steps, sleep and heart rate from Health Connect, on request.
+    implementation("androidx.health.connect:connect-client:1.1.0-alpha11")
     // QR code for opening Send to computer on another phone or tablet.
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.github.termux.termux-app:terminal-view:v0.118.1")
@@ -289,4 +343,40 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    // Robolectric runs Android framework code on the JVM, for tests that start real services and windows (the floating orb).
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.work:work-testing:2.10.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    // Renders real screens to PNG in the simulator for the README (run with -Pscreenshots).
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.43.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.43.0")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+// Robolectric's Android framework jar comes through Gradle (and its proxy settings) instead of Robolectric's own downloader.
+// Two versions of one artifact would collapse into the newer, so each framework jar gets its own configuration.
+val robolectricAndroid14: Configuration by configurations.creating
+val robolectricAndroid15: Configuration by configurations.creating
+dependencies {
+    robolectricAndroid14("org.robolectric:android-all-instrumented:14-robolectric-10818077-i7")
+    robolectricAndroid15("org.robolectric:android-all-instrumented:15-robolectric-12650502-i7")
+}
+val robolectricJars = tasks.register<Copy>("robolectricJars") {
+    from(robolectricAndroid14, robolectricAndroid15)
+    into(layout.buildDirectory.dir("robolectric"))
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(robolectricJars)
+    // Robolectric keeps a trace record for every frame drawn, and screens with looping animation draw many; the
+    // default 512 MB heap runs out partway through the suite and the next test fails with a leftover OutOfMemoryError.
+    maxHeapSize = "2g"
+    systemProperty("robolectric.offline", "true")
+    systemProperty("robolectric.dependency.dir", layout.buildDirectory.dir("robolectric").get().asFile.path)
+    // `-Pscreenshots` renders the README screenshots into docs/screenshots; otherwise those tests skip themselves.
+    if (project.hasProperty("screenshots")) systemProperty("screenshots.dir", rootProject.layout.projectDirectory.dir("docs/screenshots").asFile.path)
 }

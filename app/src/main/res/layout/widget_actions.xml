@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ultimate's home screen widget: one-tap actions and the last thing the phone sensed. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="12dp" android:background="@drawable/widget_bg">
+    <TextView android:id="@+id/widget_status" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="@string/widget_idle" android:textColor="#E6FFFFFF" android:textSize="13sp" android:maxLines="1" android:ellipsize="end"
+        android:paddingStart="4dp" android:paddingEnd="4dp" android:paddingBottom="8dp" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+        <ImageButton android:id="@+id/widget_echo" style="@style/WidgetButton" android:src="@drawable/ic_act_echo" android:contentDescription="@string/widget_echo" />
+        <ImageButton android:id="@+id/widget_ruler" style="@style/WidgetButton" android:src="@drawable/ic_act_ruler" android:contentDescription="@string/widget_ruler" />
+        <ImageButton android:id="@+id/widget_record" style="@style/WidgetButton" android:src="@drawable/ic_act_mic" android:contentDescription="@string/widget_record" />
+        <ImageButton android:id="@+id/widget_torch" style="@style/WidgetButton" android:src="@drawable/ic_act_torch" android:contentDescription="@string/widget_torch" />
+    </LinearLayout>
+</LinearLayout>

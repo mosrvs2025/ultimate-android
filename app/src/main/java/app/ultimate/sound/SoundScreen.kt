@@ -32,6 +32,7 @@ import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import app.ultimate.core.GooeySwitch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -156,7 +157,7 @@ fun SoundScreen(tool: SoundTool, onExit: () -> Unit, launch: ToolLaunch) {
                 state.message?.let { item { Text(it) } }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Switch(useOffset, { useOffset = it }, enabled = !state.running)
+                        GooeySwitch(useOffset, { useOffset = it }, enabled = !state.running)
                         Text("Use reference calibration", modifier = Modifier.padding(top = 12.dp))
                     }
                     if (useOffset) OutlinedTextField(offsetText, { offsetText = it }, enabled = !state.running,

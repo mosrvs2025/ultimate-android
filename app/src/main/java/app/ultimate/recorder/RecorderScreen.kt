@@ -44,9 +44,6 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -72,6 +69,7 @@ import app.ultimate.core.ShellActions
 import app.ultimate.core.ToolBackButton
 import app.ultimate.core.formatDuration
 import app.ultimate.core.pressScale
+import app.ultimate.core.GooeyTabs
 
 private val RED = Color(0xFFE53935)
 
@@ -125,11 +123,7 @@ fun RecorderScreen(tool: RecorderTool, onExit: () -> Unit) {
             Spacer(Modifier.height(24.dp))
             AnimatedVisibility(recording == null) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        RecordQuality.entries.forEachIndexed { i, q ->
-                            SegmentedButton(quality == q, { quality = q }, SegmentedButtonDefaults.itemShape(i, RecordQuality.entries.size)) { Text(q.label) }
-                        }
-                    }
+                    GooeyTabs(RecordQuality.entries.map { it.label }, RecordQuality.entries.indexOf(quality), { quality = RecordQuality.entries[it] })
                     Text(quality.blurb, Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

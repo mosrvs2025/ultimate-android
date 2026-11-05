@@ -43,7 +43,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -71,6 +70,7 @@ import app.ultimate.core.ShellActions
 import app.ultimate.core.ToolBackButton
 import kotlin.math.cos
 import kotlin.math.sin
+import app.ultimate.core.GooeyProgress
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,7 +84,7 @@ fun LanScreen(m: LanManager, onExit: () -> Unit) {
             item {
                 if (s.scanning) {
                     Text("Looking for devices… ${s.done}/${s.total}", style = MaterialTheme.typography.titleSmall)
-                    LinearProgressIndicator(progress = { if (s.total > 0) s.done / s.total.toFloat() else 0f }, Modifier.fillMaxWidth().padding(top = 6.dp))
+                    GooeyProgress(progress = { if (s.total > 0) s.done / s.total.toFloat() else 0f }, Modifier.fillMaxWidth().padding(top = 6.dp))
                     OutlinedButton(m::stop, Modifier.padding(top = 8.dp)) { Text("Stop") }
                 } else {
                     Button(m::scan, Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) {

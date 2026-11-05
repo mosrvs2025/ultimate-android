@@ -1,5 +1,7 @@
 package app.ultimate.orb
 
+import app.ultimate.home.HomeLayout
+
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Service
@@ -47,6 +49,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Photo
+import androidx.compose.material.icons.rounded.Audiotrack
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.VideoFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -100,9 +106,41 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import app.ultimate.core.gooey
+import app.ultimate.core.motionOn
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.geometry.CornerRadius
+import app.ultimate.core.GooeyMath
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.MaterialTheme
+import kotlinx.coroutines.withContext
+import app.ultimate.BuildConfig
+import app.ultimate.timeline.TimelineMath
+import app.ultimate.focus.FocusMath
+import app.ultimate.core.UltimateTheme
+import app.ultimate.home.JumpContents
+import app.ultimate.home.JumpActions
+import app.ultimate.core.Tool
+import app.ultimate.core.AppIcon
+import app.ultimate.inbox.LiveNotifications
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.layout.height
 
 /** One petal of the bloom: a tool to open (or Home, for null). */
 data class OrbAction(val key: String, val label: String, val icon: ImageVector, val toolId: String?)
+
+/** One recent notification in the orb's glance; [key] finds its tap action while it is still in the shade. */
+data class GlanceNote(val key: String, val pkg: String, val app: String, val text: String)
+
+/** What the orb shows when it opens: today's notifications and who sent them, what you copied, a running focus session, and the latest notifications. */
+data class OrbGlance(
+    val notifications: Int? = null, val senders: List<Pair<String, Int>> = emptyList(), val copied: List<String> = emptyList(),
+    val focus: String? = null, val latest: List<GlanceNote> = emptyList(),
+) { val empty get() = notifications == null && copied.isEmpty() && focus == null && latest.isEmpty() }
 
 /**
  * The Ultimate orb: a bubble that floats over other apps. Drag it anywhere and it springs to the nearest edge; tap it and the
@@ -110,7 +148,8 @@ data class OrbAction(val key: String, val label: String, val icon: ImageVector, 
  * with the job's progress as a ring, and a card peeks out of it when something finishes.
  */
 class OrbService : Service() {
-    private val app get() = application as UltimateApp
+    /** Null only in tests that run the orb without the full app. */
+    private val app get() = application as? UltimateApp
     private val wm by lazy { getSystemService(WindowManager::class.java) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val owner = OverlayOwner()
@@ -127,6 +166,8 @@ class OrbService : Service() {
     // Shared with the Compose content of every window.
     private val progress = MutableStateFlow<Float?>(null)
     private val busy = MutableStateFlow(false)
+    /** What the running job is working on, shown in the orb in place of its own mark. */
+    private val workIcon = MutableStateFlow<androidx.compose.ui.graphics.vector.ImageVector?>(null)
     private val nearTarget = MutableStateFlow(false)
     private val dropHover = MutableStateFlow(false)
     private val peek = MutableStateFlow<Pair<String, String?>?>(null)
@@ -136,14 +177,16 @@ class OrbService : Service() {
     override fun onCreate() {
         super.onCreate()
         if (!Settings.canDrawOverlays(this)) { stopSelf(); return }
+        prefs.edit().putBoolean("starting", true).commit()
         owner.start()
-        showOrb()
-        watchWork()
+        val shown = runCatching { showOrb(); watchWork(); watchApp() }
+        if (shown.isFailure) { set(this, false); stopSelf(); return }
+        scope.launch { delay(4_000); prefs.edit().putBoolean("starting", false).apply() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         intent?.getStringExtra(EXTRA_PEEK)?.let { showPeek(it, null) }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
@@ -153,8 +196,9 @@ class OrbService : Service() {
 
     override fun onDestroy() {
         scope.cancel()
-        listOfNotNull(orbView, bloomView, peekView, targetView).forEach { v -> runCatching { wm.removeView(v) } }
-        owner.stop()
+        listOfNotNull(orbView, bloomView, peekView, targetView).forEach { v -> runCatching { wm.removeViewImmediate(v) } }
+        orbView = null; bloomView = null; peekView = null; targetView = null
+        runCatching { owner.stop() }
         super.onDestroy()
     }
 
@@ -187,9 +231,11 @@ class OrbService : Service() {
         orbParams = overlayParams(orbPx, orbPx).apply {
             x = prefs.getInt("x", sw - orbPx - (6 * density).toInt()); y = prefs.getInt("y", (sh * 0.35f).toInt())
         }
-        val content = compose { OrbFace(progress, busy, nearTarget, dropHover) }
+        val content = compose { OrbFace(progress, busy, nearTarget, dropHover, unread, workIcon) }
         // A frame takes every touch itself (Compose would measure drags against a window that moves with the finger).
         val frame = object : FrameLayout(this) { override fun onInterceptTouchEvent(ev: MotionEvent?) = true }
+        // Compose looks for its lifecycle from the window's root view, so the frame carries it too, not just the ComposeView.
+        frame.setViewTreeLifecycleOwner(owner); frame.setViewTreeSavedStateRegistryOwner(owner); frame.setViewTreeViewModelStoreOwner(owner)
         frame.addView(content)
         frame.setOnTouchListener(OrbTouch())
         frame.setOnDragListener { _, e -> onDrag(e) }
@@ -271,22 +317,81 @@ class OrbService : Service() {
 
     private fun hideTarget() { targetView?.let { runCatching { wm.removeView(it) } }; targetView = null }
 
+    private val unread = MutableStateFlow(0)
+
+    /**
+     * Steps aside while Ultimate is on screen (the jump bubble is there), and counts notifications that arrived since
+     * the orb was last opened, for its badge.
+     */
+    private fun watchApp() {
+        val a = app ?: return
+        scope.launch { a.inApp.collect { inside -> orbView?.visibility = if (inside) View.GONE else if (bloomView != null) View.INVISIBLE else View.VISIBLE; if (inside) bloomClose?.invoke() } }
+        if (BuildConfig.HAS_INBOX) scope.launch {
+            a.notificationLog.changed.collect { unread.value = withContext(Dispatchers.IO) { runCatching { a.notificationLog.countSince(prefs.getLong("seen", System.currentTimeMillis())) }.getOrDefault(0) } }
+        }
+    }
+
+    private var bloomClose: (() -> Unit)? = null
+
+    /** What the orb shows at a glance when it opens: today's numbers and the latest notifications. */
+    private fun glance(): OrbGlance {
+        val a = app ?: return OrbGlance()
+        val now = System.currentTimeMillis()
+        val start = TimelineMath.startOf(TimelineMath.dayOf(now))
+        val today = if (BuildConfig.HAS_INBOX) runCatching { a.notificationLog.since(start, limit = 5_000) }.getOrDefault(emptyList()) else emptyList()
+        val senders = today.groupingBy { it.app }.eachCount().entries.sortedByDescending { it.value }.take(4).map { it.key to it.value }
+        val copied = if (BuildConfig.HAS_CLIPS) a.clips.clips.value.filter { it.at >= start }.sortedByDescending { it.at }.take(4).map { it.text } else emptyList()
+        val focus = if (BuildConfig.HAS_FOCUS) a.focus.current.value?.let { "${it.task.ifBlank { "Focus" }} · ${FocusMath.countdown(it.left(now))} left" } else null
+        val latest = if (BuildConfig.HAS_INBOX) runCatching { a.notificationLog.search("", null, false, limit = 3).map { GlanceNote(it.key, it.pkg, it.app, listOf(it.title, it.text).filter { s -> s.isNotBlank() }.joinToString(": ")) } }.getOrDefault(emptyList()) else emptyList()
+        return OrbGlance(if (BuildConfig.HAS_INBOX) today.size else null, senders, copied, focus, latest)
+    }
+
+    /** Opens a notification the way tapping it in the shade would; if it is gone from the shade, opens its app. */
+    private fun openNote(n: GlanceNote) {
+        val sent = LiveNotifications.intent(n.key)?.let { pi ->
+            runCatching {
+                val opts = if (Build.VERSION.SDK_INT >= 34) android.app.ActivityOptions.makeBasic().setPendingIntentBackgroundActivityStartMode(android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED).toBundle() else null
+                pi.send(this, 0, null, null, null, null, opts); true
+            }.getOrDefault(false)
+        } ?: false
+        if (!sent) packageManager.getLaunchIntentForPackage(n.pkg)?.let { runCatching { startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+    }
+
+    private fun copy(text: String) {
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Ultimate", text))
+        android.widget.Toast.makeText(this, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
     // ---- Bloom: the tools around the orb ----
 
     private fun actions(): List<OrbAction> {
-        val ids = app.tools.map { it.id }.toSet()
+        val tools = app?.tools.orEmpty()
+        val ids = tools.map { it.id }.toSet()
         val all = listOf(
             OrbAction("home", "Ultimate", Icons.Rounded.AutoAwesome, null),
-            OrbAction("clips", "Clipboard", app.tools.firstOrNull { it.id == "clips" }?.icon ?: Icons.Rounded.AutoAwesome, "clips"),
-            OrbAction("recorder", "Record", app.tools.firstOrNull { it.id == "recorder" }?.icon ?: Icons.Rounded.AutoAwesome, "recorder"),
-            OrbAction("terminal", "Terminal", app.tools.firstOrNull { it.id == "terminal" }?.icon ?: Icons.Rounded.AutoAwesome, "terminal"),
-            OrbAction("storage", "Storage", app.tools.firstOrNull { it.id == "storage" }?.icon ?: Icons.Rounded.AutoAwesome, "storage"),
-            OrbAction("send", "Computer", app.tools.firstOrNull { it.id == "send" }?.icon ?: Icons.Rounded.AutoAwesome, "send"),
-            OrbAction("inbox", "Notifications", app.tools.firstOrNull { it.id == "inbox" }?.icon ?: Icons.Rounded.AutoAwesome, "inbox"),
-            OrbAction("cleanup", "Clean up", app.tools.firstOrNull { it.id == "cleanup" }?.icon ?: Icons.Rounded.AutoAwesome, "cleanup"),
+            OrbAction("clips", "Clipboard", tools.firstOrNull { it.id == "clips" }?.icon ?: Icons.Rounded.AutoAwesome, "clips"),
+            OrbAction("recorder", "Record", tools.firstOrNull { it.id == "recorder" }?.icon ?: Icons.Rounded.AutoAwesome, "recorder"),
+            OrbAction("terminal", "Terminal", tools.firstOrNull { it.id == "terminal" }?.icon ?: Icons.Rounded.AutoAwesome, "terminal"),
+            OrbAction("storage", "Storage", tools.firstOrNull { it.id == "storage" }?.icon ?: Icons.Rounded.AutoAwesome, "storage"),
+            OrbAction("send", "Computer", tools.firstOrNull { it.id == "send" }?.icon ?: Icons.Rounded.AutoAwesome, "send"),
+            OrbAction("inbox", "Notifications", tools.firstOrNull { it.id == "inbox" }?.icon ?: Icons.Rounded.AutoAwesome, "inbox"),
+            OrbAction("cleanup", "Clean up", tools.firstOrNull { it.id == "cleanup" }?.icon ?: Icons.Rounded.AutoAwesome, "cleanup"),
         ).filter { it.toolId == null || it.toolId in ids }
-        // Home stays first; the rest learn from what you tap most.
-        return listOf(all.first()) + OrbMath.byUse(all.drop(1), { it.key }) { prefs.getInt("use.$it", 0) }.take(6)
+        // Home stays first. Tools you pinned (hold one in More) come next, in the order you pinned them; without pins the
+        // rest learn from what you tap most. More is always last, for everything else.
+        val pinned = pins().mapNotNull { key -> everything().firstOrNull { it.key == key } }
+        val rest = if (pinned.isNotEmpty()) pinned.take(6) else OrbMath.byUse(all.drop(1), { it.key }) { prefs.getInt("use.$it", 0) }.take(6)
+        return listOf(all.first()) + rest + OrbAction("more", "More", Icons.Rounded.Apps, null)
+    }
+
+    /** Every tool, for the More drawer. */
+    private fun everything(): List<OrbAction> = app?.tools.orEmpty().map { OrbAction(it.id, it.title, it.icon, it.id) }
+
+    private fun pins(): List<String> = prefs.getString("pins", "").orEmpty().split(',').filter { it.isNotBlank() }
+    private fun togglePin(key: String): List<String> {
+        val now = pins().let { if (key in it) it - key else (it + key).takeLast(6) }
+        prefs.edit().putString("pins", now.joinToString(",")).apply()
+        return now
     }
 
     private fun bloom() {
@@ -294,16 +399,23 @@ class OrbService : Service() {
         val (sw, sh) = screen()
         val cx = orbParams.x + orbPx / 2f; val cy = orbParams.y + orbPx / 2f
         val list = actions()
-        val spots = OrbMath.bloom(cx, cy, list.size, 118 * density, sw.toFloat(), sh.toFloat(), 44 * density)
+        val spots = OrbMath.stack(cx, cy, list.size, 54 * density, PILL_W * density, orbPx / 2f + 14 * density, 26 * density, sw.toFloat(), sh.toFloat(), 16 * density)
+        val pinned = mutableStateOf(pins().toSet())
+        prefs.edit().putLong("seen", System.currentTimeMillis()).apply(); unread.value = 0
+        val glance = glance()
         val open = mutableStateOf(true)
         val origin = MutableStateFlow(IntOffset.Zero)
         lateinit var view: View
         fun close(then: (() -> Unit)? = null) {
             open.value = false
-            scope.launch { delay(230); runCatching { wm.removeView(view) }; bloomView = null; orbView?.visibility = View.VISIBLE; then?.invoke() }
+            scope.launch { delay(230); runCatching { wm.removeView(view) }; bloomView = null; bloomClose = null; orbView?.visibility = if (app?.inApp?.value == true) View.GONE else View.VISIBLE; then?.invoke() }
         }
         view = compose {
-            Bloom(open.value, cx, cy, list, spots, orbPx, origin, onPick = { a ->
+            Bloom(open.value, cx, cy, list, spots, orbPx, origin, everything(), pinned.value, glance, app,
+                onKeyboard = { on -> runCatching { (view.layoutParams as WindowManager.LayoutParams).apply { flags = if (on) flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv() else flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE }.also { wm.updateViewLayout(view, it) } } },
+                onOpenTool = { id -> close { launch(id) } },
+                onOpenNote = { n -> close { openNote(n) } }, onCopy = { copy(it) },
+                onPin = { pinned.value = togglePin(it).toSet() }, onPick = { a ->
                 prefs.edit().putInt("use.${a.key}", prefs.getInt("use.${a.key}", 0) + 1).apply()
                 close { launch(a.toolId) }
             }) { close() }
@@ -313,6 +425,7 @@ class OrbService : Service() {
         // The orb's position is in screen pixels; the bloom draws in its window's, which may not start at the screen's corner.
         view.post { IntArray(2).also { view.getLocationOnScreen(it); origin.value = IntOffset(it[0], it[1]) } }
         bloomView = view
+        bloomClose = { close() }
     }
 
     private fun launch(toolId: String?) {
@@ -343,13 +456,14 @@ class OrbService : Service() {
     }
 
     private fun watchWork() {
-        val sources = app.work.sources
+        val sources = app?.work?.sources.orEmpty()
         if (sources.isEmpty()) return
         val last = HashMap<String, Boolean>()
         scope.launch {
             combine(sources.map { s -> s.work }) { it.toList() }.collect { snaps ->
                 val running = snaps.filter { it.active }
                 busy.value = running.isNotEmpty()
+                workIcon.value = sources.zip(snaps).firstOrNull { it.second.active }?.first?.workId?.let { id -> workGlyph(id) ?: app?.tools?.firstOrNull { it.id == id }?.icon }
                 progress.value = running.mapNotNull { it.percent }.takeIf { it.isNotEmpty() }?.average()?.toFloat()?.div(100f)
                 sources.zip(snaps).forEach { (src, w) ->
                     if (last[src.workId] == true && !w.active) showPeek(w.doneTitle ?: (if (w.failed) "${src.workTitle} stopped" else "${src.workTitle} finished"), src.workId)
@@ -369,7 +483,7 @@ class OrbService : Service() {
             dropHover.value = false
             val text = e.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
             if (text.isNotBlank()) {
-                app.clips.add(text, "Orb")
+                app?.clips?.add(text, "Orb")
                 getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Ultimate", text))
                 showPeek("Kept and copied: " + text.lines().first().take(60), "clips")
             }
@@ -387,7 +501,14 @@ class OrbService : Service() {
             if (on) runCatching { context.startService(i) } else context.stopService(i)
         }
         /** Starts the orb if it was left on; called whenever Ultimate comes to the front. */
-        fun resume(context: Context) { if (on(context) && Settings.canDrawOverlays(context)) runCatching { context.startService(Intent(context, OrbService::class.java)) } }
+        fun resume(context: Context) {
+            val prefs = context.getSharedPreferences("orb", Context.MODE_PRIVATE)
+            // The last start never got past its first seconds: it crashed, so leave the orb off rather than crash again.
+            if (prefs.getBoolean("starting", false)) { prefs.edit().putBoolean("starting", false).putBoolean("on", false).putBoolean("crashed", true).apply(); return }
+            if (on(context) && Settings.canDrawOverlays(context)) runCatching { context.startService(Intent(context, OrbService::class.java)) }
+        }
+        /** True once after the orb was switched off because it crashed. */
+        fun crashed(context: Context): Boolean = context.getSharedPreferences("orb", Context.MODE_PRIVATE).let { p -> p.getBoolean("crashed", false).also { if (it) p.edit().putBoolean("crashed", false).apply() } }
     }
 }
 
@@ -398,26 +519,54 @@ private class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelS
     override val lifecycle: Lifecycle get() = registry
     override val savedStateRegistry: SavedStateRegistry get() = saved.savedStateRegistry
     override val viewModelStore = ViewModelStore()
-    fun start() { saved.performRestore(null); registry.currentState = Lifecycle.State.RESUMED }
-    fun stop() { registry.currentState = Lifecycle.State.DESTROYED; viewModelStore.clear() }
+    private var started = false
+    fun start() { saved.performRestore(null); registry.currentState = Lifecycle.State.RESUMED; started = true }
+    // A lifecycle that never started cannot be destroyed (it throws), e.g. when the permission was missing.
+    fun stop() {
+        // Never let tearing down a half-started overlay crash the service.
+        runCatching { if (started && registry.currentState.isAtLeast(Lifecycle.State.CREATED)) registry.currentState = Lifecycle.State.DESTROYED }
+        runCatching { viewModelStore.clear() }
+        started = false
+    }
 }
 
+private val PETAL = Color(0xFF26262C)
+/** Width of an action pill, in dp. */
+private const val PILL_W = 168f
 private val ORB_BRUSH = Brush.linearGradient(listOf(Color(0xFF8E7CFF), Color(0xFF4FC3F7)))
 
 @Composable
-private fun OrbFace(progress: MutableStateFlow<Float?>, busy: MutableStateFlow<Boolean>, near: MutableStateFlow<Boolean>, hover: MutableStateFlow<Boolean>) {
+private fun OrbFace(progress: MutableStateFlow<Float?>, busy: MutableStateFlow<Boolean>, near: MutableStateFlow<Boolean>, hover: MutableStateFlow<Boolean>, unread: MutableStateFlow<Int>, job: MutableStateFlow<androidx.compose.ui.graphics.vector.ImageVector?>) {
+    val jobIcon by job.collectAsState()
     val p by progress.collectAsState()
+    val news by unread.collectAsState()
     val working by busy.collectAsState()
     val overTarget by near.collectAsState()
     val dropping by hover.collectAsState()
-    val pulse = rememberInfiniteTransition(label = "breath")
-    val breath by pulse.animateFloat(1f, if (working) 1.07f else 1f, infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b")
+    // It breathes only while work runs (and never with animations off): an idle orb runs no frames at all, which
+    // saves battery and lets the main thread go quiet.
+    val breath = if (working && motionOn()) rememberInfiniteTransition(label = "breath").animateFloat(1f, 1.07f, infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b").value else 1f
     val scale by animateFloatAsState(if (overTarget) 0.75f else if (dropping) 1.12f else 1f, spring(Spring.DampingRatioMediumBouncy), label = "s")
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow)) }
     Box(Modifier.fillMaxSize().padding(4.dp).graphicsLayer { scaleX = scale * breath * appear.value; scaleY = scale * breath * appear.value }, contentAlignment = Alignment.Center) {
         Box(Modifier.fillMaxSize().shadow(10.dp, CircleShape).clip(CircleShape).background(ORB_BRUSH), contentAlignment = Alignment.Center) {
-            Icon(if (overTarget) Icons.Rounded.Close else Icons.Rounded.AutoAwesome, null, Modifier.size(26.dp), tint = Color.White)
+            // Idle it wears its own mark; at work it shows what it is working on (a video being squeezed, a song being cut)
+            // with the percentage under it.
+            androidx.compose.animation.Crossfade(if (overTarget) "x" else if (working && jobIcon != null) "job" else "idle", label = "face") { face ->
+                when (face) {
+                    "x" -> Icon(Icons.Rounded.Close, null, Modifier.size(26.dp), tint = Color.White)
+                    "job" -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(jobIcon!!, null, Modifier.size(if (p != null) 22.dp else 26.dp), tint = Color.White)
+                        p?.let { Text("${(it * 100).toInt()}%", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, lineHeight = 10.sp) }
+                    }
+                    else -> OrbMark(Modifier.size(28.dp))
+                }
+            }
+        }
+        // New notifications since you last opened the orb.
+        if (news > 0 && !overTarget) Box(Modifier.align(Alignment.TopEnd).size(20.dp).clip(CircleShape).background(Color(0xFFE5484D)), contentAlignment = Alignment.Center) {
+            Text(if (news > 99) "99" else "$news", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
         p?.let { f ->
             Canvas(Modifier.fillMaxSize()) {
@@ -441,33 +590,128 @@ private fun DismissTarget(near: MutableStateFlow<Boolean>) {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun Bloom(
-    open: Boolean, cx: Float, cy: Float, actions: List<OrbAction>, spots: List<Pair<Float, Float>>, orbPx: Int,
-    windowOrigin: MutableStateFlow<IntOffset>, onPick: (OrbAction) -> Unit, onClose: () -> Unit,
+    shown: Boolean, cx: Float, cy: Float, actions: List<OrbAction>, spots: List<Pair<Float, Float>>, orbPx: Int,
+    windowOrigin: MutableStateFlow<IntOffset>, all: List<OrbAction>, pinned: Set<String>, glance: OrbGlance, app: UltimateApp?,
+    onKeyboard: (Boolean) -> Unit, onOpenTool: (String?) -> Unit, onOpenNote: (GlanceNote) -> Unit, onCopy: (String) -> Unit, onPin: (String) -> Unit, onPick: (OrbAction) -> Unit, onClose: () -> Unit,
 ) {
-    val scrim by animateFloatAsState(if (open) 0.42f else 0f, tween(220), label = "scrim")
+    // More swaps the petals for a drawer of every tool; tapping outside the drawer goes back to the petals.
+    var more by remember { mutableStateOf(false) }
+    LaunchedEffect(more) { onKeyboard(more) }
+    val open = shown && !more
+    val scrim by animateFloatAsState(if (shown) (if (more) 0.6f else 0.42f) else 0f, tween(220), label = "scrim")
     val d = LocalDensity.current
     val origin by windowOrigin.collectAsState()
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = scrim))
-        .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClose)) {
+        .clickable(remember { MutableInteractionSource() }, indication = null) { if (more) more = false else onClose() }) {
+        // Each petal flies out from the orb on a spring, a beat after the one before; closing pulls them back in.
+        val motion = motionOn()
+        val ts = remember(actions.size) { List(actions.size) { Animatable(if (motion) 0f else 1f) } }
+        actions.indices.forEach { i -> LaunchedEffect(open) { val t = ts[i]; if (!motion) t.snapTo(if (open) 1f else 0f) else if (open) { delay(28L * i); t.animateTo(1f, spring(0.55f, 380f)) } else t.animateTo(0f, tween(180)) } }
+        // The actions are pills in a curved column beside the orb, drawn as one gooey layer: each buds out of the orb
+        // on a neck of liquid that thins and snaps as it slides out to its place. Labels sit inside, so nothing collides.
+        Canvas(Modifier.fillMaxSize().gooey(10f)) {
+            val ocx = cx - origin.x; val ocy = cy - origin.y
+            if (ts.any { it.value < 0.98f }) drawCircle(PETAL, orbPx / 2f - 4.dp.toPx(), Offset(ocx, ocy))
+            ts.forEachIndexed { i, t ->
+                val v = t.value; if (v <= 0.01f) return@forEachIndexed
+                val (px, py) = spots[i]
+                val x = ocx + (px - cx) * v; val y = ocy + (py - cy) * v
+                val pw = GooeyMath.lerp(orbPx * 0.5f, PILL_W.dp.toPx(), v.coerceIn(0f, 1f)); val ph = GooeyMath.lerp(26.dp.toPx(), 46.dp.toPx(), v.coerceIn(0f, 1f))
+                drawRoundRect(PETAL, Offset(x - pw / 2, y - ph / 2), Size(pw, ph), CornerRadius(ph / 2))
+                val neck = (1f - v).coerceIn(0f, 1f)
+                if (neck > 0.05f) for (k in 1..3) { val f = k / 4f; drawCircle(PETAL, 14.dp.toPx() * neck, Offset(ocx + (x - ocx) * f, ocy + (y - ocy) * f)) }
+            }
+        }
         actions.forEachIndexed { i, a ->
-            // Each petal flies out from the orb on a spring, a beat after the one before; closing pulls them back in.
-            val t = remember { Animatable(0f) }
-            LaunchedEffect(open) { if (open) { delay(28L * i); t.animateTo(1f, spring(0.55f, 380f)) } else t.animateTo(0f, tween(180)) }
+            val t = ts[i]
             val (px, py) = spots[i]
             val x = cx + (px - cx) * t.value - origin.x; val y = cy + (py - cy) * t.value - origin.y
-            val sizePx = with(d) { 54.dp.toPx() }
-            Column(
-                Modifier.offset { IntOffset((x - sizePx).roundToInt(), (y - sizePx / 2).roundToInt()) }.width(with(d) { (sizePx * 2).toDp() })
-                    .graphicsLayer { alpha = t.value.coerceIn(0f, 1f); scaleX = 0.4f + 0.6f * t.value; scaleY = 0.4f + 0.6f * t.value },
-                horizontalAlignment = Alignment.CenterHorizontally,
+            val w = with(d) { PILL_W.dp.toPx() }; val h = with(d) { 46.dp.toPx() }
+            Row(
+                Modifier.offset { IntOffset((x - w / 2).roundToInt(), (y - h / 2).roundToInt()) }.size(PILL_W.dp, 46.dp)
+                    .graphicsLayer { alpha = ((t.value - 0.4f) / 0.6f).coerceIn(0f, 1f) }
+                    .clip(RoundedCornerShape(50)).clickable(enabled = open) { if (a.key == "more") more = true else onPick(a) }.padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(54.dp).shadow(8.dp, CircleShape).clip(CircleShape).background(Color(0xFF26262C)).clickable { onPick(a) }, contentAlignment = Alignment.Center) {
-                    Icon(a.icon, a.label, tint = Color.White, modifier = Modifier.size(24.dp))
+                Icon(a.icon, null, tint = if (a.key == "more") Color(0xFFB9C2FF) else Color.White, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(12.dp))
+                Text(a.label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            more && shown, Modifier.align(Alignment.BottomCenter),
+            enter = androidx.compose.animation.scaleIn(spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMediumLow), initialScale = 0.6f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)) + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.scaleOut(targetScale = 0.8f) + androidx.compose.animation.fadeOut(),
+        ) {
+            // The same panel as Jump to inside the app: today's numbers, search across tools and your records, every tool.
+            UltimateTheme {
+                androidx.compose.material3.Surface(Modifier.padding(12.dp).fillMaxWidth().fillMaxHeight(0.72f).clickable(remember { MutableInteractionSource() }, indication = null) {}, shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 12.dp) {
+                    if (app != null) JumpContents(app, null, emptySet(), object : JumpActions {
+                        override fun tool(t: Tool, query: String?) = onOpenTool(t.id)
+                        override fun home() = onOpenTool(null)
+                        override fun library() = onOpenTool(null)
+                        override fun activity() = onOpenTool(null)
+                    }, showNav = false, placeholder = "Search tools and your records", pins = pinned, onPin = { onPin(it.id) })
+                    else Drawer(all, pinned, onPin, onPick)
                 }
-                Text(a.label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 1,
-                    modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.45f)).padding(horizontal = 6.dp, vertical = 1.dp))
+            }
+        }
+        // At a glance, beside the column of actions: today's numbers as chips that open up right here (who sent the
+        // notifications, what you copied), and the latest notifications, which open in their own app.
+        if (!glance.empty) {
+            var chip by remember { mutableStateOf<String?>(null) }
+            val g by animateFloatAsState(if (open) 1f else 0f, spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMediumLow), label = "glance")
+            val top = spots.minOf { it.second } - origin.y; val bottom = spots.maxOf { it.second } - origin.y
+            val cardH = with(d) { (92 + 46 * glance.latest.size).dp.toPx() }; val gap = with(d) { 40.dp.toPx() }
+            val above = top - gap - cardH > with(d) { 60.dp.toPx() }
+            val y = if (above) top - gap - cardH else bottom + gap
+            Column(
+                Modifier.align(Alignment.TopCenter).offset { IntOffset(0, y.roundToInt()) }.padding(horizontal = 24.dp).fillMaxWidth()
+                    .graphicsLayer { alpha = g.coerceIn(0f, 1f); translationY = (1f - g) * 40f; scaleX = 0.9f + 0.1f * g; scaleY = 0.9f + 0.1f * g }
+                    .clip(RoundedCornerShape(24.dp)).background(PETAL).clickable(remember { MutableInteractionSource() }, indication = null) {}.animateContentSize().padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    glance.notifications?.let { n -> GlanceChip("$n notifications today", chip == "n") { chip = if (chip == "n") null else "n" } }
+                    if (glance.copied.isNotEmpty()) GlanceChip("${glance.copied.size} copied", chip == "c") { chip = if (chip == "c") null else "c" }
+                }
+                glance.focus?.let { Text(it, color = Color(0xFF9BE0B4), fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(enabled = open) { onOpenTool("focus") }.padding(vertical = 2.dp)) }
+                when (chip) {
+                    "n" -> Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.06f)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Who sent them", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
+                        val most = glance.senders.firstOrNull()?.second ?: 1
+                        glance.senders.forEach { (who, n) ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(who, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(110.dp))
+                                Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.1f))) {
+                                    Box(Modifier.fillMaxWidth(n / most.toFloat()).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0xFF8E9BFF)))
+                                }
+                                Text("  $n", color = Color.White, fontSize = 12.sp)
+                            }
+                        }
+                        Text("See all in history", color = Color(0xFFB9C2FF), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = open) { onOpenTool("inbox") }.padding(vertical = 4.dp))
+                    }
+                    "c" -> Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.06f)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Tap one to copy it again", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
+                        glance.copied.forEach { t ->
+                            Text(t.lineSequence().first().take(80), color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(enabled = open) { onCopy(t) }.padding(vertical = 6.dp))
+                        }
+                    }
+                }
+                if (glance.latest.isNotEmpty()) Text("Latest · tap to open in its app, hold for history", color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp)
+                glance.latest.forEach { n ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).combinedClickable(enabled = open, onLongClick = { onOpenTool("inbox") }) { onOpenNote(n) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AppIcon(n.pkg, size = 28.dp); Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(n.app, color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp, maxLines = 1)
+                            Text(n.text, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
             }
         }
         // The orb stays where it was, turning into a close button.
@@ -478,6 +722,44 @@ private fun Bloom(
         }
     }
 }
+
+/** Every tool in a compact grid, over any app. Tap one to open it; hold one to pin it to the orb's fan (up to six). */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun Drawer(all: List<OrbAction>, pinned: Set<String>, onPin: (String) -> Unit, onPick: (OrbAction) -> Unit) {
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Column(
+        Modifier.padding(12.dp).fillMaxWidth().heightIn(max = 520.dp).clip(RoundedCornerShape(28.dp)).background(PETAL)
+            .clickable(remember { MutableInteractionSource() }, indication = null) {}.padding(16.dp),
+    ) {
+        Text("All tools", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("Hold one to pin it to the orb. Pinned: ${pinned.size} of 6.", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.padding(bottom = 10.dp))
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(androidx.compose.foundation.lazy.grid.GridCells.Fixed(4), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(all.size) { i ->
+                val a = all[i]
+                val on = a.key in pinned
+                Column(
+                    Modifier.clip(RoundedCornerShape(16.dp)).combinedClickable(onLongClick = { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); onPin(a.key) }) { onPick(a) }.padding(vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box {
+                        Box(Modifier.size(46.dp).clip(CircleShape).background(if (on) Color(0xFF6F7CFF) else Color.White.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
+                            Icon(a.icon, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                        }
+                        if (on) Box(Modifier.align(Alignment.TopEnd).size(14.dp).clip(CircleShape).background(Color(0xFFFFC857)))
+                    }
+                    Text(a.label, color = Color.White, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlanceChip(text: String, on: Boolean, onClick: () -> Unit) = Text(
+    text + if (on) "  ▴" else "  ▾", color = if (on) Color(0xFF1B1F3B) else Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+    modifier = Modifier.clip(RoundedCornerShape(50)).background(if (on) Color(0xFFB9C2FF) else Color.White.copy(alpha = 0.12f)).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 6.dp),
+)
 
 @Composable
 private fun PeekCard(peek: MutableStateFlow<Pair<String, String?>?>, fromLeft: Boolean, onOpen: (String?) -> Unit) {
@@ -490,5 +772,30 @@ private fun PeekCard(peek: MutableStateFlow<Pair<String, String?>?>, fromLeft: B
         .clickable { onOpen(shown?.second) }.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(ORB_BRUSH)); Spacer(Modifier.width(10.dp))
         Text(shown?.first.orEmpty(), color = Color.White, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+
+/** A picture of the work itself for the jobs where the tool's own icon says less. */
+private fun workGlyph(id: String): androidx.compose.ui.graphics.vector.ImageVector? = when (id) {
+    "squeeze" -> Icons.Rounded.VideoFile
+    "studio" -> Icons.Rounded.Movie
+    "audio" -> Icons.Rounded.Audiotrack
+    "photos" -> Icons.Rounded.Photo
+    else -> null
+}
+
+/** The orb's own mark: three drops caught merging, like the gooey motion through the app. */
+@Composable
+private fun OrbMark(modifier: Modifier) {
+    Canvas(modifier) {
+        val c = center; val r = size.minDimension
+        val white = Color.White
+        drawCircle(white, r * 0.22f, c + Offset(-r * 0.12f, r * 0.08f))
+        drawCircle(white, r * 0.15f, c + Offset(r * 0.2f, -r * 0.16f))
+        drawCircle(white, r * 0.09f, c + Offset(r * 0.25f, r * 0.24f))
+        // Necks between the drops, so they read as one liquid shape rather than three dots.
+        drawLine(white, c + Offset(-r * 0.12f, r * 0.08f), c + Offset(r * 0.2f, -r * 0.16f), strokeWidth = r * 0.14f, cap = StrokeCap.Round)
+        drawLine(white, c + Offset(-r * 0.12f, r * 0.08f), c + Offset(r * 0.25f, r * 0.24f), strokeWidth = r * 0.08f, cap = StrokeCap.Round)
     }
 }

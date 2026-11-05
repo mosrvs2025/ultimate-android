@@ -27,7 +27,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Android
-import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -77,28 +78,42 @@ fun AppIcon(packageName: String, modifier: Modifier = Modifier, size: Dp = 48.dp
     }
 }
 
-/** A circle that pops in, then a check mark that draws itself. */
+/**
+ * Done: six droplets fall in from a ring and melt into one circle (the gooey effect, Android 12 and newer; plain
+ * dots that gather into a circle before that), then a check mark draws itself across it.
+ */
 @Composable
 fun SuccessCheck(size: Dp, color: Color, modifier: Modifier = Modifier) {
-    val circle = remember { Animatable(0f) }
-    val tick = remember { Animatable(0f) }
+    val motion = motionOn()
+    val gather = remember { Animatable(if (motion) 0f else 1f) }
+    val circle = remember { Animatable(if (motion) 0f else 1f) }
+    val tick = remember { Animatable(if (motion) 0f else 1f) }
     LaunchedEffect(Unit) {
+        if (!motion) return@LaunchedEffect
+        gather.animateTo(1f, tween(420))
         circle.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
         tick.animateTo(1f, tween(320))
     }
-    Canvas(modifier.size(size)) {
-        drawCircle(color, radius = this.size.minDimension / 2 * circle.value)
-        val w = this.size.width
-        val h = this.size.height
-        val path = Path().apply {
-            moveTo(w * 0.28f, h * 0.52f)
-            lineTo(w * 0.44f, h * 0.68f)
-            lineTo(w * 0.74f, h * 0.36f)
+    Box(modifier.size(size)) {
+        Canvas(Modifier.matchParentSize().gooey((size.value / 9f).coerceIn(3f, 10f))) {
+            val r = this.size.minDimension / 2
+            val c = center
+            if (circle.value < 1f) for (i in 0 until 6) drawCircle(color, r * 0.22f, c + GooeyMath.converge(i, 6, gather.value, r * 0.85f))
+            drawCircle(color, r * (0.35f * gather.value + 0.65f * circle.value).coerceIn(0f, 1f))
         }
-        val measure = PathMeasure().apply { setPath(path, false) }
-        val partial = Path()
-        measure.getSegment(0f, measure.length * tick.value, partial, true)
-        drawPath(partial, Color.White, style = Stroke(width = w * 0.08f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        Canvas(Modifier.matchParentSize()) {
+            val w = this.size.width
+            val h = this.size.height
+            val path = Path().apply {
+                moveTo(w * 0.28f, h * 0.52f)
+                lineTo(w * 0.44f, h * 0.68f)
+                lineTo(w * 0.74f, h * 0.36f)
+            }
+            val measure = PathMeasure().apply { setPath(path, false) }
+            val partial = Path()
+            measure.getSegment(0f, measure.length * tick.value, partial, true)
+            drawPath(partial, Color.White, style = Stroke(width = w * 0.08f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
     }
 }
 
@@ -165,6 +180,7 @@ data class ShellNav(
     val standalone: Boolean,
     val openLibrary: () -> Unit,
     val openActivity: () -> Unit,
+    val openAbout: () -> Unit = {},
     /** Every tool in this edition, so results can be handed from one tool to another. */
     val tools: List<Tool> = emptyList(),
     val send: (Tool, List<android.net.Uri>) -> Unit = { _, _ -> },
@@ -172,16 +188,14 @@ data class ShellNav(
 
 val LocalShellNav = androidx.compose.runtime.staticCompositionLocalOf<ShellNav?> { null }
 
-/** Library and Activity buttons for a tool's top bar. */
+/** Library and Activity buttons for a tool's top bar: icons only, so tools with their own actions never run out of room. */
 @Composable
 fun ShellActions() {
     val nav = LocalShellNav.current ?: return
-    androidx.compose.material3.IconButton(nav.openActivity) { Icon(androidx.compose.material.icons.Icons.Rounded.Terminal, "Activity") }
-    androidx.compose.material3.TextButton(nav.openLibrary) {
-        Icon(androidx.compose.material.icons.Icons.Rounded.VideoLibrary, null, Modifier.size(20.dp))
-        androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
-        androidx.compose.material3.Text("Library")
-    }
+    androidx.compose.material3.IconButton(nav.openActivity) { Icon(Icons.Rounded.History, "Activity") }
+    androidx.compose.material3.IconButton(nav.openLibrary) { Icon(Icons.Rounded.VideoLibrary, "Library") }
+    // A one-tool app has no Home, so its version and settings open from here.
+    if (nav.standalone) androidx.compose.material3.IconButton(nav.openAbout) { Icon(Icons.Rounded.Info, "About and settings") }
 }
 
 /** The tool's own back arrow, unless this build is the tool on its own. */

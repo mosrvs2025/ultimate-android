@@ -3,7 +3,8 @@ package app.ultimate.files
 import java.io.File
 
 /** A file the cleanup looked at. [width]/[height] are known for photos. */
-data class Item(val file: File, val bytes: Long, val modified: Long, val kind: FileKind)
+/** A file found by a scan; [mediaId] is its MediaStore row when it came from the index (0 otherwise), for fast thumbnails. */
+data class Item(val file: File, val bytes: Long, val modified: Long, val kind: FileKind, val mediaId: Long = 0)
 
 /** A group of files where all but [keep] could go. */
 data class Group(val items: List<Item>, val keep: Item) { val spare: List<Item> get() = items - keep; val spareBytes get() = spare.sumOf { it.bytes } }

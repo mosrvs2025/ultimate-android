@@ -18,10 +18,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -40,6 +39,7 @@ import app.ultimate.core.pressScale
 import androidx.compose.foundation.lazy.itemsIndexed
 import app.ultimate.core.Terminal
 import app.ultimate.core.WorkSource
+import app.ultimate.core.GooeyProgress
 
 /** Every tool's current or last run, with its live terminal. */
 @Composable
@@ -71,7 +71,7 @@ private fun SourceCard(app: UltimateApp, source: WorkSource) {
             Box(
                 Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center,
-            ) { Icon(tool?.icon ?: Icons.Rounded.Terminal, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) }
+            ) { Icon(tool?.icon ?: Icons.Rounded.History, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(source.workTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -94,7 +94,7 @@ private fun SourceCard(app: UltimateApp, source: WorkSource) {
             }
         }
         val progress by androidx.compose.animation.core.animateFloatAsState((snap.percent ?: 0) / 100f, label = "progress")
-        androidx.compose.animation.AnimatedVisibility(snap.active) { LinearProgressIndicator(progress = { progress }, Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))) }
+        androidx.compose.animation.AnimatedVisibility(snap.active) { GooeyProgress(progress = { progress }, Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))) }
         if (lines.isNotEmpty()) {
             Terminal(lines, live = snap.active, title = source.workTitle.lowercase().replace(' ', '-') + ".log", startExpanded = snap.active)
         } else {

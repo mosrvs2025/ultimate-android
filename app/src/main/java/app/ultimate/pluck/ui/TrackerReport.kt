@@ -40,12 +40,9 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -68,6 +65,8 @@ import app.ultimate.pluck.engine.SdkKind
 import app.ultimate.pluck.engine.TrackerScanner
 import app.ultimate.pluck.model.AppItem
 import app.ultimate.pluck.model.TrackerFacts
+import app.ultimate.core.GooeyProgress
+import app.ultimate.core.GooeyTabs
 
 private enum class ReportSort(val label: String) { Most("Most SDKs"), MostAds("Most ad SDKs"), Name("Name") }
 
@@ -133,7 +132,7 @@ fun TrackerReport(c: PluckController, onBack: () -> Unit) {
                         )
                         progress?.let { p ->
                             Spacer(Modifier.height(10.dp))
-                            LinearProgressIndicator(progress = { if (p.total > 0) p.done.toFloat() / p.total else 0f }, Modifier.fillMaxWidth())
+                            GooeyProgress(progress = { if (p.total > 0) p.done.toFloat() / p.total else 0f }, Modifier.fillMaxWidth())
                             Text("Scanning ${p.done} of ${p.total}…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
                         }
                         if (progress == null && unscannedUser > 0) {
@@ -144,10 +143,7 @@ fun TrackerReport(c: PluckController, onBack: () -> Unit) {
                 }
             }
             item {
-                PrimaryTabRow(selectedTabIndex = tab) {
-                    Tab(tab == 0, { tab = 0 }, text = { Text("Apps (${rows.size})") })
-                    Tab(tab == 1, { tab = 1 }, text = { Text("SDKs (${sdkCounts.size})") })
-                }
+                GooeyTabs(listOf("Apps (${rows.size})", "SDKs (${sdkCounts.size})"), tab, { tab = it }, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             }
             if (tab == 0) {
                 item {

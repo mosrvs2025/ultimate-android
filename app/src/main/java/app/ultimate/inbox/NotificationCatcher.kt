@@ -4,7 +4,9 @@ import android.app.Notification
 import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import app.ultimate.BuildConfig
 import app.ultimate.UltimateApp
+import app.ultimate.rules.Event as RuleEvent
 
 /**
  * Android hands every posted notification to this service once the user turns on notification access for Ultimate. It keeps
@@ -18,28 +20,33 @@ class NotificationCatcher : NotificationListenerService() {
     // paused is lost.
     override fun onListenerConnected() {
         log.connected(true)
+        // What is playing (video titles, songs) is kept only if the person switched that on in Footprint.
+        if (BuildConfig.HAS_FOOTPRINT) runCatching { app.ultimate.footprint.MediaWatcher.start(applicationContext, android.content.ComponentName(this, NotificationCatcher::class.java)) }
         runCatching { activeNotifications?.forEach { onNotificationPosted(it) } }
     }
 
     // Samsung and Android can drop the listener to save battery; asking to be bound again brings it back without the user.
     override fun onListenerDisconnected() {
         log.connected(false)
+        if (BuildConfig.HAS_FOOTPRINT) runCatching { app.ultimate.footprint.MediaWatcher.stop() }
         runCatching { requestRebind(android.content.ComponentName(this, NotificationCatcher::class.java)) }
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        runCatching { LiveNotifications.put(sbn.key, sbn.notification.contentIntent) }
         runCatching {
             val log = log
             if (log.paused) return
             val n = sbn.notification
             val e = n.extras
             if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
+            val senders = mutableListOf<String>()
             val title = (e.getCharSequence(Notification.EXTRA_TITLE) ?: e.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE))?.toString().orEmpty()
             val lines = e.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.map { it.toString() }.orEmpty()
             val messages = runCatching {
                 @Suppress("DEPRECATION")
                 val raw = if (Build.VERSION.SDK_INT >= 33) e.getParcelableArray(Notification.EXTRA_MESSAGES, android.os.Parcelable::class.java) else e.getParcelableArray(Notification.EXTRA_MESSAGES)
-                if (Build.VERSION.SDK_INT >= 30) Notification.MessagingStyle.Message.getMessagesFromBundleArray(raw).map { m -> listOfNotNull(m.senderPerson?.name ?: m.sender, m.text).joinToString(": ") }
+                if (Build.VERSION.SDK_INT >= 30) Notification.MessagingStyle.Message.getMessagesFromBundleArray(raw).map { m -> (m.senderPerson?.name ?: m.sender)?.toString()?.let { senders += it }; listOfNotNull(m.senderPerson?.name ?: m.sender, m.text).joinToString(": ") }
                 // Android 10 has no parser for these, so read the bundle keys MessagingStyle writes.
                 else raw.orEmpty().mapNotNull { (it as? android.os.Bundle)?.let { b -> listOfNotNull(b.getCharSequence("sender"), b.getCharSequence("text")).joinToString(": ").ifBlank { null } } }
             }.getOrDefault(emptyList())
@@ -47,16 +54,27 @@ class NotificationCatcher : NotificationListenerService() {
             val fresh = log.newMessages(sbn.key, messages)
             if (messages.isNotEmpty() && fresh.isEmpty()) return
             val body = LogRules.body(e.getCharSequence(Notification.EXTRA_TEXT)?.toString(), e.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(), lines, fresh)
-            val ongoing = n.flags and Notification.FLAG_ONGOING_EVENT != 0 || n.category == Notification.CATEGORY_PROGRESS || n.category == Notification.CATEGORY_TRANSPORT
+            val hasBar = e.getInt(Notification.EXTRA_PROGRESS_MAX, 0) > 0 || e.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false)
+            // Media controls and other standing notifications are noise; a progress bar is kept, as one entry that updates.
+            val ongoing = !hasBar && (n.flags and Notification.FLAG_ONGOING_EVENT != 0 || n.category == Notification.CATEGORY_TRANSPORT)
             if (LogRules.skip(sbn.packageName, packageName, ongoing, title, body, log.excluded)) return
             val app = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }.getOrDefault(sbn.packageName)
-            log.add(sbn.packageName, app, sbn.postTime, title, body, e.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString(), sbn.key)
+            val convo = e.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
+            // Who it is from: the group chat's name, else the person who wrote, else the title of a message, call or email.
+            val who = convo?.takeIf { it.isNotBlank() } ?: senders.lastOrNull()?.takeIf { it.isNotBlank() }
+                ?: title.takeIf { n.category == Notification.CATEGORY_MESSAGE || n.category == Notification.CATEGORY_CALL || n.category == Notification.CATEGORY_EMAIL }?.takeIf { it.isNotBlank() }
+            // A progress bar (an upload, a download) is one entry that updates as it goes.
+            val progress = e.getInt(Notification.EXTRA_PROGRESS_MAX, 0) > 0 || e.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false)
+            log.add(sbn.packageName, app, sbn.postTime, title, body, convo, sbn.key, n.category, who, progress)
+            if (BuildConfig.HAS_RULES) (application as UltimateApp).rules.fire(RuleEvent.Notification(sbn.packageName, app, title, body))
             if (System.currentTimeMillis() - lastTrim > 3_600_000L) { lastTrim = System.currentTimeMillis(); log.trim() }
         }
     }
 
+    // How it left: tapped (you opened it), swiped, cleared with the rest, or taken back by the app itself (for example
+    // the sender unsent the message). Insights uses this to tell the notifications you want from the noise.
     override fun onNotificationRemoved(sbn: StatusBarNotification, rankingMap: RankingMap, reason: Int) {
-        // REASON_APP_CANCEL: the app itself took it back (for example the sender unsent the message).
-        if (reason == REASON_APP_CANCEL) runCatching { log.markRemovedByApp(sbn.key) }
+        LiveNotifications.remove(sbn.key)
+        runCatching { if (!log.paused) log.markFate(sbn.key, Fate.fromReason(reason), System.currentTimeMillis()) }
     }
 }

@@ -84,12 +84,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.Calendar
+import app.ultimate.core.motionOn
+import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.AutoGraph
+import app.ultimate.timeline.TimelineReader
+import app.ultimate.timeline.TimelineMath
+import app.ultimate.timeline.Moment
+import app.ultimate.timeline.Source
 
 /** The phone's state as the dashboard sees it; anything unknown is null rather than zero. */
 data class Facts(
     val battery: Int?, val charging: Boolean, val free: Long, val total: Long,
     val screenMsToday: Long?, val notificationsToday: Int?, val notificationAccess: Boolean?,
     val checkupScore: Int?, val checkupAt: Long?, val updateVersion: String?, val now: Long,
+    /** Everything kept today, from every record, and one finding from reading the last month together. */
+    val today: List<Moment> = emptyList(), val finding: String? = null,
 )
 
 /** A suggestion on Home: something worth doing now, and the tool that does it. */
@@ -124,10 +135,17 @@ private fun gather(app: UltimateApp, now: Long): Facts {
     }.getOrNull() else null
     val inbox = "inbox" in ids
     val last = if ("checkup" in ids) app.checkupManager.last.value else null
+    // Today from every record, and one of Timeline's findings (a different one each day, so Home keeps telling you something new).
+    val (today, finding) = if ("timeline" in ids) runCatching {
+        val month = TimelineReader.read(app, now - 30 * 86_400_000L)
+        val all = TimelineMath.insights(month, now)
+        TimelineMath.onDay(month, TimelineMath.dayOf(now)) to all.getOrNull((TimelineMath.dayOf(now) % all.size.coerceAtLeast(1)).toInt())
+    }.getOrDefault(emptyList<Moment>() to null) else emptyList<Moment>() to null
     return Facts(
         level, status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL, stat.availableBytes, stat.totalBytes,
         screen, if (inbox) runCatching { app.notificationLog.today(now) }.getOrNull() else null, if (inbox) listenerEnabled(app) else null,
         last?.first, last?.second, if (BuildConfig.HAS_FILES) runCatching { UpdateWatcher.find(app)?.versionName }.getOrNull() else null, now,
+        today, finding,
     )
 }
 
@@ -159,7 +177,22 @@ fun TodayDashboard(app: UltimateApp) {
                     Glance(Modifier.appear("g-st", seen, 1), Icons.Rounded.HourglassBottom, "Screen today", f.screenMsToday?.let { UsageMath.hm(it) } ?: "Set up", if (f.screenMsToday == null) "Tap to allow" else "across your apps") { open("screentime") }
                 }
                 if ("inbox" in ids) item("inbox") {
-                    Glance(Modifier.appear("g-in", seen, 2), Icons.Rounded.NotificationsActive, "Notifications", if (f.notificationAccess == true) "${f.notificationsToday ?: 0}" else "Off", if (f.notificationAccess == true) "kept today" else "Tap to turn on") { open("inbox") }
+                    val top = f.today.filter { it.source == Source.Notification }.groupingBy { it.app }.eachCount().maxByOrNull { it.value }
+                    Glance(Modifier.appear("g-in", seen, 2), Icons.Rounded.NotificationsActive, "Notifications", if (f.notificationAccess == true) "${f.notificationsToday ?: 0}" else "Off",
+                        if (f.notificationAccess != true) "Tap to turn on" else top?.let { "most from ${it.key}" } ?: "kept today") { open("inbox") }
+                }
+                val played = f.today.filter { it.source == Source.Watched }
+                if (played.isNotEmpty()) item("played") {
+                    val ms = played.sumOf { it.end - it.at }
+                    Glance(Modifier.appear("g-pl", seen, 3), Icons.Rounded.PlayCircle, "Played today", UsageMath.hm(ms), played.groupingBy { it.app }.eachCount().maxByOrNull { it.value }?.key?.let { "mostly $it" } ?: "") { open("timeline") }
+                }
+                if ("focus" in ids) item("focus") {
+                    val focused = f.today.filter { it.source == Source.Focus }.sumOf { it.end - it.at }
+                    Glance(Modifier.appear("g-fo", seen, 4), Icons.Rounded.CenterFocusStrong, "Focus", if (focused > 0) UsageMath.hm(focused) else "Start", if (focused > 0) "focused today" else "a session with a little companion") { open("focus") }
+                }
+                val pics = f.today.count { it.source == Source.Photo }
+                if (pics > 0) item("photos") {
+                    Glance(Modifier.appear("g-ph", seen, 5), Icons.Rounded.PhotoCamera, "Photos today", "$pics", f.today.count { it.source == Source.Screenshot }.takeIf { it > 0 }?.let { "and $it screenshots" } ?: "taken") { open("timeline") }
                 }
                 if ("checkup" in ids) item("checkup") {
                     Glance(Modifier.appear("g-ch", seen, 3), Icons.Rounded.HealthAndSafety, "Phone health", f.checkupScore?.let { "$it/100" } ?: "–", f.checkupAt?.let { relativeTime(it) } ?: "Not checked yet",
@@ -173,7 +206,21 @@ fun TodayDashboard(app: UltimateApp) {
                 }
             }
         }
-        f?.let { Nudges.build(it, ids) }?.take(3)?.forEachIndexed { i, n ->
+        // Something you would not have noticed: one finding from reading your records together.
+        f?.finding?.let { found ->
+            Row(
+                Modifier.fillMaxWidth().appear("finding", seen, 6).pressScale(0.98f).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.primaryContainer)
+                    .clickable { open("timeline") }.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.AutoGraph, null, tint = MaterialTheme.colorScheme.onPrimaryContainer); Spacer(Modifier.width(12.dp))
+                Text(found, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+        }
+        // One suggestion at a time keeps Home calm; the rest are a tap away.
+        val nudges = f?.let { Nudges.build(it, ids) }.orEmpty().take(3)
+        var allNudges by remember { mutableStateOf(false) }
+        (if (allNudges) nudges else nudges.take(1)).forEachIndexed { i, n ->
             Row(
                 Modifier.fillMaxWidth().appear("n-${n.id}", seen, i + 5).pressScale(0.98f).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.tertiaryContainer)
                     .clickable {
@@ -189,6 +236,10 @@ fun TodayDashboard(app: UltimateApp) {
                 Text(n.action, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onTertiaryContainer)
             }
         }
+        if (!allNudges && nudges.size > 1) Text(
+            "${nudges.size - 1} more suggestion" + if (nudges.size > 2) "s" else "", Modifier.clip(RoundedCornerShape(8.dp)).clickable { allNudges = true }.padding(horizontal = 6.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+        )
     }
 }
 
@@ -226,7 +277,7 @@ private fun ComputerCard(app: UltimateApp) {
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(state.running) { while (state.running) { delay(5_000); now = System.currentTimeMillis() } }
     val live = visitors.firstOrNull { now - it.lastSeen < 20_000 }
-    val pulse by rememberInfiniteTransition(label = "link").animateFloat(0.35f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "dot")
+    val pulse = if (motionOn()) rememberInfiniteTransition(label = "link").animateFloat(0.35f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "dot").value else 1f
     val bg = when { live != null -> MaterialTheme.colorScheme.primaryContainer; state.running -> MaterialTheme.colorScheme.secondaryContainer; else -> MaterialTheme.colorScheme.surfaceContainerLow }
     Row(
         Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(24.dp)).background(bg)

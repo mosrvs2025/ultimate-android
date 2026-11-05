@@ -28,7 +28,10 @@ import app.ultimate.squeeze.engine.LibraryStore
  * Wires the tools together. To add a tool: give it a package, implement [Tool], build its services here,
  * register any background work with [work], and add it to [tools].
  */
-class UltimateApp : Application() {
+class UltimateApp : Application(), androidx.work.Configuration.Provider {
+    /** Used if WorkManager's own startup hasn't run yet (it normally has), so background work never finds it missing. */
+    override val workManagerConfiguration: androidx.work.Configuration get() = androidx.work.Configuration.Builder().build()
+
     val work: WorkHub by lazy { WorkHub(this) }
     val insights: app.ultimate.insights.InsightsStore by lazy { app.ultimate.insights.InsightsStore(this, BuildConfig.VERSION_NAME) }
     val shell: Shell by lazy { Shell(tools, insights) }
@@ -60,8 +63,16 @@ class UltimateApp : Application() {
     val photos by lazy { app.ultimate.photos.PhotoManager(this, work) }
     val automations by lazy { app.ultimate.recipes.Automations(this) }
     val recipes by lazy { app.ultimate.recipes.RecipeRunner(this) }
+    /** True while Ultimate itself is on screen: the floating orb steps aside, since the jump bubble does its job there. */
+    val inApp = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val focus by lazy { app.ultimate.focus.FocusStore(this) }
     val notificationLog by lazy { app.ultimate.inbox.NotificationLog(this) }
     val clips by lazy { app.ultimate.clips.ClipStore(this) }
+    val rules by lazy { app.ultimate.rules.RuleEngine(this) }
+    /** The shared senses bus and the list of live sessions, each with Stop. */
+    val senses = app.ultimate.core.Senses()
+    /** Local AI (Cactus Needle) in the editions that include it; null elsewhere. */
+    val localAi: app.ultimate.ai.LocalAi? by lazy { if (BuildConfig.HAS_LOCAL_AI) app.ultimate.ai.LocalAi(this) else null }
     val terminal by lazy { app.ultimate.terminal.TerminalManager(this) }
     val sendServer by lazy { app.ultimate.send.SendServer(this) }
     val transcripts by lazy { app.ultimate.speech.TranscriptStore(this) }
@@ -69,7 +80,9 @@ class UltimateApp : Application() {
 
     val tools: List<Tool> by lazy {
         buildList {
+            if (BuildConfig.FLAVOR == "ultimateplus") add(Class.forName("app.ultimate.mesh.MeshTool").getConstructor(android.content.Context::class.java).newInstance(this@UltimateApp) as Tool)
             if (BuildConfig.FLAVOR == "ultimateplus") add(Class.forName("app.ultimate.ssh.SshTool").getConstructor(android.content.Context::class.java).newInstance(this@UltimateApp) as Tool)
+            if (BuildConfig.FLAVOR == "ultimateplus") add(Class.forName("app.ultimate.sshclient.HostsTool").getConstructor(android.content.Context::class.java).newInstance(this@UltimateApp) as Tool)
             if (BuildConfig.HAS_CHECKUP) add(app.ultimate.checkup.CheckupTool(checkupManager))
             if (BuildConfig.HAS_STUDIO) add(StudioTool(studioManager))
             if (BuildConfig.HAS_RECORDER) add(app.ultimate.recorder.RecorderTool(recorder))
@@ -80,6 +93,11 @@ class UltimateApp : Application() {
             if (BuildConfig.HAS_AUDIO) add(AudioTool(this@UltimateApp))
             if (BuildConfig.HAS_PLUCK) add(PluckTool(this@UltimateApp))
             if (BuildConfig.HAS_SOUND) add(SoundTool(this@UltimateApp))
+            if (BuildConfig.HAS_SOUND && BuildConfig.HAS_RULES) add(app.ultimate.echo.EchoTool(this@UltimateApp))
+            if (BuildConfig.HAS_SOUND) add(app.ultimate.ruler.RulerTool())
+            // Camera-assisted Echo calibration ships only in the full editions (src/vision, with MediaPipe).
+            if (BuildConfig.HAS_SOUND) runCatching { add(Class.forName("app.ultimate.vision.AirTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
+            if (BuildConfig.HAS_SOUND) runCatching { add(Class.forName("app.ultimate.vision.HandCalibrationTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
             if (BuildConfig.HAS_TRAFFIC) add(TrafficTool(this@UltimateApp))
             if (BuildConfig.HAS_NETWORK) add(app.ultimate.lan.LanTool(lanManager))
             if (BuildConfig.HAS_SEND) add(app.ultimate.send.SendTool(sendServer))
@@ -90,6 +108,10 @@ class UltimateApp : Application() {
             if (BuildConfig.HAS_FILES) add(app.ultimate.storage.StorageTool(this@UltimateApp))
             if (BuildConfig.HAS_TERMINAL) add(app.ultimate.terminal.TerminalTool(this@UltimateApp, terminal))
             if (BuildConfig.HAS_ORB) add(app.ultimate.orb.OrbTool())
+            if (BuildConfig.HAS_RULES) add(app.ultimate.rules.RulesTool(this@UltimateApp))
+            if (BuildConfig.HAS_FOCUS) add(app.ultimate.focus.FocusTool(this@UltimateApp))
+            // You: your days, your patterns and what your phone knows (Timeline and Footprint together).
+            if (BuildConfig.HAS_INBOX || BuildConfig.HAS_CLIPS || BuildConfig.HAS_FOOTPRINT || BuildConfig.HAS_FOCUS) add(app.ultimate.timeline.YouTool(this@UltimateApp))
             if (BuildConfig.HAS_SCREENTIME) add(app.ultimate.screentime.ScreenTimeTool(this@UltimateApp))
             if (BuildConfig.HAS_SENSORS) add(app.ultimate.sensors.SensorsTool((getSystemService(SENSOR_SERVICE) as android.hardware.SensorManager).getSensorList(android.hardware.Sensor.TYPE_ALL).size))
         }
@@ -107,7 +129,22 @@ class UltimateApp : Application() {
         if (BuildConfig.HAS_SEND) follow("Send to computer", kotlinx.coroutines.flow.flow { sendServer.state.collect { emit(it.error) } })
         // A content trigger fires once, so it is re-armed at every start in case the last one was used up while the app was away.
         automations.watchScreenRecordings()
+        // Everything sensed is offered to Automations: the modules never need to know who listens.
+        if (BuildConfig.HAS_RULES) watch.launch { senses.signals.collect { s -> rules.fire(app.ultimate.rules.Event.Sensed(s.key, s.label)) } }
+        // Long-press menu on the app icon, and the widget's line of what was last sensed.
+        if (BuildConfig.HAS_SOUND) {
+            app.ultimate.home.QuickActions.publishShortcuts(this, tools.map { it.id }.toSet())
+            watch.launch { senses.signals.collect { s -> app.ultimate.home.QuickActionsWidget.show(this@UltimateApp, s.label) } }
+        }
         if (BuildConfig.HAS_FILES) app.ultimate.files.UpdateWatcher.arm(this)
+        if (BuildConfig.HAS_FOOTPRINT) app.ultimate.footprint.StepSampler.schedule(this)
+        // A focus session that was running when the phone restarted (or Ultimate was closed) picks up where it was.
+        if (BuildConfig.HAS_FOCUS && focus.current.value != null) app.ultimate.focus.FocusService.start(this)
+        if (BuildConfig.HAS_RULES) {
+            // Copies the rules did themselves are not offered back to the rules, so a rule can never trigger itself.
+            if (BuildConfig.HAS_CLIPS) clips.onAdded = { text, source -> if (source != "Rules") rules.fire(app.ultimate.rules.Event.Copied(text)) }
+            rules.sync()
+        }
         // Every manager must be registered before the first background job starts, so the one service watches them all.
         if (BuildConfig.HAS_SQUEEZE) work.register(squeezeManager)
         if (BuildConfig.HAS_PLUCK) work.register(pluckManager)

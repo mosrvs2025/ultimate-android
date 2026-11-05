@@ -78,6 +78,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
+import app.ultimate.core.GooeySwitch
 
 /** Move files between this phone and any computer on the same Wi-Fi, through the computer's browser. */
 class SendTool(private val server: SendServer) : Tool {
@@ -245,7 +246,7 @@ private fun Option(title: String, detail: String, on: Boolean, onChange: (Boolea
         Text(title, style = MaterialTheme.typography.bodyLarge)
         Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    androidx.compose.material3.Switch(on, onChange)
+    GooeySwitch(on, onChange)
 }
 
 /** A QR code of [text], drawn with plain squares so it scales sharply. */

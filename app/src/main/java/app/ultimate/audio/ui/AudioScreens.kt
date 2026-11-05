@@ -49,16 +49,11 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -108,6 +103,9 @@ import app.ultimate.core.rememberNotificationConsent
 import app.ultimate.core.shareFiles
 import java.util.Locale
 import kotlin.math.roundToInt
+import app.ultimate.core.GooeySwitch
+import app.ultimate.core.GooeyProgress
+import app.ultimate.core.GooeyTabs
 
 @Composable
 fun AudioScreen(c: AudioController, onExit: () -> Unit, launch: ToolLaunch, tool: app.ultimate.core.Tool) {
@@ -278,7 +276,7 @@ private fun ConfigureScreen(
                         Text("Join into one file", style = MaterialTheme.typography.bodyLarge)
                         Text("Plays them back to back, in the order below.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Switch(settings.join, { v -> onChange { it.copy(join = v) } })
+                    GooeySwitch(settings.join, { v -> onChange { it.copy(join = v) } })
                 }
             }
             itemsIndexed(picked, key = { _, v -> v.uri.toString() }) { i, v ->
@@ -309,15 +307,7 @@ private fun EstimateCard(bytes: Long, count: Int) {
 @Composable
 private fun FormatSection(settings: AudioSettings, anyCopyable: Boolean, onChange: ((AudioSettings) -> AudioSettings) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            OutFormat.entries.forEachIndexed { i, f ->
-                SegmentedButton(
-                    selected = settings.format == f, onClick = { onChange { it.copy(format = f) } },
-                    shape = SegmentedButtonDefaults.itemShape(i, OutFormat.entries.size),
-                    label = { Text(f.label) },
-                )
-            }
-        }
+        GooeyTabs(OutFormat.entries.map { it.label }, OutFormat.entries.indexOf(settings.format), { i -> onChange { it.copy(format = OutFormat.entries[i]) } })
         Text(settings.format.blurb, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (settings.format == OutFormat.M4a && anyCopyable) {
             Text(
@@ -343,7 +333,7 @@ private fun FormatSection(settings: AudioSettings, anyCopyable: Boolean, onChang
                     Text("Mono", style = MaterialTheme.typography.bodyLarge)
                     Text("Halves the size of voice recordings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(settings.mono, { v -> onChange { it.copy(mono = v) } })
+                GooeySwitch(settings.mono, { v -> onChange { it.copy(mono = v) } })
             }
         }
     }
@@ -402,7 +392,7 @@ private fun SoundSection(settings: AudioSettings, onChange: ((AudioSettings) -> 
                     Text("Normalize", style = MaterialTheme.typography.bodyLarge)
                     Text("Brings the loudest moment up (or down) to just under full scale.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(settings.normalize, { v -> onChange { it.copy(normalize = v) } })
+                GooeySwitch(settings.normalize, { v -> onChange { it.copy(normalize = v) } })
             }
         }
     }
@@ -593,7 +583,7 @@ private fun RunRow(job: AudioJob) {
                 when (val s = job.status) {
                     AudioStatus.Queued -> Sub("Waiting")
                     is AudioStatus.Running -> {
-                        LinearProgressIndicator(progress = { s.progress }, Modifier.fillMaxWidth().padding(top = 6.dp).height(6.dp).clip(RoundedCornerShape(3.dp)))
+                        GooeyProgress(progress = { s.progress }, Modifier.fillMaxWidth().padding(top = 6.dp).height(6.dp).clip(RoundedCornerShape(3.dp)), live = false)
                         Sub("${(s.progress * 100).roundToInt()}%")
                     }
                     is AudioStatus.Done -> {

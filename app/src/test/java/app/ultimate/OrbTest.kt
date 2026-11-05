@@ -7,6 +7,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OrbTest {
+    @Test fun fanIsWideEnoughThatActionsNeverTouch() {
+        val gap = 84f
+        for (n in 2..7) {
+            val r = OrbMath.fanRadius(n, gap, 118f)
+            val pts = OrbMath.bloom(540f, 1200f, n, r, 1080f, 2400f, 44f)
+            pts.zipWithNext().forEach { (a, b) -> assertTrue("$n actions: ${kotlin.math.hypot(a.first - b.first, a.second - b.second)}", kotlin.math.hypot(a.first - b.first, a.second - b.second) >= gap - 0.5f) }
+        }
+        assertEquals(118f, OrbMath.fanRadius(1, gap, 118f), 0f)
+        assertTrue(OrbMath.fanRadius(7, gap, 118f) > 118f) // seven at the old 118 would touch
+    }
+
+    @Test fun petalsFanOutFromTheOrbAndLandOnTheirSpots() {
+        val spots = listOf(700f to 1000f, 740f to 1200f, 700f to 1400f)
+        val toward = OrbMath.middle(spots, 540f, 1200f)
+        assertEquals(0f, toward, 1e-3f) // the fan points to the right
+        spots.forEach { (px, py) ->
+            val (sx, sy) = OrbMath.fanAt(0f, 540f, 1200f, px, py, toward); assertEquals(540f, sx, 1e-3f); assertEquals(1200f, sy, 1e-3f)
+            val (ex, ey) = OrbMath.fanAt(1f, 540f, 1200f, px, py, toward); assertEquals(px, ex, 0.5f); assertEquals(py, ey, 0.5f)
+        }
+        // Halfway, the outer petals have not swung all the way round yet: a fan, not straight lines.
+        val (hx, hy) = OrbMath.fanAt(0.25f, 540f, 1200f, 700f, 1000f, toward)
+        val straight = kotlin.math.atan2(1000f - 1200f, 700f - 540f)
+        assertTrue(kotlin.math.abs(kotlin.math.atan2(hy - 1200f, hx - 540f)) < kotlin.math.abs(straight))
+    }
+
     @Test fun snapsToTheNearerEdgeInsideTheScreen() {
         assertEquals(10 to 500, OrbMath.snap(200, 500, 100, 1080, 2400, 10, 60, 120))
         assertEquals(970 to 500, OrbMath.snap(700, 500, 100, 1080, 2400, 10, 60, 120))
@@ -38,5 +63,57 @@ class OrbTest {
     @Test fun mostUsedFirstStableOtherwise() {
         val uses = mapOf("c" to 5, "a" to 1)
         assertEquals(listOf("c", "a", "b", "d"), OrbMath.byUse(listOf("a", "b", "c", "d"), { it }) { uses[it] ?: 0 })
+    }
+}
+
+class OrbLayoutTest {
+    private val w = 1080f; private val h = 2340f; private val gap = 84f * 2.75f; private val minR = 118f * 2.75f; private val pad = 44f * 2.75f
+
+    private fun check(cx: Float, cy: Float, n: Int) {
+        val pts = OrbMath.layout(cx, cy, n, gap, minR, w, h, pad)
+        assertEquals(n, pts.size)
+        pts.forEach { (x, y) -> assertTrue("($x, $y) off screen", x in pad - 0.5f..w - pad + 0.5f && y in pad - 0.5f..h - pad + 0.5f) }
+        for (i in pts.indices) for (j in i + 1 until pts.size) {
+            val d = kotlin.math.hypot(pts[i].first - pts[j].first, pts[i].second - pts[j].second)
+            assertTrue("$n actions at ($cx, $cy): $i and $j only ${d.toInt()} apart", d >= gap - 2f)
+        }
+    }
+
+    @Test fun actionsNeverOverlapWhereverTheOrbIs() {
+        // On the right edge in the middle (the screenshot), on the left, near each corner, and out in the open.
+        val places = listOf(1040f to 1230f, 40f to 1230f, 1040f to 150f, 40f to 2200f, 1040f to 2200f, 540f to 1170f, 540f to 150f)
+        for ((x, y) in places) for (n in 1..8) check(x, y, n)
+    }
+
+    @Test fun fanOpensIntoTheScreen() {
+        val pts = OrbMath.layout(1040f, 1230f, 7, gap, minR, w, h, pad)
+        assertTrue(pts.all { it.first < 1040f }) // all to the left of an orb on the right edge
+    }
+}
+
+class OrbStackTest {
+    private val d = 2.75f; private val w = 1080f; private val h = 2340f
+    private val row = 54 * d; private val pillW = 156 * d; private val pad = 16 * d
+
+    private fun stack(cx: Float, cy: Float, n: Int) = OrbMath.stack(cx, cy, n, row, pillW, 40 * d, 24 * d, w, h, pad)
+
+    @Test fun pillsNeverOverlapAndStayOnScreen() {
+        val places = listOf(1040f to 1230f, 40f to 1230f, 1040f to 120f, 40f to 2250f, 1040f to 2250f, 540f to 1170f)
+        for ((x, y) in places) for (n in 1..8) {
+            val pts = stack(x, y, n)
+            assertEquals(n, pts.size)
+            pts.zipWithNext().forEach { (a, b) -> assertTrue(b.second - a.second >= row - 0.5f) }
+            pts.forEach { (px, py) -> assertTrue("($px,$py)", px - pillW / 2 >= pad - 0.5f && px + pillW / 2 <= w - pad + 0.5f && py >= pad && py <= h - pad) }
+        }
+    }
+
+    @Test fun opensOnTheSideWithRoomAndStaysClearOfTheOrb() {
+        val right = stack(1040f, 1230f, 7)
+        assertTrue(right.all { it.first + pillW / 2 < 1040f - 20 * d }) // all to the left of an orb on the right edge
+        val left = stack(40f, 1230f, 7)
+        assertTrue(left.all { it.first - pillW / 2 > 40f + 20 * d })
+        // Centred on the orb when there is room; slid on screen near the top.
+        assertEquals(1230f, right[3].second, 0.5f)
+        assertTrue(stack(1040f, 120f, 7).first().second >= pad)
     }
 }

@@ -11,9 +11,11 @@ enum class FileKind { Folder, Image, Video, Audio, Apk, Archive, Document, Other
 data class Entry(val file: File, val kind: FileKind, val bytes: Long, val modified: Long, val children: Int)
 
 object FileModel {
-    fun kindOf(f: File): FileKind {
-        if (f.isDirectory) return FileKind.Folder
-        return when (f.extension.lowercase(Locale.US)) {
+    fun kindOf(f: File): FileKind = if (f.isDirectory) FileKind.Folder else kindOfName(f.name)
+
+    /** The kind from the name alone, for files already known to be files (no disk access, so fast for long lists). */
+    fun kindOfName(name: String): FileKind {
+        return when (name.substringAfterLast('.', "").lowercase(Locale.US)) {
             "jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "bmp", "dng" -> FileKind.Image
             "mp4", "mkv", "webm", "mov", "3gp", "avi", "m4v" -> FileKind.Video
             "mp3", "m4a", "aac", "wav", "flac", "ogg", "opus", "amr" -> FileKind.Audio

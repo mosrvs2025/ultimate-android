@@ -69,14 +69,12 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -126,6 +124,8 @@ import app.ultimate.core.ToolBackButton
 import app.ultimate.core.copyText
 import app.ultimate.core.relativeTime
 import kotlinx.coroutines.launch
+import app.ultimate.core.GooeySwitch
+import app.ultimate.core.GooeyProgress
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -254,7 +254,7 @@ private fun Scanning(s: CheckupManager.State.Scanning) {
             Spacer(Modifier.height(8.dp))
             Text("${s.done} of ${s.total} apps", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(12.dp))
-            LinearProgressIndicator(progress = { s.done / s.total.toFloat() }, Modifier.fillMaxWidth(0.7f).height(6.dp).clip(RoundedCornerShape(3.dp)))
+            GooeyProgress(progress = { s.done / s.total.toFloat() }, Modifier.fillMaxWidth(0.7f).height(6.dp).clip(RoundedCornerShape(3.dp)))
         }
     }
 }
@@ -422,7 +422,7 @@ private fun PrivacyMap(scan: Scan, own: Set<String>, onApp: (String) -> Unit) {
                         Text("${holders.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Icon(if (openAccess == access) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
                     }
-                    LinearProgressIndicator(progress = { holders.size / max }, Modifier.fillMaxWidth().padding(top = 6.dp).height(4.dp).clip(RoundedCornerShape(2.dp)))
+                    GooeyProgress(progress = { holders.size / max }, Modifier.fillMaxWidth().padding(top = 6.dp).height(4.dp).clip(RoundedCornerShape(2.dp)), live = false)
                     AnimatedVisibility(openAccess == access) {
                         Column(Modifier.padding(top = 6.dp)) {
                             holders.forEach { a ->
@@ -504,7 +504,7 @@ private fun ShareSheet(scan: Scan, own: Set<String>, onDismiss: () -> Unit) {
                     Text("Include the app list")
                     Text("Names, versions and permissions of your apps", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(includeApps, { includeApps = it })
+                GooeySwitch(includeApps, { includeApps = it })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton({ copyText(context, "Phone checkup", Report.PROMPT + "\n\n" + text) }, Modifier.weight(1f)) {
@@ -580,7 +580,7 @@ private fun AskAiSheet(scan: Scan, own: Set<String>, onDismiss: () -> Unit) {
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Include the app list", Modifier.weight(1f))
-                Switch(includeApps, { includeApps = it })
+                GooeySwitch(includeApps, { includeApps = it })
             }
             TextButton({ preview = !preview }) { Text(if (preview) "Hide what will be sent" else "See exactly what will be sent to ${provider.label} (≈ ${report.length / 4} tokens)") }
             if (preview) Box(Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant).verticalScroll(rememberScrollState()).padding(12.dp)) {

@@ -16,7 +16,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,6 +30,7 @@ import app.ultimate.core.AppIcon
 import app.ultimate.core.formatBytes
 import app.ultimate.pluck.model.SdkKnowledge
 import app.ultimate.traffic.model.TrackerDomains
+import app.ultimate.core.GooeySwitch
 
 /** Everything known about one host: what it is, who talked to it, and a switch to block it. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,7 +86,7 @@ fun HostSheet(host: String, c: TrafficController) {
                     )
                 }
                 Spacer(Modifier.width(12.dp))
-                Switch(isBlocked, { c.setBlocked(rule, it) }, enabled = !(adsBlocked && hit?.kind == app.ultimate.traffic.model.DomainKind.Ads))
+                GooeySwitch(isBlocked, { c.setBlocked(rule, it) }, enabled = !(adsBlocked && hit?.kind == app.ultimate.traffic.model.DomainKind.Ads))
             }
         }
     }

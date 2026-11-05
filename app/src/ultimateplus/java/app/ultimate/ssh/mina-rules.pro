@@ -1,5 +1,6 @@
 # Optional server/tool entry point is registered reflectively by the main application.
 -keep class app.ultimate.ssh.SshTool { public <init>(android.content.Context); }
+-keep class app.ultimate.sshclient.HostsTool { public <init>(android.content.Context); }
 # MINA uses service discovery and reflective factories. Preserve reflective factory and provider names.
 -keep class org.apache.sshd.** { *; }
 -keep class org.slf4j.** { *; }
@@ -28,3 +29,4 @@
 -dontwarn org.slf4j.impl.StaticMarkerBinder
 # EdDSA receives its own EdDSAPublicKey, never the optional desktop X509Key branch.
 -dontwarn sun.security.x509.X509Key
+-keep class app.ultimate.mesh.MeshTool { public <init>(android.content.Context); }

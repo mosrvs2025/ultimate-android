@@ -41,12 +41,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -80,6 +76,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+import app.ultimate.core.GooeyProgress
+import app.ultimate.core.GooeyTabs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -182,9 +180,7 @@ private fun Configure(picked: List<PickedPhoto>, s: PhotoSettings, onChange: (Ph
             Column {
                 Text("Format", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(6.dp))
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    PhotoFormat.entries.forEachIndexed { i, f -> SegmentedButton(s.format == f, { onChange(s.copy(format = f)) }, SegmentedButtonDefaults.itemShape(i, PhotoFormat.entries.size)) { Text(f.label) } }
-                }
+                GooeyTabs(PhotoFormat.entries.map { it.label }, PhotoFormat.entries.indexOf(s.format), { onChange(s.copy(format = PhotoFormat.entries[it])) })
                 Text(if (s.format == PhotoFormat.Webp) "Smaller, opens almost everywhere" else "Opens everywhere", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -229,7 +225,7 @@ private fun Done(run: PhotoManager.Run, onAgain: () -> Unit) {
         if (run.active) {
             Text("Saving ${minOf(run.done + 1, run.total)} of ${run.total}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             val p by animateFloatAsState(run.done.toFloat() / run.total.coerceAtLeast(1), label = "p")
-            LinearProgressIndicator(progress = { p }, Modifier.fillMaxWidth())
+            GooeyProgress(progress = { p }, Modifier.fillMaxWidth())
             run.current?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             Text("You can leave; it keeps going.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
         } else {

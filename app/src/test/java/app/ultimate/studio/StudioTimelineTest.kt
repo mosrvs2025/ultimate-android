@@ -91,4 +91,10 @@ class StudioTimelineTest {
     }
     @Test(expected = IllegalArgumentException::class) fun invalidTrimIsRefusedBeforeRendering() { Timeline.validate(StudioProject(clips = listOf(clip().copy(endMs = 11000)))) }
     @Test(expected = IllegalArgumentException::class) fun invalidSpeedIsRefusedBeforeRendering() { Timeline.validate(StudioProject(clips = listOf(clip(Float.NaN)))) }
+
+    @org.junit.Test fun trimmingAClipShorterThanTheMinimumDoesNotThrow() {
+        val tiny = clip().copy(startMs = 0, endMs = 50, sourceMs = 50)
+        val a = Timeline.trimStart(tiny, 40); val b = Timeline.trimEnd(tiny, 10)
+        org.junit.Assert.assertTrue(a.startMs >= 0 && b.endMs >= b.startMs)
+    }
 }

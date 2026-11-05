@@ -1,10 +1,63 @@
 # Ultimate
 
-One Android app that holds a growing set of small, offline tools. No ads, no analytics, no accounts. The manifest has no `INTERNET` permission, so the app cannot reach the network.
+One Android app that holds a growing set of tools for your own phone: edit and shrink video, see what fills your storage, keep your notification and clipboard history, run rules like "silence at night", open a terminal, and connect to your servers over SSH. No ads, no analytics, no accounts.
 
-This repository is the standalone home for Ultimate. The Android project lives at the repository root. REA remains a separate reverse-engineering tool. It supersedes the earlier standalone `squeeze-android/` and `pluck-android/` projects, whose code now lives here as tools.
+<p align="center">
+  <img src="docs/screenshots/home.png" width="23%" alt="Home">
+  <img src="docs/screenshots/storage.png" width="23%" alt="Storage map">
+  <img src="docs/screenshots/storage-folder.png" width="23%" alt="Inside a folder: every file is a tile">
+  <img src="docs/screenshots/footprint.png" width="23%" alt="Footprint: what your phone knows about you">
+</p>
+<p align="center">
+  <img src="docs/screenshots/timeline.png" width="23%" alt="Timeline: search everything, day by day, and what it adds up to">
+  <img src="docs/screenshots/focus.png" width="23%" alt="Focus: a little companion that keeps you on task">
+  <img src="docs/screenshots/rules.png" width="23%" alt="Rules">
+  <img src="docs/screenshots/hosts.png" width="23%" alt="SSH hosts">
+  <img src="docs/screenshots/inbox-insights.png" width="23%" alt="Notification insights">
+  <img src="docs/screenshots/watch-history.png" width="23%" alt="Searchable watch and listen history">
+  <img src="docs/screenshots/about.png" width="23%" alt="About and settings">
+</p>
 
-## Tools
+<sub>Screenshots are the app's own screens, rendered on a simulated phone with sample data (not photos of a real device). Home, Storage, inside a folder, Footprint (a sample week, since a simulator has no real usage history), Rules, notification Insights (two weeks of made-up notifications), a Timeline (a made-up month), a Focus session (made-up checks), watch history (two weeks of made-up viewing), SSH hosts, About and settings. The simulator cannot draw Android's blur effect, so the gooey melting (Android 12 and newer) does not show in these pictures; shapes appear as they do on older phones. Regenerate them with `gradle -Pscreenshots :app:testUltimateplusDebugUnitTest --tests '*ScreenshotTest'`.</sub>
+
+## Download
+
+Get the latest APKs from the **[Releases page](https://github.com/mosrvs2025/ultimate-android/releases/latest)**. Android 10 or newer.
+
+| File | What it is |
+| --- | --- |
+| **Ultimate-Plus** | Everything, including the SSH client and server, sending files to your computer, and network tools. Uses the internet permission only for those. |
+| **Ultimate** | The same tools with **no internet permission at all**: it cannot send anything anywhere. |
+| Studio, Squeeze, Video-to-Audio, Pluck, Traffic-Inspector | Single-purpose apps built from the same code. |
+
+1. Open the APK on your phone and allow installing from your browser when Android asks.
+2. Open the app and tap the gear on Home for **About and settings**: your version, what's new, and a checklist of the permissions each tool needs.
+3. Updating over an older build keeps your data when both were signed by this project's key. Each release lists that key's SHA-256 and a `SHA256SUMS.txt` to check your download.
+
+APKs are release assets only; they are never committed to git.
+
+## What's inside
+
+- **Create:** Studio (video editor), Squeeze (shrink video), Video to audio, Recorder, Photos, Teleprompter.
+- **Phone:** You, Patterns and Privacy (what your phone already knows about you: when you unlock, what you open, which apps can see your location or microphone, how much data they send, steps, sleep and heart rate from Health Connect, what you watch and listen to (searchable, with a dashboard by app, day and artist), where your photos were taken, and facts any app can read), Storage (what fills your phone, by kind, folder, file and app), Clean up (duplicates, similar shots, swipe through photos), Files (browser, bin, APK installer), Notifications (a history that keeps deleted messages, and Insights: which apps are signal and which are noise by how often you actually open them, who reaches you and how fast you open them, adverts dressed up as notifications, bursts, repeats, night-time pings and sign-in codes), Clipboard history, Checkup, Pluck (extract and inspect apps), Sensors.
+- **Network and remote:** SSH hosts (saved servers, keys, snippets, terminal tabs), SSH and SFTP server, send files to a computer from a browser, LAN scan, Traffic inspector.
+- **Smart:** You, Days (search everything the app keeps (notifications, copies, what you played, focus sessions) in one place, look at any day hour by hour, and read findings that only show across them, like which app interrupts your focus most or how busy days change what you watch; plus an "About me" summary you can give to any AI), Focus (a blueberry companion that keeps you on task: say what you are working on, it checks which app is in front every 30 seconds on the phone, nudges you gently if you drift, and shows the session as a coloured timeline; ideas borrowed from Bluey by Riley Brown), Rules (when something happens, do something, and undo it afterwards, also from a plain sentence), Recipes, Screen time, Terminal with phone commands (`battery`, `storage`, `squeeze`, `clip`, ...), a floating orb that opens your tools over any app.
+
+## Privacy
+
+The offline editions have no `INTERNET` permission, so they cannot reach the network. Ultimate+ and Traffic Inspector do, for the features that need it, and only when you turn those on. SSH keys and saved passwords are stored locked with the phone's Keystore, never in the clear. The About screen reads the real permission from the installed app instead of claiming one.
+
+## Publishing a release
+
+Maintainers: a release is built and published by the **Release APKs** workflow (`.github/workflows/release.yml`), which signs every edition with the project's permanent key and attaches the APKs, checksums and the signing certificate fingerprint to a `v<versionName>` release.
+
+1. In **Settings, Secrets and variables, Actions** add `ULTIMATE_KEYSTORE_BASE64` (the keystore, base64-encoded: `base64 -w0 ultimate-release.jks`) and `ULTIMATE_KEYSTORE_PASSWORD`. The key alias is `ultimate`. Keep this key forever: a phone only accepts updates signed by the same key.
+2. Bump `versionName` and `versionCode` in `app/build.gradle.kts` and add the notes to `Changelog` in `home/AboutInfo.kt`.
+3. Run the workflow from the **Actions** tab. It runs the unit tests, builds, signs and publishes. Running it again for the same version replaces the assets.
+
+The workflow uses `gh` with the built-in `GITHUB_TOKEN`; no third-party actions publish anything.
+
+## Original tools in detail
 
 | Tool | What it does |
 | --- | --- |
@@ -15,6 +68,23 @@ This repository is the standalone home for Ultimate. The Android project lives a
 | **Pluck** | Lists installed apps, extracts their APKs (split APKs become one `.apks` bundle), and shows details, permissions, signing certificate and an offline ad/tracker SDK scan. |
 
 The **Library** tab lists everything any tool made, filterable by tool. The **Activity** tab shows each tool's current or last run with a live terminal log (codecs chosen, encoder names, real bitrates, speed, files written); the same log appears on every progress screen. Videos shared to Ultimate from other apps go to Squeeze or Video to audio (you choose when both apply).
+
+### Terminal and navigation
+
+Open **Terminal** from Home, the Jump panel or the orb. Inside any tool, Back returns to where you came from, and
+the Jump panel switches tools; the keyboard button in the terminal's top bar brings the keyboard back.
+
+Type `help` for phone commands, or tap the command-suggestions icon. The extra key
+rows include Enter, Paste, Ctrl, Alt, Tab and cursor keys. Closing a shell ends it;
+leaving the screen keeps it while the app process remains alive. Exited shells
+retain their output until explicitly closed. New shell starts another session;
+startup failures show Retry. Commands run with Ultimate's ordinary app permissions,
+not root or ADB privileges. Shared-storage access still requires file permission.
+
+The terminal view must initialize its text size before setting the typeface;
+`TerminalViewTest` checks this launch-crash regression (and that a bad saved size cannot break it). `TerminalSmokeTest` runs
+real shell commands and navigation on Android, through the Terminal device smoke
+workflow. Physical Samsung testing is separate from JVM tests and APK compilation.
 
 ### Pluck details
 
@@ -36,6 +106,10 @@ Shows which servers chosen apps talk to, live, using a local VPN. The VPN is onl
 - **Safety:** the relay is covered by JVM tests that drive it with real loopback sockets (handshake, bidirectional data, a 300 KB download under a small window, resets, half-close, DNS, blocking, QUIC refusal). It has not been run against a real phone's tunnel in this repository. Stopping always releases the tunnel.
 - **Why separate editions:** a relay must open internet connections, so it needs the `INTERNET` permission, which the offline editions deliberately never request. The inspector ships as **Traffic Inspector** (standalone) and inside **Ultimate+**; plain **Ultimate** stays offline.
 
+## Octopus Mesh (Ultimate+)
+
+Trusted devices on the same Wi-Fi share work with no server: each device decides for itself where a task runs (small ones stay local as a "reflex", heavy ones go to the cheapest device) and fails over when a device disappears. Off by default; pairing code required; a live bar with Disconnect shows while it runs. Design, measured results, limits and roadmap: [docs/octopus-mesh.md](docs/octopus-mesh.md).
+
 ## Editions: building a tool as its own app
 
 One codebase builds several apps. `app/build.gradle.kts` defines an edition per product flavor, each with its own app id, name, icon (`src/<edition>/res`) and manifest additions (`src/<edition>/AndroidManifest.xml`, e.g. share targets and the app-listing permission only where needed). `HAS_*` flags switch tools on; they are compile-time constants, so R8 strips every tool an edition does not include.
@@ -48,6 +122,7 @@ One codebase builds several apps. `app/build.gradle.kts` defines an edition per 
 | Traffic Inspector | `gradle :app:assembleTrafficRelease` | `app.ultimate.traffic` |
 | Video to Audio | `gradle :app:assembleAudioRelease` | `app.ultimate.audio` |
 | Pluck | `gradle :app:assemblePluckRelease` | `app.pluck` |
+| Studio | `gradle :app:assembleStudioRelease` | `app.ultimate.studio` |
 
 A single-tool edition opens straight into that tool; its top bar links to the Library and Activity. To add an edition, copy a flavor block, set its flags, and add `src/<edition>/` resources.
 
@@ -110,3 +185,7 @@ Build from the root with JDK 17, Gradle 8.9 and Android SDK 35. `main` is the wo
 GitHub secrets do not move between repositories. Before publishing updates, configure the existing permanent signing key here; a locally debug-signed build cannot update an APK signed with the previous release key. The companion release workflow is available here as a manual workflow; configure the COMPANION signing secrets before running it.
 
 The migration also includes Claude's terminal and floating-orb changes through REA commit `9f2c077b9a763a27ff9a79054d4696d749bee1bc`, reconciled with the SSH foreground-service manifest entry. Continue Ultimate development in this repository.
+
+### Living command surface (1.31 preview)
+
+Home now centers on an orb with nearby tools ranked from local use over the last 48 hours. Tap the orb for live shortcuts, hold a tool for its results, and use the in-tool orb to jump between recent tools, results, Home and Activity. Tilt can be switched off. Failed jobs leave a clearable reminder. See [interaction details and device-test limits](docs/LIVING_SURFACE.md).

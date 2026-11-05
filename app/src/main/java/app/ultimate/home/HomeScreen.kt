@@ -11,6 +11,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.DropdownMenu
@@ -67,11 +70,24 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.UltimateApp
+import app.ultimate.search.PaletteResults
+import app.ultimate.ai.AiCall
+import app.ultimate.ai.AiTools
+import app.ultimate.ai.AiActions
+import app.ultimate.ai.LocalAi
+import app.ultimate.echo.EchoTool
+import app.ultimate.echo.SonarState
+import app.ultimate.echo.EchoState
 import app.ultimate.core.LibraryRow
 import app.ultimate.core.Tool
 import app.ultimate.core.ToolLaunch
 import app.ultimate.core.formatBytes
 import kotlinx.coroutines.flow.combine
+import app.ultimate.core.GooeyProgress
+import app.ultimate.core.motionOn
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.runtime.collectAsState
 
 @Composable
 fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
@@ -89,40 +105,69 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
     var showSavings by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     if (showSavings) SavingsSheet(app.tools, all, onOpen = { t, i -> showSavings = false; openItem(app, t, i) }) { showSavings = false }
 
-    // Two columns: every tool, the space-saved hero and the latest results fit on one screen. An odd last tool takes the full row.
+    val runningIds = running.map { it.first.workId }.toSet()
+    // Recomputed only when something starts or stops running or a tool is opened, so tiles don't jump while you tap.
+    // Pinned tools come first; the rest from the shared local memory (recency, time of day, running jobs) that the orb uses too.
+    val pins by HomePins.ids(app).collectAsState()
+    val revision by app.insights.revision.collectAsStateWithLifecycle()
+    val favorites = remember(runningIds, pins, revision) {
+        val ids = app.tools.map { it.id }.filter { it != "orb" }
+        HomeLayout.withPins(pins, HomeLayout.constellation(ids, app.insights.recentOpens(), runningIds, System.currentTimeMillis()), ids, count = 6)
+            .mapNotNull { id -> app.tools.firstOrNull { it.id == id } }
+    }
+    val pending = remember(revision) { app.insights.pendingTools() }
+    val prefs = remember { app.getSharedPreferences("home", android.content.Context.MODE_PRIVATE) }
+    var folded by remember { mutableStateOf(prefs.getStringSet("expanded", emptySet()).orEmpty()) }
+
+    // Four columns: favorites take two each, every other tool one, and headers, search and results the full row.
     LazyVerticalGrid(
-        GridCells.Fixed(2), Modifier.padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        GridCells.Fixed(4), Modifier.padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(Modifier.padding(start = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Ultimate", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Hero(saved, all.size) { app.insights.count("home.savings"); app.tools.firstOrNull { it.id == "storage" }?.let { app.shell.open(it) } ?: run { showSavings = true } }
+                androidx.compose.material3.IconButton({ app.insights.count("home.about"); shell.showAbout() }) { Icon(Icons.Rounded.Settings, "About and settings") }
             }
+        }
+        item(key = "command-surface", span = { GridItemSpan(maxLineSpan) }) {
+            LivingSurface(app, favorites, runningIds)
         }
         item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
         item(span = { GridItemSpan(maxLineSpan) }) { TodayDashboard(app) }
+        item(key = "live-senses", span = { GridItemSpan(maxLineSpan) }) { LiveSenses(app) }
+        app.tools.firstOrNull { it.id == "echo" }?.let { echo -> item(key = "senses", span = { GridItemSpan(maxLineSpan) }) { SensesCard(app, echo as app.ultimate.echo.EchoTool) } }
+        if (pending.isNotEmpty()) item(key = "unfinished", span = { GridItemSpan(maxLineSpan) }) {
+            Column {
+                Text("Needs another look", style = MaterialTheme.typography.titleSmall)
+                pending.mapNotNull { id -> app.tools.firstOrNull { it.id == id } }.forEach { tool ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton({ shell.open(tool) }, Modifier.weight(1f)) { Text("${tool.title} · unfinished job") }
+                        TextButton({ app.insights.clearPending(tool.id) }) { Text("Clear") }
+                    }
+                }
+            }
+        }
         if (running.isNotEmpty()) items(running, key = { "run-${it.first.workId}" }, span = { GridItemSpan(maxLineSpan) }) { (source, snap) ->
             RunningBanner(source, snap, app.tools.firstOrNull { it.id == source.workId }, onView = { app.tools.firstOrNull { it.id == source.workId }?.let(shell::open) })
         }
-        // Grouped so the grid reads as a few families instead of one long wall of tiles.
+        // Every tool, small and in fixed places, in families you can fold away; the fold is remembered.
         var order = 0
         toolSections(app.tools).forEach { (section, tools) ->
             val headerAt = order
+            val isFolded = section !in folded
             item(key = "section-$section", span = { GridItemSpan(maxLineSpan) }) {
-                Text(
-                    section, Modifier.animateItem().appear("section-$section", seen, headerAt).padding(start = 4.dp, top = 6.dp),
-                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold,
-                )
+                SectionHeader(section, tools.size, isFolded, Modifier.animateItem().appear("section-$section", seen, headerAt)) {
+                    folded = if (isFolded) folded + section else folded - section
+                    prefs.edit().putStringSet("expanded", folded).apply()
+                    app.insights.count("home.fold.$section")
+                }
             }
             val base = ++order
             order += tools.size
-            itemsIndexed(tools, key = { _, t -> t.id }, span = { i, _ -> if (tools.size % 2 == 1 && i == tools.lastIndex) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { i, tool ->
-                ToolTile(
-                    Modifier.animateItem().appear(tool.id, seen, base + i), tool, wide = tools.size % 2 == 1 && tool === tools.last(),
-                    active = running.any { it.first.workId == tool.id }, stop = app.work.sources.firstOrNull { it.workId == tool.id }?.takeIf { src -> running.any { it.first === src } },
-                    onLibrary = { shell.showLibraryOf(tool.id) }, onClick = { shell.open(tool) },
-                )
+            if (!isFolded) itemsIndexed(tools, key = { _, t -> t.id }, span = { _, _ -> GridItemSpan(1) }) { i, tool ->
+                CompactTile(Modifier.animateItem().appear(tool.id, seen, base + i), tool, active = tool.id in runningIds, onLibrary = { shell.showLibraryOf(tool.id) }, onClick = { shell.open(tool) })
             }
         }
         if (recent.isNotEmpty()) {
@@ -144,9 +189,9 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
 /** Anything still working in the background, with the one-tap way to end it, so nothing is left running by accident. */
 @Composable
 private fun RunningBanner(source: WorkSource, snap: WorkSnapshot, tool: Tool?, onView: () -> Unit) {
-    val pulse by rememberInfiniteTransition(label = "run").animateFloat(
+    val pulse = if (motionOn()) rememberInfiniteTransition(label = "run").animateFloat(
         0.35f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "dot",
-    )
+    ).value else 1f
     Row(
         Modifier.fillMaxWidth().pressScale(0.97f).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.tertiaryContainer).clickable(onClick = onView).padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -159,8 +204,52 @@ private fun RunningBanner(source: WorkSource, snap: WorkSnapshot, tool: Tool?, o
                 snap.title + (snap.percent?.let { " · $it%" } ?: ""), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onTertiaryContainer,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
+            // The work itself, as liquid: it flows forward as the percent climbs, or drops run along it when the length is unknown.
+            val bar = Modifier.fillMaxWidth().padding(top = 6.dp).height(5.dp)
+            val ink = MaterialTheme.colorScheme.onTertiaryContainer
+            snap.percent?.let { pc -> GooeyProgress({ pc / 100f }, bar, color = ink, trackColor = ink.copy(alpha = 0.15f)) } ?: GooeyProgress(bar, color = ink, trackColor = ink.copy(alpha = 0.15f))
         }
         TextButton(source::cancelWork) { Text(source.cancelLabel) }
+    }
+}
+
+/** A family's name with how many tools it holds; tap to fold it away or open it again. */
+@Composable
+private fun SectionHeader(name: String, count: Int, folded: Boolean, modifier: Modifier, onToggle: () -> Unit) {
+    val turn by androidx.compose.animation.core.animateFloatAsState(if (folded) -90f else 0f, label = "fold")
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClickLabel = if (folded) "Show $name" else "Fold $name", onClick = onToggle).padding(start = 4.dp, top = 8.dp, bottom = 4.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+        Text("  $count", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+        Spacer(Modifier.weight(1f))
+        Icon(Icons.Rounded.ExpandMore, if (folded) "Folded" else "Open", Modifier.size(20.dp).graphicsLayer { rotationZ = turn }, tint = MaterialTheme.colorScheme.outline)
+    }
+}
+
+/** Icon and name only: the whole app fits in a glance, and each tool stays in the same place. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CompactTile(modifier: Modifier, tool: Tool, active: Boolean, onLibrary: () -> Unit, onClick: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
+    val container by androidx.compose.animation.animateColorAsState(if (active) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerLow, label = "compact")
+    Box(modifier) {
+        Column(
+            Modifier.fillMaxWidth().pressScale(0.93f).clip(RoundedCornerShape(18.dp)).background(container)
+                .combinedClickable(onClick = onClick, onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); menu = true })
+                .padding(vertical = 10.dp, horizontal = 2.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(Modifier.size(40.dp).clip(RoundedCornerShape(13.dp)).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+                Icon(tool.icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+            Text(tool.title, Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp), style = MaterialTheme.typography.labelSmall, maxLines = 2, minLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center, overflow = TextOverflow.Ellipsis)
+        }
+        DropdownMenu(menu, { menu = false }) {
+            DropdownMenuItem({ Text("Open ${tool.title}") }, { menu = false; onClick() }, leadingIcon = { Icon(tool.icon, null) })
+            DropdownMenuItem({ Text("Its results in Library") }, { menu = false; onLibrary() }, leadingIcon = { Icon(Icons.Rounded.VideoLibrary, null) })
+            PinItem(tool) { menu = false }
+        }
     }
 }
 
@@ -208,6 +297,7 @@ private fun ToolTile(modifier: Modifier = Modifier, tool: Tool, wide: Boolean, a
             DropdownMenuItem({ Text("Open ${tool.title}") }, { menu = false; onClick() }, leadingIcon = { Icon(tool.icon, null) })
             DropdownMenuItem({ Text("Its results in Library") }, { menu = false; onLibrary() }, leadingIcon = { Icon(Icons.Rounded.VideoLibrary, null) })
             stop?.let { DropdownMenuItem({ Text(it.cancelLabel) }, { menu = false; it.cancelWork() }, leadingIcon = { Icon(Icons.Rounded.Stop, null) }) }
+            PinItem(tool) { menu = false }
         }
     }
 }
@@ -253,9 +343,11 @@ private fun ShapeCard(onClick: () -> Unit) {
 internal fun toolSections(tools: List<app.ultimate.core.Tool>): List<Pair<String, List<app.ultimate.core.Tool>>> {
     val families = linkedMapOf(
         "Create" to listOf("studio", "squeeze", "audio", "recorder", "photos", "prompter"),
-        "Phone" to listOf("files", "storage", "cleanup", "inbox", "clips", "checkup", "pluck", "sensors", "sound-meter"),
-        "Network" to listOf("traffic", "lan", "send"),
-        "Smart" to listOf("orb", "recipes", "screentime", "terminal"),
+        "Phone" to listOf("files", "storage", "cleanup", "inbox", "clips", "checkup", "pluck", "footprint"),
+        // Spatial sensing: sonar, camera hand tracking and the sensors they build on, together in one place.
+        "Senses" to listOf("echo", "air", "echo-camera", "ruler", "sensors", "sound-meter"),
+        "Network" to listOf("hosts", "ssh", "traffic", "network", "lan", "send", "mesh"),
+        "Smart" to listOf("timeline", "focus", "rules", "recipes", "orb", "screentime", "terminal"),
     )
     val placed = families.values.flatten().toSet()
     return (families.map { (name, ids) -> name to ids.mapNotNull { id -> tools.firstOrNull { it.id == id } } } + ("More" to tools.filter { it.id !in placed }))
@@ -281,32 +373,131 @@ private fun AskBar(app: UltimateApp) {
     Column(Modifier.padding(top = 4.dp)) {
         androidx.compose.material3.OutlinedTextField(
             query, { query = it }, Modifier.fillMaxWidth(),
-            placeholder = { Text("What do you want to do?") }, singleLine = true, shape = RoundedCornerShape(28.dp),
+            placeholder = { Text("Search apps, people, messages, files…") }, singleLine = true, shape = RoundedCornerShape(28.dp),
             leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary) },
             trailingIcon = {
                 if (query.isEmpty()) androidx.compose.material3.IconButton({ picker.launch(arrayOf("video/*", "image/*", "audio/*")) }) { Icon(Icons.Rounded.AttachFile, "Open a file") }
                 else androidx.compose.material3.IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear") }
             },
         )
-        androidx.compose.animation.AnimatedVisibility(results.isNotEmpty() || query.length >= 2) {
-            Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (results.isEmpty()) Text("Nothing matches yet. Try \"make a video smaller\" or \"record my voice\".", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 12.dp))
-                results.take(4).forEach { a ->
-                    val tool = app.tools.firstOrNull { it.id == a.toolId } ?: return@forEach
-                    Row(
-                        Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow)
-                            .clickable { app.insights.count("home.ask.${a.id}"); query = ""; app.shell.open(tool) }.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(tool.icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(a.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                            Text(a.detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
+        AiSuggestion(app, query) { query = "" }
+        // The command palette: apps, people, messages, files, settings, records and Ultimate's own tools, in one list.
+        PaletteResults(app, query) { app.insights.count("home.palette"); query = "" }
+    }
+}
+
+/** "Pin to the top" or "Unpin", for a tool's long-press menu. */
+@Composable
+private fun PinItem(tool: Tool, done: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val pins by HomePins.ids(context).collectAsState()
+    val on = tool.id in pins
+    DropdownMenuItem({ Text(if (on) "Unpin from the top" else "Pin to the top") }, { done(); HomePins.toggle(context, tool.id) },
+        leadingIcon = { Icon(if (on) Icons.Rounded.PushPin else Icons.Outlined.PushPin, null) })
+}
+
+
+
+/**
+ * What is using the phone's senses right now (Echo listening, a remote session open), each with its own Stop. Nothing
+ * sensitive runs without showing up here and in the notification shade.
+ */
+@Composable
+private fun LiveSenses(app: UltimateApp) {
+    val sessions by app.senses.sessions.collectAsStateWithLifecycle()
+    if (sessions.isEmpty()) return
+    androidx.compose.material3.Card(
+        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+    ) {
+        androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)) {
+            Text("Live now", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onTertiaryContainer)
+            sessions.forEach { s ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(s.label, Modifier.weight(1f).clickable { app.tools.firstOrNull { it.id == s.module }?.let { app.shell.open(it) } }, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    androidx.compose.material3.TextButton({ app.senses.stop(s.id) }) { Text("Stop") }
                 }
             }
+            if (sessions.size > 1) androidx.compose.material3.TextButton({ app.senses.stopAll() }) { Text("Stop everything") }
+        }
+    }
+}
+
+
+/**
+ * The phone's senses, up top where they can't get lost among the tools: Echo's live state at a glance (what it is
+ * measuring right now), and one tap to open it.
+ */
+@Composable
+private fun SensesCard(app: UltimateApp, echo: EchoTool) {
+    val sonar by echo.sonar.state.collectAsStateWithLifecycle()
+    val motion by echo.engine.state.collectAsStateWithLifecycle()
+    val line = when (val s = sonar) {
+        is SonarState.Running -> s.frame.fix.rangeM.takeIf { !it.isNaN() }?.let { "Measuring · something %.0f cm away".format(it * 100) } ?: "Measuring · nothing moving"
+        SonarState.Warming -> "Learning the room…"
+        else -> if (motion is EchoState.Sensing) "Sensing motion" else "Feel distance and movement with sound you can't hear"
+    }
+    val live = sonar is SonarState.Running || motion is EchoState.Sensing
+    val glow = if (live && motionOn()) androidx.compose.animation.core.rememberInfiniteTransition(label = "senses").animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1600)), label = "g").value else 0f
+    Row(
+        Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
+            .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(androidx.compose.ui.graphics.Color(0xFF14213D), androidx.compose.ui.graphics.Color(0xFF1F4E79))))
+            .clickable { app.insights.count("home.senses"); app.shell.open(echo) }.padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.padding(end = 14.dp).size(44.dp)) {
+            val o = androidx.compose.ui.geometry.Offset(size.width / 2, size.height / 2)
+            for (i in 0 until 3) {
+                val p = ((i / 3f) + glow) % 1f
+                drawCircle(androidx.compose.ui.graphics.Color(0xFF7FD3FF).copy(alpha = if (live) 1f - p else 0.25f), size.minDimension / 2 * (if (live) p else (i + 1) / 3f), o, style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
+            }
+            drawCircle(androidx.compose.ui.graphics.Color(0xFF7FD3FF), 4.dp.toPx(), o)
+        }
+        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+            Text("Senses · Echo", color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(line, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+
+/**
+ * Local AI's answer to what was typed: a proposal to confirm, never an action taken by itself. "When…" requests are
+ * rules, handed to the rule maker; the rest go to Needle after a short pause in typing, and only a confident answer shows.
+ */
+@Composable
+private fun AiSuggestion(app: UltimateApp, query: String, onDone: () -> Unit) {
+    val ai = app.localAi ?: return
+    val state by ai.state.collectAsStateWithLifecycle()
+    var calls by remember { mutableStateOf<List<AiCall>>(emptyList()) }
+    val q = query.trim()
+    LaunchedEffect(q, state) {
+        calls = emptyList()
+        if (q.length < 4 || state != LocalAi.State.Ready || AiTools.isRule(q)) return@LaunchedEffect
+        kotlinx.coroutines.delay(600)
+        calls = ai.propose(q)
+    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    if (q.length >= 4 && AiTools.isRule(q) && app.tools.any { it.id == "rules" }) {
+        SuggestionRow("Make this a rule", q) { app.tools.firstOrNull { it.id == "rules" }?.let { app.shell.open(it, ToolLaunch(query = q)) }; onDone() }
+    }
+    calls.firstOrNull()?.let { c ->
+        SuggestionRow(AiTools.describe(c), "Local AI · %.0f%% sure · tap to do it".format(c.confidence * 100)) {
+            android.widget.Toast.makeText(context, AiActions.run(app, c), android.widget.Toast.LENGTH_SHORT).show(); onDone()
+        }
+    }
+}
+
+@Composable
+private fun SuggestionRow(title: String, detail: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.primaryContainer).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.AutoAwesome, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
         }
     }
 }

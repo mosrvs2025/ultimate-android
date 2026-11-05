@@ -7,3 +7,6 @@ local.properties
 *.keystore
 .idea/
 .kotlin/
+app/src/main/cpp/needle/
+app/.cxx/
+app/src/vision/assets/

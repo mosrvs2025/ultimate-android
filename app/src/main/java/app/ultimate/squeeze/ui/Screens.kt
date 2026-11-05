@@ -61,16 +61,11 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import app.ultimate.squeeze.model.Planner
 import app.ultimate.squeeze.model.CropShape
@@ -298,11 +293,12 @@ private fun EstimateCard(before: Long, after: Long, show: Boolean) {
                 Text("from ${formatBytes(before)}", Modifier.padding(bottom = 8.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Spacer(Modifier.height(14.dp))
-            LinearProgressIndicator(
+            GooeyProgress(
                 progress = { if (before > 0) (after.toFloat() / before).coerceIn(0.02f, 1f) else 1f },
                 modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
+                live = false,
             )
             Spacer(Modifier.height(8.dp))
             Text(
@@ -325,17 +321,8 @@ private fun ModeSection(settings: Settings, entries: List<Entry>, onChange: ((Se
         Choice("Exact", Mode.Exact, null),
     )
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            choices.forEachIndexed { i, c ->
-                val selected = if (c.preset == null) settings.mode == c.mode else settings.mode == Mode.Preset && settings.preset == c.preset
-                SegmentedButton(
-                    selected = selected,
-                    onClick = { onChange { s -> if (c.preset != null) s.copy(mode = Mode.Preset, preset = c.preset) else s.copy(mode = c.mode) } },
-                    shape = SegmentedButtonDefaults.itemShape(i, choices.size),
-                    label = { Text(c.label, maxLines = 1) },
-                )
-            }
-        }
+        val picked = choices.indexOfFirst { c -> if (c.preset == null) settings.mode == c.mode else settings.mode == Mode.Preset && settings.preset == c.preset }
+        GooeyTabs(choices.map { it.label }, picked, { i -> val c = choices[i]; onChange { s -> if (c.preset != null) s.copy(mode = Mode.Preset, preset = c.preset) else s.copy(mode = c.mode) } }, scrollable = choices.size > 4)
         when (settings.mode) {
             Mode.Preset -> Text(settings.preset.blurb, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Mode.TargetSize -> TargetSizeControls(settings, entries, onChange)
@@ -465,7 +452,7 @@ private fun AdvancedSection(settings: Settings, hevc: Boolean, av1: Boolean, onC
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Remove audio", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-            Switch(settings.muteAudio, { v -> onChange { it.copy(muteAudio = v) } })
+            GooeySwitch(settings.muteAudio, { v -> onChange { it.copy(muteAudio = v) } })
         }
     }
 }
@@ -575,7 +562,7 @@ private fun ResultRow(job: Item, context: android.content.Context, onOpen: (Stri
             when (val s = job.status) {
                 Status.Queued -> Sub("Waiting")
                 is Status.Running -> {
-                    LinearProgressIndicator(progress = { s.progress }, Modifier.fillMaxWidth().padding(top = 6.dp).height(6.dp).clip(CircleShape))
+                    GooeyProgress(progress = { s.progress }, Modifier.fillMaxWidth().padding(top = 6.dp).height(6.dp).clip(CircleShape), live = false)
                     Sub("${(s.progress * 100).roundToInt()}%" + (s.speedX?.let { String.format(java.util.Locale.US, " · %.1f× real time", it) } ?: "") + (s.etaMs?.let { " · ${formatEta(it)}" } ?: ""))
                 }
                 is Status.Done -> {
@@ -584,6 +571,7 @@ private fun ResultRow(job: Item, context: android.content.Context, onOpen: (Stri
                         color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
                     )
                     if (s.libraryId != null) Sub("Tap to compare and see stats")
+                    OriginalActions(job, s)
                 }
                 is Status.Skipped -> Sub(s.reason)
                 is Status.Failed -> Text(s.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -607,3 +595,24 @@ private fun ResultRow(job: Item, context: android.content.Context, onOpen: (Stri
 
 @Composable
 private fun Sub(text: String) = Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+
+/** After a squeeze: watch the two side by side, then free the space by deleting the original. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun OriginalActions(job: Item, s: Status.Done) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var watching by remember { mutableStateOf(false) }
+    var gone by androidx.compose.runtime.saveable.rememberSaveable(job.id) { mutableStateOf(false) }
+    val freed = (job.source.sizeBytes - s.outputBytes).coerceAtLeast(0)
+    val delete = rememberDeleteOriginal { ok ->
+        gone = gone || ok
+        android.widget.Toast.makeText(context, if (ok) "Original moved to the trash. ${formatBytes(job.source.sizeBytes)} freed" else "The original was kept", android.widget.Toast.LENGTH_SHORT).show()
+    }
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        androidx.compose.material3.AssistChip({ watching = true }, { Text("Watch both") }, enabled = !gone)
+        if (gone) Sub("Original deleted")
+        else if (Originals.canDelete(context, job.uri)) androidx.compose.material3.AssistChip({ delete(job.uri) }, { Text("Delete original · frees ${formatBytes(freed)}") })
+    }
+    if (watching) WatchBoth(job.uri, s.output, "Original · ${formatBytes(job.source.sizeBytes)}", "Squeezed · ${formatBytes(s.outputBytes)}") { watching = false }
+}

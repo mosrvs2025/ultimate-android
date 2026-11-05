@@ -11,8 +11,19 @@ import kotlinx.coroutines.flow.asStateFlow
 /** One notification as it was shown. [removedByApp] marks ones the app took back itself, often an unsent message. */
 data class Logged(
     val id: Long, val pkg: String, val app: String, val at: Long, val title: String, val text: String,
-    val conversation: String?, val removedByApp: Boolean,
+    val conversation: String?, val removedByApp: Boolean, val key: String = "",
 )
+
+/**
+ * The tap actions of notifications still in the shade, held in memory only (they cannot be stored), so the orb can
+ * open a notification in its own app exactly as tapping it in the shade would.
+ */
+object LiveNotifications {
+    private val intents = java.util.concurrent.ConcurrentHashMap<String, android.app.PendingIntent>()
+    fun put(key: String, intent: android.app.PendingIntent?) { if (intent != null) intents[key] = intent else intents.remove(key) }
+    fun remove(key: String) { intents.remove(key) }
+    fun intent(key: String): android.app.PendingIntent? = intents[key]
+}
 
 /** Pure rules for what gets kept, so noise and duplicates are tested. */
 object LogRules {
@@ -42,7 +53,7 @@ object LogRules {
  * Notification history kept in a private database on the phone. Nothing is ever sent anywhere and it is left out of the
  * usage report. Old entries are trimmed by age and count.
  */
-class NotificationLog(private val context: Context) : SQLiteOpenHelper(context, "notifications.db", null, 1) {
+class NotificationLog(private val context: Context) : SQLiteOpenHelper(context, "notifications.db", null, 3) {
     private val prefs = context.getSharedPreferences("inbox", Context.MODE_PRIVATE)
     private val _changed = MutableStateFlow(0)
     /** Bumps whenever something is added or removed, so open screens refresh. */
@@ -62,8 +73,24 @@ class NotificationLog(private val context: Context) : SQLiteOpenHelper(context, 
         db.execSQL("CREATE TABLE n (id INTEGER PRIMARY KEY AUTOINCREMENT, pkg TEXT, app TEXT, at INTEGER, title TEXT, text TEXT, convo TEXT, nkey TEXT, fp INTEGER, removed INTEGER DEFAULT 0)")
         db.execSQL("CREATE INDEX n_at ON n(at)")
         db.execSQL("CREATE INDEX n_key ON n(nkey)")
+        addInsightColumns(db)
+        db.execSQL("ALTER TABLE n ADD COLUMN prog INTEGER DEFAULT 0")
     }
-    override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) = Unit
+
+    // Version 2 also keeps what you did with each notification (tapped, swiped, withdrawn), when it left, Android's
+    // category for it and who sent it, so Insights can tell signal from noise. Older rows simply lack these.
+    override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
+        if (old < 2) addInsightColumns(db)
+        if (old < 3) db.execSQL("ALTER TABLE n ADD COLUMN prog INTEGER DEFAULT 0")
+    }
+
+    private fun addInsightColumns(db: SQLiteDatabase) {
+        db.execSQL("ALTER TABLE n ADD COLUMN fate INTEGER DEFAULT 0")
+        db.execSQL("ALTER TABLE n ADD COLUMN gone INTEGER DEFAULT 0")
+        db.execSQL("ALTER TABLE n ADD COLUMN cat TEXT")
+        db.execSQL("ALTER TABLE n ADD COLUMN who TEXT")
+        db.execSQL("CREATE INDEX IF NOT EXISTS n_key ON n(nkey)") // version 1 histories made before the index may lack it
+    }
 
     /** Whether Android currently has the listener connected, and when it last caught something. */
     fun connected(on: Boolean) = prefs.edit().putBoolean("connected", on).apply()
@@ -91,17 +118,39 @@ class NotificationLog(private val context: Context) : SQLiteOpenHelper(context, 
         return readableDatabase.rawQuery("SELECT COUNT(*) FROM n WHERE at >= ?", arrayOf(start.toString())).use { it.moveToFirst(); it.getInt(0) }
     }
 
-    fun add(pkg: String, app: String, at: Long, title: String, text: String, convo: String?, key: String) {
+    fun add(pkg: String, app: String, at: Long, title: String, text: String, convo: String?, key: String, category: String? = null, who: String? = null, progress: Boolean = false) {
         val fp = LogRules.fingerprint(pkg, title, text)
         val db = writableDatabase
+        // An upload or download repeats its notification with each step ("75 MB / 79 MB", "76 MB / 79 MB"). Keep one
+        // entry that updates in place, from when it started, ending with its last word ("Complete").
+        db.rawQuery("SELECT id FROM n WHERE nkey = ? AND prog = 1 AND at > ? ORDER BY at DESC LIMIT 1", arrayOf(key, (at - 6 * 3_600_000L).toString())).use { c ->
+            if (c.moveToFirst()) {
+                db.update("n", ContentValues().apply { put("title", title); put("text", text); put("fp", fp); put("prog", if (progress) 1 else 2) }, "id = ?", arrayOf(c.getLong(0).toString()))
+                prefs.edit().putLong("lastCaught", System.currentTimeMillis()).apply()
+                _changed.value++
+                return
+            }
+        }
         // The same notification updated with identical content (a refresh, a re-post) is kept once.
         db.rawQuery("SELECT 1 FROM n WHERE nkey = ? AND fp = ? AND at > ? LIMIT 1", arrayOf(key, fp.toString(), (at - 6 * 3_600_000L).toString())).use { if (it.moveToFirst()) return }
         prefs.edit().putLong("lastCaught", System.currentTimeMillis()).apply()
         db.insert("n", null, ContentValues().apply {
-            put("pkg", pkg); put("app", app); put("at", at); put("title", title); put("text", text); put("convo", convo); put("nkey", key); put("fp", fp)
+            put("pkg", pkg); put("app", app); put("at", at); put("title", title); put("text", text); put("convo", convo); put("nkey", key); put("fp", fp); put("cat", category); put("who", who); put("prog", if (progress) 1 else 0)
         })
         _changed.value++
     }
+
+    /** A notification left the shade: record how (tapped, swiped, withdrawn) and when, on every row of it still waiting. */
+    fun markFate(key: String, fate: Fate, at: Long) {
+        writableDatabase.execSQL("UPDATE n SET fate = ?, gone = ? WHERE nkey = ? AND fate = 0", arrayOf<Any>(fate.code, at, key))
+        if (fate == Fate.Withdrawn) markRemovedByApp(key) else _changed.value++
+    }
+
+    /** Everything kept since [from], oldest first, for Insights. */
+    fun since(from: Long, limit: Int = 20_000): List<Rec> =
+        readableDatabase.rawQuery("SELECT pkg, app, at, title, text, who, cat, fate, gone, removed, id, nkey FROM n WHERE at >= ? ORDER BY at LIMIT $limit", arrayOf(from.toString())).use { c ->
+            buildList { while (c.moveToNext()) add(Rec(c.getString(0), c.getString(1), c.getLong(2), c.getString(3).orEmpty(), c.getString(4).orEmpty(), c.getString(5), c.getString(6), Fate.of(c.getInt(7)), c.getLong(8), c.getInt(9) == 1, c.getLong(10), c.getString(11).orEmpty())) }
+        }
 
     /** The app withdrew its own notification (not the user swiping it away): often a deleted or unsent message. */
     fun markRemovedByApp(key: String) {
@@ -114,9 +163,9 @@ class NotificationLog(private val context: Context) : SQLiteOpenHelper(context, 
         if (query.isNotBlank()) { where += "(title LIKE ? OR text LIKE ? OR app LIKE ?)"; repeat(3) { args += "%${query.trim()}%" } }
         if (pkg != null) { where += "pkg = ?"; args += pkg }
         if (onlyRemoved) where += "removed = 1"
-        val sql = "SELECT id, pkg, app, at, title, text, convo, removed FROM n" + (if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")) + " ORDER BY at DESC LIMIT $limit"
+        val sql = "SELECT id, pkg, app, at, title, text, convo, removed, nkey FROM n" + (if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")) + " ORDER BY at DESC LIMIT $limit"
         return readableDatabase.rawQuery(sql, args.toTypedArray()).use { c ->
-            buildList { while (c.moveToNext()) add(Logged(c.getLong(0), c.getString(1), c.getString(2), c.getLong(3), c.getString(4), c.getString(5), c.getString(6), c.getInt(7) == 1)) }
+            buildList { while (c.moveToNext()) add(Logged(c.getLong(0), c.getString(1), c.getString(2), c.getLong(3), c.getString(4), c.getString(5), c.getString(6), c.getInt(7) == 1, c.getString(8).orEmpty())) }
         }
     }
 
@@ -124,6 +173,9 @@ class NotificationLog(private val context: Context) : SQLiteOpenHelper(context, 
     fun apps(): List<Triple<String, String, Int>> = readableDatabase.rawQuery("SELECT pkg, app, COUNT(*) c FROM n GROUP BY pkg ORDER BY c DESC", null).use { c ->
         buildList { while (c.moveToNext()) add(Triple(c.getString(0), c.getString(1), c.getInt(2))) }
     }
+
+    /** How many arrived after [at]: for the orb's badge. */
+    fun countSince(at: Long): Int = readableDatabase.rawQuery("SELECT COUNT(*) FROM n WHERE at > ?", arrayOf(at.toString())).use { it.moveToFirst(); it.getInt(0) }
 
     fun count(): Int = readableDatabase.rawQuery("SELECT COUNT(*) FROM n", null).use { it.moveToFirst(); it.getInt(0) }
 

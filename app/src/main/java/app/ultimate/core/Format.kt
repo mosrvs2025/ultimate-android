@@ -6,6 +6,8 @@ import java.util.Locale
 fun formatBytes(bytes: Long): String {
     val b = bytes.coerceAtLeast(0).toDouble()
     return when {
+        b >= 1e11 -> String.format(Locale.US, "%.0f GB", b / 1e9)
+        b >= 1e10 -> String.format(Locale.US, "%.1f GB", b / 1e9)
         b >= 1e9 -> String.format(Locale.US, "%.2f GB", b / 1e9)
         b >= 1e8 -> String.format(Locale.US, "%.0f MB", b / 1e6)
         b >= 1e6 -> String.format(Locale.US, "%.1f MB", b / 1e6)
