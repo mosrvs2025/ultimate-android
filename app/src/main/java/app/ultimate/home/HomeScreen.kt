@@ -106,15 +106,18 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
     if (showSavings) SavingsSheet(app.tools, all, onOpen = { t, i -> showSavings = false; openItem(app, t, i) }) { showSavings = false }
 
     val runningIds = running.map { it.first.workId }.toSet()
-    // Recomputed only when something starts or stops running, so tiles do not jump around while you tap.
-    // Pinned tools always come first; then what is running and what you open most.
+    // Recomputed only when something starts or stops running or a tool is opened, so tiles don't jump while you tap.
+    // Pinned tools come first; the rest from the shared local memory (recency, time of day, running jobs) that the orb uses too.
     val pins by HomePins.ids(app).collectAsState()
-    val favorites = remember(runningIds, pins) {
-        val ids = app.tools.map { it.id }
-        HomeLayout.withPins(pins, HomeLayout.favorites(ids, app.insights::opens, app.insights::lastAt, runningIds, System.currentTimeMillis(), count = 8), ids).mapNotNull { id -> app.tools.firstOrNull { it.id == id } }
+    val revision by app.insights.revision.collectAsStateWithLifecycle()
+    val favorites = remember(runningIds, pins, revision) {
+        val ids = app.tools.map { it.id }.filter { it != "orb" }
+        HomeLayout.withPins(pins, HomeLayout.constellation(ids, app.insights.recentOpens(), runningIds, System.currentTimeMillis()), ids, count = 6)
+            .mapNotNull { id -> app.tools.firstOrNull { it.id == id } }
     }
+    val pending = remember(revision) { app.insights.pendingTools() }
     val prefs = remember { app.getSharedPreferences("home", android.content.Context.MODE_PRIVATE) }
-    var folded by remember { mutableStateOf(prefs.getStringSet("folded", emptySet()).orEmpty()) }
+    var folded by remember { mutableStateOf(prefs.getStringSet("expanded", emptySet()).orEmpty()) }
 
     // Four columns: favorites take two each, every other tool one, and headers, search and results the full row.
     LazyVerticalGrid(
@@ -128,33 +131,36 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
                 androidx.compose.material3.IconButton({ app.insights.count("home.about"); shell.showAbout() }) { Icon(Icons.Rounded.Settings, "About and settings") }
             }
         }
+        item(key = "command-surface", span = { GridItemSpan(maxLineSpan) }) {
+            LivingSurface(app, favorites, runningIds)
+        }
         item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
         item(span = { GridItemSpan(maxLineSpan) }) { TodayDashboard(app) }
         item(key = "live-senses", span = { GridItemSpan(maxLineSpan) }) { LiveSenses(app) }
         app.tools.firstOrNull { it.id == "echo" }?.let { echo -> item(key = "senses", span = { GridItemSpan(maxLineSpan) }) { SensesCard(app, echo as app.ultimate.echo.EchoTool) } }
+        if (pending.isNotEmpty()) item(key = "unfinished", span = { GridItemSpan(maxLineSpan) }) {
+            Column {
+                Text("Needs another look", style = MaterialTheme.typography.titleSmall)
+                pending.mapNotNull { id -> app.tools.firstOrNull { it.id == id } }.forEach { tool ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton({ shell.open(tool) }, Modifier.weight(1f)) { Text("${tool.title} · unfinished job") }
+                        TextButton({ app.insights.clearPending(tool.id) }) { Text("Clear") }
+                    }
+                }
+            }
+        }
         if (running.isNotEmpty()) items(running, key = { "run-${it.first.workId}" }, span = { GridItemSpan(maxLineSpan) }) { (source, snap) ->
             RunningBanner(source, snap, app.tools.firstOrNull { it.id == source.workId }, onView = { app.tools.firstOrNull { it.id == source.workId }?.let(shell::open) })
-        }
-        // Shortcuts first: what is running, then what you open most. Full tiles show each tool's live line.
-        item(key = "favorites-header", span = { GridItemSpan(maxLineSpan) }) {
-            Text("Your tools", Modifier.animateItem().padding(start = 4.dp, top = 6.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-        }
-        itemsIndexed(favorites, key = { _, t -> "fav-${t.id}" }, span = { _, _ -> GridItemSpan(2) }) { i, tool ->
-            ToolTile(
-                Modifier.animateItem().appear("fav-${tool.id}", seen, i), tool, wide = false,
-                active = tool.id in runningIds, stop = app.work.sources.firstOrNull { it.workId == tool.id }?.takeIf { src -> running.any { it.first === src } },
-                onLibrary = { shell.showLibraryOf(tool.id) }, onClick = { shell.open(tool) },
-            )
         }
         // Every tool, small and in fixed places, in families you can fold away; the fold is remembered.
         var order = 0
         toolSections(app.tools).forEach { (section, tools) ->
             val headerAt = order
-            val isFolded = section in folded
+            val isFolded = section !in folded
             item(key = "section-$section", span = { GridItemSpan(maxLineSpan) }) {
                 SectionHeader(section, tools.size, isFolded, Modifier.animateItem().appear("section-$section", seen, headerAt)) {
-                    folded = if (isFolded) folded - section else folded + section
-                    prefs.edit().putStringSet("folded", folded).apply()
+                    folded = if (isFolded) folded + section else folded - section
+                    prefs.edit().putStringSet("expanded", folded).apply()
                     app.insights.count("home.fold.$section")
                 }
             }

@@ -146,7 +146,7 @@ private fun TerminalScreen(app: UltimateApp, m: TerminalManager, onExit: () -> U
                         val on = s == current
                         Row(Modifier.clip(RoundedCornerShape(8.dp)).background(if (on) Color(0xFF3B3B44) else Color.Transparent)
                             .clickable(role = Role.Tab) { m.select(s) }.semantics { selected = on }, verticalAlignment = Alignment.CenterVertically) {
-                            Text(s.title?.takeIf { it.isNotBlank() }?.take(18) ?: "Shell ${i + 1}", Modifier.padding(start = 12.dp), color = Color.White)
+                            Text((m.labelOf(s) ?: s.title?.takeIf { it.isNotBlank() })?.take(18) ?: "Shell ${i + 1}", Modifier.padding(start = 12.dp), color = Color.White)
                             IconButton({ m.close(s) }) { Icon(Icons.Rounded.Close, "Close shell ${i + 1}", tint = Color.White) }
                         }
                     }

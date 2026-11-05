@@ -181,3 +181,7 @@ Build from the root with JDK 17, Gradle 8.9 and Android SDK 35. `main` is the wo
 GitHub secrets do not move between repositories. Before publishing updates, configure the existing permanent signing key here; a locally debug-signed build cannot update an APK signed with the previous release key. The companion release workflow is available here as a manual workflow; configure the COMPANION signing secrets before running it.
 
 The migration also includes Claude's terminal and floating-orb changes through REA commit `9f2c077b9a763a27ff9a79054d4696d749bee1bc`, reconciled with the SSH foreground-service manifest entry. Continue Ultimate development in this repository.
+
+### Living command surface (1.31 preview)
+
+Home now centers on an orb with nearby tools ranked from local use over the last 48 hours. Tap the orb for live shortcuts, hold a tool for its results, and use the in-tool orb to jump between recent tools, results, Home and Activity. Tilt can be switched off. Failed jobs leave a clearable reminder. See [interaction details and device-test limits](docs/LIVING_SURFACE.md).

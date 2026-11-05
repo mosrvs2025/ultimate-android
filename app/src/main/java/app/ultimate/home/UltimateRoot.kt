@@ -8,6 +8,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -83,8 +85,22 @@ private fun SuiteRoot(app: UltimateApp, route: Route) {
         contentKey = { r -> if (r is Route.InTool) "tool:${r.tool.id}" else "tabs" },
         transitionSpec = {
             val intoTool = targetState is Route.InTool
-            if (intoTool) (scaleIn(tween(320, easing = EaseOutBack), initialScale = 0.9f) + fadeIn(tween(220))) togetherWith (scaleOut(tween(260), targetScale = 1.04f) + fadeOut(tween(180)))
-            else (scaleIn(tween(300), initialScale = 1.04f) + fadeIn(tween(240))) togetherWith (scaleOut(tween(240), targetScale = 0.92f) + fadeOut(tween(200)))
+            val toolRoute = (if (intoTool) targetState else initialState) as? Route.InTool
+            val origin = toolRoute?.origin ?: EntryOrigin.OTHER
+            val ms = if (!intoTool && app.shell.lastVisitMs < 8_000L) 220 else 320
+            val spec = tween<androidx.compose.ui.unit.IntOffset>(ms, easing = EaseOutCubic)
+            val entering = when (origin) {
+                EntryOrigin.ORB_LEFT -> slideInHorizontally(spec) { -it / 3 }
+                EntryOrigin.ORB_RIGHT -> slideInHorizontally(spec) { it / 3 }
+                else -> slideInVertically(spec) { it / 5 }
+            }
+            val leaving = when (origin) {
+                EntryOrigin.ORB_LEFT -> slideOutHorizontally(spec) { -it / 3 }
+                EntryOrigin.ORB_RIGHT -> slideOutHorizontally(spec) { it / 3 }
+                else -> slideOutVertically(spec) { it / 5 }
+            }
+            if (intoTool) (entering + fadeIn(tween(ms))) togetherWith (scaleOut(tween(ms), targetScale = 0.97f) + fadeOut(tween(ms)))
+            else (scaleIn(tween(ms), initialScale = 0.97f) + fadeIn(tween(ms))) togetherWith (leaving + fadeOut(tween(ms)))
         },
     ) { shown ->
         when (shown) {

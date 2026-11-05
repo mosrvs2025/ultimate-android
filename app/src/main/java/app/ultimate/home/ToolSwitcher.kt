@@ -32,6 +32,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -87,9 +89,8 @@ fun ToolSwitcher(app: UltimateApp, current: Tool) {
         if (!open) {
             val pressed by animateFloatAsState(if (tucked) 0.55f else 1f, label = "bubble")
             val tuck by animateFloatAsState(if (tucked) (if (BubblePlace.right) sizePx * 0.55f else -sizePx * 0.55f) else 0f, label = "tuck")
-            Surface(
-                shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, shadowElevation = 8.dp,
-                modifier = Modifier.offset { IntOffset((x.value + tuck).roundToInt(), y.value.roundToInt()) }.size(size).graphicsLayer { alpha = 0.92f * pressed }
+            InstrumentOrb(current, running.isNotEmpty(),
+                Modifier.offset { IntOffset((x.value + tuck).roundToInt(), y.value.roundToInt()) }.size(size).semantics { contentDescription = "Switch tool" }.graphicsLayer { alpha = 0.92f * pressed }
                     .pointerInput(w, h) {
                         detectDragGestures(
                             onDragStart = { touched++ },
@@ -103,18 +104,11 @@ fun ToolSwitcher(app: UltimateApp, current: Tool) {
                         ) { change, drag ->
                             change.consume()
                             scope.launch {
-                                x.snapTo((x.value + drag.x).coerceIn(0f, w - sizePx))
-                                y.snapTo((y.value + drag.y).coerceIn(margin * 6, h - sizePx - margin * 6))
+                                x.snapTo((x.value + drag.x).coerceIn(0f, (w - sizePx).coerceAtLeast(0f)))
+                                y.snapTo((y.value + drag.y).coerceIn(0f, (h - sizePx).coerceAtLeast(0f)))
                             }
                         }
-                    }
-                    .clickable { haptics.performHapticFeedback(HapticFeedbackType.LongPress); open = true },
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Apps, "Switch tool", tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                    if (running.isNotEmpty()) Box(Modifier.align(Alignment.TopEnd).padding(8.dp).size(9.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error))
-                }
-            }
+                    }, onClick = { open = true }, onLongClick = { app.shell.showHome() })
         }
     }
 }

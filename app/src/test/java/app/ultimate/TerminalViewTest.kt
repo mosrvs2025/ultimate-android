@@ -34,7 +34,10 @@ class TerminalViewTest {
 
     @Test fun openingAShellTabCreatesASession() {
         if (!BuildConfig.HAS_TERMINAL) return
+        // open() starts the shell straight away, which needs the native PTY library; the JVM has none, so here the
+        // failure must be reported rather than crash. TerminalSmokeTest checks a real shell on an emulator.
         val session = app.terminal.open()
+        if (session == null) { assertNotNull(app.terminal.error.value); assertEquals(emptyList<Any>(), app.terminal.sessions.value); return }
         assertEquals(listOf(session), app.terminal.sessions.value)
         assertEquals(session, app.terminal.current.value)
     }

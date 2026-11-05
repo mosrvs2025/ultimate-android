@@ -39,7 +39,7 @@ class TerminalManager(private val app: UltimateApp) {
         override fun onTextChanged(s: TerminalSession) { if (view?.currentSession == s) view?.onScreenUpdated() }
         override fun onTitleChanged(s: TerminalSession) { _changes.value++ }
         // Keep the transcript, including exec errors and exit status, until explicitly closed.
-        override fun onSessionFinished(s: TerminalSession) { _changes.value++; view?.onScreenUpdated() }
+        override fun onSessionFinished(s: TerminalSession) { main.post { relays.remove(s)?.close(); _changes.value++; view?.onScreenUpdated() } }
         override fun onCopyTextToClipboard(s: TerminalSession, text: String) {
             app.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Terminal", text))
             app.clips.add(text, "Terminal")

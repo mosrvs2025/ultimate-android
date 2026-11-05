@@ -67,8 +67,10 @@ android {
             dimension = "edition"
             externalNativeBuild { cmake { arguments += listOf("-DWITH_NEEDLE=ON", "-DANDROID_STL=c++_static") } }
             buildConfigField("boolean", "HAS_LOCAL_AI", "true")
-            applicationId = if (providers.gradleProperty("companionBuild").orNull == "true") "app.ultimate.companion" else "app.ultimate.plus"
-            resValue("string", "app_name", if (providers.gradleProperty("companionBuild").orNull == "true") "Ultimate Companion" else "Ultimate+")
+            val orbitPreview = providers.gradleProperty("orbitPreview").orNull == "true"
+            val companion = providers.gradleProperty("companionBuild").orNull == "true"
+            applicationId = when { orbitPreview -> "app.ultimate.orbitpreview"; companion -> "app.ultimate.companion"; else -> "app.ultimate.plus" }
+            resValue("string", "app_name", when { orbitPreview -> "Ultimate Orbit Preview"; companion -> "Ultimate Companion"; else -> "Ultimate+" })
             buildConfigField("boolean", "HAS_SQUEEZE", "true")
             buildConfigField("boolean", "HAS_AUDIO", "true")
             buildConfigField("boolean", "HAS_PLUCK", "true")
