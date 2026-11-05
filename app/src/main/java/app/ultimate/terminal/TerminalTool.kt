@@ -121,19 +121,8 @@ private fun TerminalScreen(app: UltimateApp, m: TerminalManager, onExit: () -> U
     LaunchedEffect(Unit) { if (m.sessions.value.isEmpty()) m.open() }
 
     Scaffold(topBar = {
-        TopAppBar(title = {
-            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                sessions.forEachIndexed { i, s ->
-                    val on = s == current
-                    Row(Modifier.padding(end = 6.dp).clip(RoundedCornerShape(10.dp)).background(if (on) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-                        .clickable { m.select(s) }.padding(start = 10.dp, end = 2.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text((m.labelOf(s) ?: s.title?.takeIf { it.isNotBlank() })?.take(14) ?: "Shell ${i + 1}", style = MaterialTheme.typography.labelLarge, fontWeight = if (on) FontWeight.Bold else null)
-                        Icon(Icons.Rounded.Close, "Close", Modifier.padding(start = 4.dp).clip(RoundedCornerShape(8.dp)).clickable { m.close(s) }.padding(2.dp).width(16.dp))
-                    }
-                }
-                IconButton({ m.open() }) { Icon(Icons.Rounded.Add, "New shell") }
-            }
-        }, navigationIcon = { ToolBackButton(onExit) }, actions = {
+        // Tabs live in the strip under the bar (one place for them, with tab roles and named close buttons).
+        TopAppBar(title = { Text("Terminal") }, navigationIcon = { ToolBackButton(onExit) }, actions = {
             IconButton({ m.view?.let { showKeyboard(it) } }, enabled = current?.isRunning == true) { Icon(Icons.Rounded.Keyboard, "Show keyboard") }
             IconButton({ asking = true }) { Icon(Icons.Rounded.AutoAwesome, "Describe a command") }
             ShellActions()

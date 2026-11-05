@@ -2,7 +2,6 @@ package app.ultimate
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -64,7 +63,7 @@ class TerminalSmokeTest {
         }
         ui.onNodeWithText("Shell exited (7)").assertIsDisplayed()
         ui.runOnIdle { assertTrue(app.terminal.sessions.value.contains(app.terminal.current.value)) }
-        ui.onNodeWithContentDescription("New shell").performClick()
+        ui.onNodeWithText("New shell").performClick() // the exit banner's button
         awaitOutput("Ultimate terminal")
         ui.runOnIdle { assertTrue(app.terminal.current.value!!.isRunning) }
     }
