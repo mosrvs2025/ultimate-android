@@ -35,6 +35,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.runtime.key
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -387,17 +391,28 @@ private fun AskBar(app: UltimateApp) {
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) { app.insights.count("home.openfile"); app.shell.offerShared(uris, app.contentResolver.getType(uris[0])) }
     }
+    // Speaking fills the bar; a confident spoken command then runs by itself (you said it, so no extra tap).
+    var spoken by remember { mutableStateOf(false) }
+    var lastRun by remember { mutableStateOf<Pair<AiCall, Long>?>(null) }
+    val listen = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
+        r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { query = it; spoken = true }
+    }
     Column(Modifier.padding(top = 4.dp)) {
         androidx.compose.material3.OutlinedTextField(
             query, { query = it }, Modifier.fillMaxWidth(),
             placeholder = { Text("Search apps, people, messages, files…") }, singleLine = true, shape = RoundedCornerShape(28.dp),
             leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary) },
             trailingIcon = {
-                if (query.isEmpty()) androidx.compose.material3.IconButton({ picker.launch(arrayOf("video/*", "image/*", "audio/*")) }) { Icon(Icons.Rounded.AttachFile, "Open a file") }
-                else androidx.compose.material3.IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear") }
+                if (query.isEmpty()) Row {
+                    androidx.compose.material3.IconButton({ listen.launch(voiceIntent()) }) { Icon(androidx.compose.material.icons.Icons.Rounded.Mic, "Speak") }
+                    androidx.compose.material3.IconButton({ picker.launch(arrayOf("video/*", "image/*", "audio/*")) }) { Icon(Icons.Rounded.AttachFile, "Open a file") }
+                }
+                else androidx.compose.material3.IconButton({ query = ""; spoken = false }) { Icon(Icons.Rounded.Close, "Clear") }
             },
         )
-        AiSuggestion(app, query) { query = "" }
+        AiSuggestion(app, query, spoken, onRan = { c -> lastRun = c to System.currentTimeMillis() }) { query = ""; spoken = false }
+        lastRun?.let { (c, at) -> FollowUp(app, c, at, onGone = { lastRun = null }) }
+        if (query.isEmpty()) KeptControls(app)
         // The command palette: apps, people, messages, files, settings, records and Ultimate's own tools, in one list.
         PaletteResults(app, query) { app.insights.count("home.palette"); query = "" }
     }
@@ -483,26 +498,94 @@ private fun SensesCard(app: UltimateApp, echo: EchoTool) {
  * rules, handed to the rule maker; the rest go to Needle after a short pause in typing, and only a confident answer shows.
  */
 @Composable
-private fun AiSuggestion(app: UltimateApp, query: String, onDone: () -> Unit) {
+private fun AiSuggestion(app: UltimateApp, query: String, spoken: Boolean, onRan: (AiCall) -> Unit, onDone: () -> Unit) {
     val ai = app.localAi ?: return
     val state by ai.state.collectAsStateWithLifecycle()
     var calls by remember { mutableStateOf<List<AiCall>>(emptyList()) }
     val q = query.trim()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    fun run(c: AiCall) { android.widget.Toast.makeText(context, AiActions.run(app, c), android.widget.Toast.LENGTH_SHORT).show(); onRan(c); onDone() }
     LaunchedEffect(q, state) {
         calls = emptyList()
         if (q.length < 4 || state != LocalAi.State.Ready || AiTools.isRule(q)) return@LaunchedEffect
-        kotlinx.coroutines.delay(600)
+        if (!spoken) kotlinx.coroutines.delay(600)
         calls = ai.propose(q)
+        calls.firstOrNull()?.takeIf { spoken && it.confidence >= 0.8 }?.let { run(it) }
     }
-    val context = androidx.compose.ui.platform.LocalContext.current
     if (q.length >= 4 && AiTools.isRule(q) && app.tools.any { it.id == "rules" }) {
         SuggestionRow("Make this a rule", q) { app.tools.firstOrNull { it.id == "rules" }?.let { app.shell.open(it, ToolLaunch(query = q)) }; onDone() }
     }
     calls.firstOrNull()?.let { c ->
-        SuggestionRow(AiTools.describe(c), "Local AI · %.0f%% sure · tap to do it".format(c.confidence * 100)) {
-            android.widget.Toast.makeText(context, AiActions.run(app, c), android.widget.Toast.LENGTH_SHORT).show(); onDone()
+        SuggestionRow(AiTools.describe(c), "Local AI · %.0f%% sure · tap to do it".format(c.confidence * 100)) { run(c) }
+    }
+}
+
+/**
+ * Right after a command ran: what happened, a button that undoes or flips it, and "Keep" to leave it on Home as a
+ * control. It fades away by itself after a few seconds if you do neither.
+ */
+@Composable
+private fun FollowUp(app: UltimateApp, c: AiCall, at: Long, onGone: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val next = remember(at) { AiActions.followUp(c) }
+    LaunchedEffect(at) { kotlinx.coroutines.delay(8_000); onGone() }
+    androidx.compose.animation.AnimatedVisibility(true, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically()) {
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.secondaryContainer).padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("Done: " + AiTools.describe(c).replaceFirstChar { it.lowercase() }, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+            next?.let { (label, call) ->
+                androidx.compose.material3.FilledTonalButton({ android.widget.Toast.makeText(context, AiActions.run(app, call), android.widget.Toast.LENGTH_SHORT).show(); onGone() }) { Text(label) }
+            }
+            TextButton({ KeptControlsStore.add(context, c); onGone() }) { Text("Keep") }
         }
     }
+}
+
+/** Controls you kept from commands, one tap each, under the search bar. Long-press one to remove it. */
+@Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun KeptControls(app: UltimateApp) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val kept by KeptControlsStore.flow(context).collectAsStateWithLifecycle()
+    var tick by remember { mutableStateOf(0) }
+    if (kept.isEmpty()) return
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        kept.forEach { c ->
+            key(tick) {
+                Text(AiActions.controlLabel(c), Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .combinedClickable(onLongClick = { KeptControlsStore.remove(context, c) }) {
+                        android.widget.Toast.makeText(context, AiActions.run(app, AiActions.controlCall(c)), android.widget.Toast.LENGTH_SHORT).show(); tick++
+                    }.padding(horizontal = 14.dp, vertical = 9.dp), style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+/** The speech prompt: on-device recognition preferred, so what you say stays on the phone where the phone can. */
+private fun voiceIntent() = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+    .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+    .putExtra(android.speech.RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+    .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Say what you want to do")
+
+/** Kept controls, saved as the commands themselves. */
+internal object KeptControlsStore {
+    private var state: kotlinx.coroutines.flow.MutableStateFlow<List<AiCall>>? = null
+    private fun prefs(c: android.content.Context) = c.getSharedPreferences("kept_controls", android.content.Context.MODE_PRIVATE)
+    fun flow(c: android.content.Context) = state ?: kotlinx.coroutines.flow.MutableStateFlow(load(c)).also { state = it }
+    private fun load(c: android.content.Context): List<AiCall> = runCatching {
+        val a = org.json.JSONArray(prefs(c).getString("list", "[]"))
+        (0 until a.length()).map { i -> val o = a.getJSONObject(i); val args = o.getJSONObject("args"); AiCall(o.getString("name"), args.keys().asSequence().associateWith { args.opt(it) }, 1.0) }
+    }.getOrDefault(emptyList())
+    private fun save(c: android.content.Context, list: List<AiCall>) {
+        flow(c).value = list
+        prefs(c).edit().putString("list", org.json.JSONArray().apply { list.forEach { put(org.json.JSONObject().put("name", it.name).put("args", org.json.JSONObject(it.args))) } }.toString()).apply()
+    }
+    /** One per kind for toggles (a flashlight button), one per exact command otherwise. */
+    fun add(c: android.content.Context, call: AiCall) {
+        val list = flow(c).value.filterNot { it.name == call.name && (call.name == "flashlight" || it.args == call.args) }
+        save(c, list + call)
+    }
+    fun remove(c: android.content.Context, call: AiCall) = save(c, flow(c).value - call)
 }
 
 @Composable

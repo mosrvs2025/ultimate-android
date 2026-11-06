@@ -1,5 +1,11 @@
 package app.ultimate.files
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.Download
 import android.content.Intent
 import android.graphics.Bitmap
 import android.media.MediaScannerConnection
@@ -165,8 +171,12 @@ private fun FilesScreen(app: UltimateApp, onExit: () -> Unit, launch: ToolLaunch
     var sortMenu by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
     var forward by remember { mutableStateOf(true) }
+    // The front page (categories, recent files, storage), like a phone's own file app; folders are one tap away.
+    var home by remember { mutableStateOf(true) }
+    var category by remember { mutableStateOf<Pair<String, Set<FileKind>?>?>(null) }
+    var recent by remember { mutableStateOf<List<Entry>>(emptyList()) }
 
-    fun go(to: File) { forward = to.absolutePath.length >= dir.absolutePath.length; dir = to; selected = emptySet(); query = "" }
+    fun go(to: File) { home = false; category = null; forward = to.absolutePath.length >= dir.absolutePath.length; dir = to; selected = emptySet(); query = "" }
     fun refreshMedia(paths: List<String>) = MediaScannerConnection.scanFile(context, paths.toTypedArray(), null, null)
     fun op(label: String, block: suspend () -> Unit) = scope.launch {
         runCatching { withContext(Dispatchers.IO) { block() } }
@@ -197,16 +207,21 @@ private fun FilesScreen(app: UltimateApp, onExit: () -> Unit, launch: ToolLaunch
             installer.permissionIntent()?.let { context.startActivity(it) } ?: runCatching { installer.install(u, u.lastPathSegment ?: "app.apk") }
         } }
     }
-    LaunchedEffect(dir, reload, access, query) {
+    // Recent files are found only for the front page, so browsing folders doesn't walk the whole phone each time.
+    LaunchedEffect(home, reload, access) { if (access && home) recent = withContext(Dispatchers.IO) { FileOps.collect(root, null, limit = 12) } }
+    LaunchedEffect(dir, reload, access, query, category) {
         if (!access) return@LaunchedEffect
-        entries = withContext(Dispatchers.IO) { if (query.length >= 2) FileOps.search(dir, query) else FileOps.list(dir) }
+        val cat = category
+        entries = withContext(Dispatchers.IO) { if (query.length >= 2) FileOps.search(dir, query) else if (cat != null) FileOps.collect(root, cat.second) else FileOps.list(dir) }
         withContext(Dispatchers.IO) { trash.purgeOlderThan(30) }
     }
     BackHandler {
         when {
             selected.isNotEmpty() -> selected = emptySet()
             query.isNotEmpty() -> query = ""
+            category != null -> { category = null; home = true }
             dir.canonicalPath != root.canonicalPath -> go(dir.parentFile ?: root)
+            !home -> home = true
             else -> onExit()
         }
     }
@@ -275,19 +290,33 @@ private fun FilesScreen(app: UltimateApp, onExit: () -> Unit, launch: ToolLaunch
                 placeholder = { Text("Search in ${if (dir == root) "all files" else dir.name}") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear") } },
             )
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (home && query.isEmpty() && category == null && dir.canonicalPath == root.canonicalPath) {
+                FilesHome(root, recent,
+                    onCategory = { label, kinds -> category = label to kinds; home = false },
+                    onFolder = { go(it) }, onRecentAll = { category = "Recent files" to null; home = false },
+                    onOpen = { e -> if (e.kind == FileKind.Apk) install(e.file) else sheet = e },
+                    onBrowse = { home = false; forward = true }, onBin = { showTrash = true })
+                return@Column
+            }
+            category?.let { (label, _) ->
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    TextButton({ category = null; home = true }) { Text("Done") }
+                }
+            }
+            if (category == null) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("Internal" to root, "Download" to File(root, "Download"), "Camera" to File(root, "DCIM/Camera"), "Screenshots" to File(root, "DCIM/Screenshots"),
                     "Pictures" to File(root, "Pictures"), "Movies" to File(root, "Movies"), "Music" to File(root, "Music"), "Documents" to File(root, "Documents"))
                     .filter { it.second.exists() }.forEach { (label, f) -> FilterChip(dir.canonicalPath == f.canonicalPath, { go(f) }, { Text(label) }) }
             }
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (category == null) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 FileModel.crumbs(dir, root).forEachIndexed { i, (label, f) ->
                     if (i > 0) Text(" › ", color = MaterialTheme.colorScheme.outline)
                     Text(label, Modifier.clip(RoundedCornerShape(8.dp)).combinedClickable { go(f) }.padding(4.dp), style = MaterialTheme.typography.labelLarge,
                         color = if (f == dir) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (f == dir) FontWeight.Bold else null)
                 }
             }
-            val shown = FileModel.sorted(entries, sort, hidden || query.isNotEmpty())
+            val shown = if (category != null) entries else FileModel.sorted(entries, sort, hidden || query.isNotEmpty())
             AnimatedContent(dir to query, transitionSpec = {
                 val d = if (forward) 1 else -1
                 (slideInHorizontally { it / 4 * d } + fadeIn()) togetherWith (slideOutHorizontally { -it / 4 * d } + fadeOut())
@@ -424,8 +453,82 @@ private fun TrashSheet(trash: Trash, onChanged: () -> Unit, onDismiss: () -> Uni
     }
 }
 
+/**
+ * The Files front page: the kinds of things you look for (Downloads, Docs, Images, Audio, Videos, Install files),
+ * your most recent files as pictures, and how full the phone is, with every folder one tap away.
+ */
 @Composable
-private fun FileIcon(e: Entry) {
+private fun FilesHome(root: File, recent: List<Entry>, onCategory: (String, Set<FileKind>?) -> Unit, onFolder: (File) -> Unit, onRecentAll: () -> Unit,
+    onOpen: (Entry) -> Unit, onBrowse: () -> Unit, onBin: () -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        data class Cat(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val color: Color, val act: () -> Unit)
+        val cats = listOf(
+            Cat("Downloads", Icons.Rounded.Download, Color(0xFF2E9E8F)) { onFolder(File(root, "Download")) },
+            Cat("Docs", Icons.Rounded.Description, Color(0xFFE0A84A)) { onCategory("Docs", setOf(FileKind.Document)) },
+            Cat("Images", Icons.Rounded.Image, Color(0xFFE25C7A)) { onCategory("Images", setOf(FileKind.Image)) },
+            Cat("Audio", Icons.Rounded.AudioFile, Color(0xFF7B83EB)) { onCategory("Audio", setOf(FileKind.Audio)) },
+            Cat("Videos", Icons.Rounded.Movie, Color(0xFF9B5DE5)) { onCategory("Videos", setOf(FileKind.Video)) },
+            Cat("Install files", Icons.Rounded.Android, Color(0xFF8DBF3F)) { onCategory("Install files", setOf(FileKind.Apk)) },
+        )
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(12.dp)) {
+            cats.chunked(2).forEach { row ->
+                Row {
+                    row.forEach { c ->
+                        Row(Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).clickable(onClick = c.act).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(52.dp).clip(androidx.compose.foundation.shape.CircleShape).background(c.color.copy(alpha = 0.22f)), contentAlignment = Alignment.Center) {
+                                Icon(c.icon, null, tint = c.color)
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Text(c.label, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+        if (recent.isNotEmpty()) Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(vertical = 12.dp)) {
+            Row(Modifier.fillMaxWidth().clickable(onClick = onRecentAll).padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Recent files", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "All recent files")
+            }
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                recent.forEach { e ->
+                    Box(Modifier.size(width = 88.dp, height = 104.dp).clip(RoundedCornerShape(14.dp)).clickable { onOpen(e) }) {
+                        FileIcon(e, Modifier.fillMaxSize(), 14.dp)
+                        Text(e.file.name, Modifier.align(Alignment.BottomStart).fillMaxWidth().background(Color.Black.copy(alpha = 0.45f)).padding(horizontal = 6.dp, vertical = 3.dp),
+                            color = Color.White, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+        Text("Storage", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp))
+        val (used, total) = remember { runCatching { android.os.StatFs(root.path).let { (it.totalBytes - it.availableBytes) to it.totalBytes } }.getOrDefault(0L to 1L) }
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.surfaceContainer)) {
+            Row(Modifier.fillMaxWidth().clickable(onClick = onBrowse).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.PhoneAndroid, null)
+                Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                    Text("Internal storage", style = MaterialTheme.typography.titleMedium)
+                    Text("${(used * 100 / total.coerceAtLeast(1))}% used · browse all folders", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("${formatBytes(used)} / ${formatBytes(total)}", style = MaterialTheme.typography.labelMedium)
+                    androidx.compose.material3.LinearProgressIndicator(progress = { used.toFloat() / total.coerceAtLeast(1) }, Modifier.width(96.dp).padding(top = 6.dp))
+                }
+            }
+            androidx.compose.material3.HorizontalDivider(Modifier.padding(start = 56.dp))
+            Row(Modifier.fillMaxWidth().clickable(onClick = onBin).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.RestoreFromTrash, null)
+                Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                    Text("Bin", style = MaterialTheme.typography.titleMedium)
+                    Text("Deleted files stay here for 30 days", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        Spacer(Modifier.size(80.dp))
+    }
+}
+
+@Composable
+private fun FileIcon(e: Entry, modifier: Modifier = Modifier.size(44.dp), corner: androidx.compose.ui.unit.Dp = 12.dp) {
     val icon = when (e.kind) {
         FileKind.Folder -> Icons.Rounded.Folder; FileKind.Image -> Icons.Rounded.Image; FileKind.Video -> Icons.Rounded.Movie
         FileKind.Audio -> Icons.Rounded.AudioFile; FileKind.Apk -> Icons.Rounded.Android; FileKind.Archive -> Icons.Rounded.Archive
@@ -435,13 +538,13 @@ private fun FileIcon(e: Entry) {
     if (e.kind == FileKind.Image || e.kind == FileKind.Video) LaunchedEffect(e.file) {
         thumb = withContext(Dispatchers.IO) {
             runCatching {
-                if (e.kind == FileKind.Image) android.media.ThumbnailUtils.createImageThumbnail(e.file, android.util.Size(160, 160), null)
-                else android.media.ThumbnailUtils.createVideoThumbnail(e.file, android.util.Size(160, 160), null)
+                if (e.kind == FileKind.Image) android.media.ThumbnailUtils.createImageThumbnail(e.file, android.util.Size(240, 240), null)
+                else android.media.ThumbnailUtils.createVideoThumbnail(e.file, android.util.Size(240, 240), null)
             }.getOrNull()
         }
     }
     Box(
-        Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(if (e.kind == FileKind.Folder) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant),
+        modifier.clip(RoundedCornerShape(corner)).background(if (e.kind == FileKind.Folder) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         thumb?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }

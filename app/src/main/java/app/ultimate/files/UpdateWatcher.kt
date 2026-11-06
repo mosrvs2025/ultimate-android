@@ -49,8 +49,22 @@ object UpdateWatcher {
                 .addContentUriTrigger(MediaStore.Files.getContentUri("external"), true)
                 .setTriggerContentUpdateDelay(3, TimeUnit.SECONDS).build(),
         ).build()
-        WorkManager.getInstance(context).enqueueUniqueWork(WORK, ExistingWorkPolicy.REPLACE, req)
+        val wm = WorkManager.getInstance(context)
+        wm.enqueueUniqueWork(WORK, ExistingWorkPolicy.REPLACE, req)
+        // A safety net: content triggers can be missed (or fire while a big APK is still downloading), so also look
+        // every 15 minutes. Finding nothing new costs a directory listing.
+        wm.enqueueUniquePeriodicWork("$WORK-periodic", androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            androidx.work.PeriodicWorkRequestBuilder<UpdateWorker>(15, TimeUnit.MINUTES).build())
     }
+
+    /** Looks again shortly: used when an APK in Downloads was still being written and couldn't be read yet. */
+    fun recheckSoon(context: Context) {
+        WorkManager.getInstance(context).enqueueUniqueWork("$WORK-retry", ExistingWorkPolicy.REPLACE,
+            OneTimeWorkRequestBuilder<UpdateWorker>().setInitialDelay(20, TimeUnit.SECONDS).build())
+    }
+
+    /** True when a recent APK in Downloads can't be read yet (most likely still downloading). */
+    @Volatile var unreadableRecent = false
 
     /** The newest offered update in Downloads, or null. */
     fun find(context: Context): FoundUpdate? {
@@ -61,10 +75,12 @@ object UpdateWatcher {
         val mySigners = signers(me)
         val roots = listOf(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS))
         val since = System.currentTimeMillis() - 14 * 86_400_000L
+        unreadableRecent = false
         return roots.flatMap { r -> r.walkTopDown().maxDepth(3).onFail { _, _ -> }.filter { it.isFile && it.extension.equals("apk", true) && it.lastModified() > since }.toList() }
             .sortedByDescending { it.lastModified() }.take(20)
             .mapNotNull { f ->
-                val info = runCatching { pm.getPackageArchiveInfo(f.path, PackageManager.GET_SIGNING_CERTIFICATES) }.getOrNull() ?: return@mapNotNull null
+                val info = runCatching { pm.getPackageArchiveInfo(f.path, PackageManager.GET_SIGNING_CERTIFICATES) }.getOrNull()
+                if (info == null) { if (System.currentTimeMillis() - f.lastModified() < 10 * 60_000L) unreadableRecent = true; return@mapNotNull null }
                 val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else @Suppress("DEPRECATION") info.versionCode.toLong()
                 if (UpdateRules.isUpdate(info.packageName, code, signers(info), context.packageName, myCode, mySigners)) FoundUpdate(f, info.versionName ?: "?", code) else null
             }.maxByOrNull { it.versionCode }
@@ -94,6 +110,8 @@ object UpdateWatcher {
 class UpdateWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         runCatching { UpdateWatcher.find(applicationContext)?.let { UpdateWatcher.notify(applicationContext, it) } }
+        // A download still in progress can't be read yet: look again shortly instead of waiting for the next change.
+        if (UpdateWatcher.unreadableRecent) UpdateWatcher.recheckSoon(applicationContext)
         UpdateWatcher.arm(applicationContext)
         return Result.success()
     }

@@ -451,7 +451,7 @@ private fun AirModeCard(running: Boolean, onStart: () -> Unit, onPractice: () ->
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (running) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Air mode: control any app", fontWeight = FontWeight.SemiBold)
-        Text("☝ Point to move the ring\n🤏 Pinch and let go to tap\n🤏↕ Pinch and move to scroll\n🤏⏳ Hold the pinch for a long press", style = MaterialTheme.typography.bodyMedium)
+        Text("☝ Point to move the ring\n🤏 Pinch and let go to tap\n🤏↕ Pinch and move to scroll\n🤏⏳ Hold the pinch for a long press\n⌚ Wearing your watch? It feels each pinch, so clicks land even from across the room.", style = MaterialTheme.typography.bodyMedium)
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { shortcuts = !shortcuts; AirBridge.setShortcuts(context, shortcuts) }.padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

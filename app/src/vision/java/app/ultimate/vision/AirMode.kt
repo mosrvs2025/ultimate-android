@@ -24,6 +24,9 @@ import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizer
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.util.concurrent.Executors
 import kotlin.math.hypot
@@ -75,6 +78,9 @@ class AirModeService : LifecycleService() {
     private var lastX = 0f
     private var lastY = 0f
     private val trainer = Executors.newSingleThreadExecutor()
+    /** The pinch decided from the camera and, when the watch is on your wrist, the taps it feels. */
+    private val fusion = app.ultimate.air.PinchFusion()
+    private val wristTap = app.ultimate.air.WristTap()
     private fun learnFile() = java.io.File(filesDir, "air_shapes.json")
     private var taps = 0
 
@@ -103,6 +109,7 @@ class AirModeService : LifecycleService() {
         }.getOrNull() ?: run { stopSelf(); return }
         learner = runCatching { app.ultimate.air.ShapeLearner.fromJson(org.json.JSONObject(learnFile().readText())) }.getOrDefault(app.ultimate.air.ShapeLearner())
         AirBridge.running.value = true
+        listenToWatch()
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
             val provider = future.get()
@@ -131,7 +138,7 @@ class AirModeService : LifecycleService() {
         if (seenSince == 0L) seenSince = now
         // The hand's size (wrist to middle knuckle) makes the pinch the same near the camera and far from it.
         val size = hypot(lm[0].x() - lm[9].x(), lm[0].y() - lm[9].y()).coerceAtLeast(1e-3f)
-        val pinch = hypot(lm[4].x() - lm[8].x(), lm[4].y() - lm[8].y()) / size
+        val pinch = synchronized(fusion) { fusion.feed(hypot(lm[4].x() - lm[8].x(), lm[4].y() - lm[8].y()) / size, now) }
         // Front camera: mirror so moving your hand right moves the cursor right.
         p.feed(1f - lm[8].x(), lm[8].y(), pinch, now)?.let { if (it is AirPointer.Action.Tap) taps++; AirBridge.actions.tryEmit(it) }
         AirBridge.cursor.value = AirBridge.Cursor(p.x, p.y, true, p.pinched)
@@ -161,6 +168,25 @@ class AirModeService : LifecycleService() {
             ?.let { AirBridge.actions.tryEmit(it) }
     }
 
+    /**
+     * The watch, if linked, streams its motion while Air mode runs; a finger tap it feels backs up the camera's pinch.
+     * Its readings are timed by when they arrive here, so the two clocks don't need to agree.
+     */
+    private fun listenToWatch() {
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            var lastT = Long.MIN_VALUE; var renewed = 0L
+            while (isActive) {
+                val now = System.currentTimeMillis()
+                if (now - renewed > 4_000) { app.ultimate.air.WatchFeed.request(true); renewed = now }
+                app.ultimate.air.WatchFeed.samples.value.filter { it.t > lastT }.forEach { s ->
+                    lastT = s.t
+                    if (wristTap.feed(s.t, s.jolt, s.turn)) synchronized(fusion) { fusion.watchTap(System.currentTimeMillis()) }
+                }
+                kotlinx.coroutines.delay(20)
+            }
+        }
+    }
+
     /** One more lesson; now and then the network retrains and everything is saved, off the camera's thread. */
     private fun learn(label: String, x: FloatArray) {
         val l = learner
@@ -179,6 +205,7 @@ class AirModeService : LifecycleService() {
         AirBridge.hold.value = null; AirBridge.hint.value = null
         runCatching { recognizer?.close() }; recognizer = null
         executor.shutdown(); trainer.shutdown()
+        app.ultimate.air.WatchFeed.request(false)
         super.onDestroy()
     }
 

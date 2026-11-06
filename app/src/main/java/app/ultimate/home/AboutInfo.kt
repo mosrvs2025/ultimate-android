@@ -62,6 +62,14 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.76.0", listOf(
+            "Your senses now work together: a new intent engine combines what each one notices, so two half-sure senses that agree make a sure decision, and one that's guessing alone doesn't act.",
+            "Air mode with your watch on: the watch feels the tiny tap of thumb meeting finger and confirms the pinch, so clicks land even when the camera can barely see your fingers (far away, at an angle, in dim light). Arm swings and walking don't count; the bar adapts to how much your wrist is moving.",
+            "Talk to Ultimate: tap the mic in the search bar and say what you want (\"turn on the flashlight\"). A confident spoken command runs right away, since you said it.",
+            "After a command runs, a button appears underneath to undo or flip it (\"Turn off\" after the flashlight, \"Undo\" after a volume change), plus \"Keep\" to leave it on Home as a one-tap control. If you do neither, it fades away after a few seconds. Long-press a kept control to remove it.",
+            "Files has a front page: Downloads, Docs, Images, Audio, Videos and Install files one tap each, your recent files as pictures, and how full your storage is, with every folder still one tap away.",
+            "Updates found more reliably: if a new version is still downloading when Ultimate notices it, it looks again a few seconds later, and it also checks Downloads every 15 minutes, so the \"Update ready\" notification doesn't get missed.",
+        ), tries = listOf("air")),
         Entry("1.75.0", listOf(
             "Air mode teaches you first: a one-minute practice with the real cursor (find your hand, point at a circle, pinch three circles, drag a dot) before the first start, and \"Practise again\" any time.",
             "No more surprise Home or Back: hand-shape shortcuts are off unless you turn them on, and then the shape must be held still for a full second while a ring fills on the cursor, labelled with what it will do. Moving your hand cancels it.",

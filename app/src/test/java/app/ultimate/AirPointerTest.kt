@@ -146,3 +146,45 @@ class ShapeLearnerTest {
         assertEquals("Closed_Fist", h.abandoned)
     }
 }
+
+class IntentEngineTest {
+    @Test fun twoHalfSureSensesAgreeingAreSure() {
+        val e = app.ultimate.air.IntentEngine()
+        e.offer("pinch", "camera", 0.5f, 0); e.offer("pinch", "watch", 0.65f, 0)
+        assertTrue(e.belief("pinch", 0) > 0.8f)
+        e.offer("pinch", "watch", 0f, 0)
+        assertTrue(e.belief("pinch", 0) < 0.6f)
+    }
+
+    @Test fun evidenceFades() {
+        val e = app.ultimate.air.IntentEngine(windowMs = 250)
+        e.offer("pinch", "watch", 0.9f, 0)
+        assertTrue(e.belief("pinch", 300) == 0f)
+    }
+
+    @Test fun aWatchTapClosesANearPinchTheCameraMissed() {
+        val f = app.ultimate.air.PinchFusion()
+        assertEquals(0.35f, f.feed(0.35f, 0), 1e-4f)
+        f.watchTap(10)
+        assertTrue(f.feed(0.35f, 20) < 0.25f)
+        assertTrue(f.feed(0.4f, 60) < 0.25f)       // stays closed while the fingers are still close
+        assertEquals(0.6f, f.feed(0.6f, 100), 1e-4f) // opens when the camera sees them apart
+    }
+
+    @Test fun aWatchTapWithOpenFingersDoesNothing() {
+        val f = app.ultimate.air.PinchFusion()
+        f.watchTap(0)
+        assertEquals(0.8f, f.feed(0.8f, 10), 1e-4f)
+    }
+
+    @Test fun wristTapFeelsASharpJoltButNotSteadyMotion() {
+        val w = app.ultimate.air.WristTap()
+        val r = java.util.Random(1)
+        var taps = 0
+        for (i in 0 until 200) if (w.feed(i * 20L, 9.8f + (r.nextFloat() - 0.5f) * 0.1f, 0.2f)) taps++
+        assertEquals(0, taps)
+        assertTrue(w.feed(4_000, 11.5f, 0.3f))
+        assertTrue(!w.feed(4_020, 11.5f, 0.3f)) // pause after a tap
+        assertTrue(!w.feed(5_000, 12f, 3f))     // the wrist turning hard isn't a finger tap
+    }
+}
