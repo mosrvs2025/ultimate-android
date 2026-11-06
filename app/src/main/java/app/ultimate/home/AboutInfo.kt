@@ -62,6 +62,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.73.0", listOf(
+            "Gesture Studio: every sense on one screen, each with a live line: the phone's proximity, light and motion sensors, sound (claps, snaps, knocks), your watch's motion and Echo's distance.",
+            "Teach once, every sense learns: name a gesture (or pick one, like \"Wave over phone\" or \"Knock twice\"), do it five times when asked, and all your senses learn it together. You then see how well each sense alone recognises it, and the combined model recognises it live.",
+            "Gestures you teach can start Rules (\"When I do …\").",
+        ), tries = listOf("gesture-studio")),
         Entry("1.72.0", listOf(
             "Health: your steps, sleep (with stages), heart rate, resting heart rate, heart rate variability, workouts, blood oxygen, breathing rate, weight and body fat in one place, read from Health Connect, where Samsung Health puts what your watch measures. You choose each kind; it's read-only and stays on the phone.",
             "Patterns between your health and your phone use, like less sleep after late-night scrolling or fewer steps on heavy phone days. They're shown only with at least 10 days of data and a clear link, and each says it's a pattern, not proof.",

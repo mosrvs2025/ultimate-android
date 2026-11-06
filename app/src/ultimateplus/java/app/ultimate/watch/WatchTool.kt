@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.UltimateApp
+import app.ultimate.air.WatchFeed
 import app.ultimate.air.AirActions
 import app.ultimate.air.WatchMessages
 import app.ultimate.core.LibraryItem
@@ -72,6 +73,11 @@ class WatchTool(private val app: UltimateApp) : Tool {
     override fun opensOwnScreen(item: LibraryItem) = false
     override suspend fun remove(id: String, deleteFile: Boolean) = false
     override suspend fun refresh() = Unit
+
+    init {
+        // Lets other tools (Gesture Studio) ask the watch for its live motion.
+        WatchFeed.request = { on -> WatchLink.sendToWatch(app, if (on) "stream:on" else "stream:off") }
+    }
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
