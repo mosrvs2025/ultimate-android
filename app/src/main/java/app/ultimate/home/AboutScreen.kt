@@ -194,7 +194,7 @@ internal fun AboutContent(app: UltimateApp, onClose: () -> Unit) {
             item { Section("Open-source parts") }
             item {
                 Text(
-                    "Jetpack Compose, AndroidX, Media3 and CameraX (Apache 2.0) · Termux terminal view and emulator (Apache 2.0) · Apache MINA SSHD (Apache 2.0, Ultimate+) · ZXing (Apache 2.0) · MediaPipe hand landmarker and gesture recognizer (Apache 2.0, Ultimate editions) · Cactus Needle local AI (Apache 2.0, Ultimate editions) · jump3r (LGPL)",
+                    "Jetpack Compose, AndroidX, Media3 and CameraX (Apache 2.0) · Termux terminal view and emulator (Apache 2.0) · Apache MINA SSHD (Apache 2.0, Ultimate+) · ZXing (Apache 2.0) · MediaPipe hand landmarker and gesture recognizer (Apache 2.0, Ultimate editions) · Cactus Needle local AI (Apache 2.0, Ultimate editions) · jump3r (LGPL) · libadb-android (Apache 2.0), spake2-java (LGPL-3.0) and Bouncy Castle (MIT), for installing the watch app, Ultimate+ · Google Play services Wearable (Google APIs terms, Ultimate+)",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

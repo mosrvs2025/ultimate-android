@@ -50,6 +50,7 @@ import app.ultimate.core.Tool
 import app.ultimate.core.ToolLaunch
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -124,16 +125,93 @@ class WatchTool(private val app: UltimateApp) : Tool {
                         Text(name, color = if (act == "none") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
                     }
                 }
-                // 3. Installing the watch app.
-                Step(3, "Install Ultimate+ on the watch", """
-                    It isn't on the Play Store, so it's installed once from a computer:
-                    1. On the watch: Settings → About watch → Software information → tap "Software version" 5 times to turn on Developer options.
-                    2. Settings → Developer options: turn on "ADB debugging" and "Wireless debugging", then "Pair new device" shows an address and a code.
-                    3. On a computer with Android's platform-tools: adb pair <address> <code>, then adb connect <address shown under Wireless debugging>, then adb install Ultimate-Plus-Watch.apk.
-                    Then open Ultimate+ on the watch, turn on "Wrist gestures", and flick.
-                """.trimIndent(), done = false)
+                // 3. Installing the watch app, from this phone.
+                InstallCard()
             }
         }
+    }
+}
+
+/** "Install on my watch", one step at a time: find the watch, type its code, install. */
+@Composable
+private fun InstallCard() {
+    val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val installer = remember { WatchInstaller(context) }
+    val prefs = remember { context.getSharedPreferences("watch_link", android.content.Context.MODE_PRIVATE) }
+    var stage by remember { mutableStateOf("idle") } // idle, looking, code, working, done, failed
+    var host by remember { mutableStateOf(prefs.getString("adb_host", null)) }
+    var port by remember { mutableStateOf(0) }
+    var code by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf("") }
+    var progress by remember { mutableStateOf(0f) }
+    var showComputer by remember { mutableStateOf(false) }
+
+    fun install(h: String) {
+        stage = "working"; message = "Installing on your watch…"; progress = 0f
+        scope.launch {
+            when (val r = installer.install(h) { progress = it }) {
+                is WatchInstaller.Outcome.Done -> { stage = "done"; message = r.message }
+                is WatchInstaller.Outcome.Failed -> { stage = "failed"; message = r.why }
+            }
+        }
+    }
+    fun look() {
+        stage = "looking"; message = ""
+        scope.launch {
+            val found = installer.findPairing()
+            if (found == null) { stage = "failed"; message = "No watch showed up. On the watch, keep the \"Pair new device\" screen open, with the watch and this phone on the same Wi-Fi (this phone's hotspot works too)." }
+            else { host = found.first; port = found.second; code = ""; stage = "code" }
+        }
+    }
+
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (stage == "done") MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("3.  Install Ultimate+ on the watch" + if (stage == "done") "  ✓" else "", fontWeight = FontWeight.SemiBold)
+        when (stage) {
+            "idle", "failed" -> {
+                if (stage == "failed") Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                Text("Right from this phone, over Wi-Fi. On the watch, open Settings → Developer options → Wireless debugging, turn it on, and tap \"Pair new device\". Then:",
+                    style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.Button({ look() }) { Text("Install on my watch") }
+                    // Paired before: the watch remembers this phone, so updating skips the code.
+                    host?.let { h -> androidx.compose.material3.OutlinedButton({ install(h) }) { Text("Update it") } }
+                }
+            }
+            "looking" -> {
+                Text("Looking for your watch on this Wi-Fi… Keep \"Pair new device\" open on the watch.", style = MaterialTheme.typography.bodySmall)
+                androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+            "code" -> {
+                Text("Found your watch. Type the 6-digit code it shows:", style = MaterialTheme.typography.bodySmall)
+                androidx.compose.material3.OutlinedTextField(code, { v -> code = v.filter(Char::isDigit).take(6) }, Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Pairing code") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword))
+                androidx.compose.material3.Button({
+                    val h = host ?: return@Button
+                    stage = "working"; message = "Pairing…"
+                    scope.launch {
+                        when (val r = installer.pair(h, port, code)) {
+                            is WatchInstaller.Outcome.Done -> { prefs.edit().putString("adb_host", h).apply(); install(h) }
+                            is WatchInstaller.Outcome.Failed -> { stage = "failed"; message = r.why }
+                        }
+                    }
+                }, enabled = code.length == 6) { Text("Pair and install") }
+            }
+            "working" -> {
+                Text(message, style = MaterialTheme.typography.bodySmall)
+                if (progress > 0f) androidx.compose.material3.LinearProgressIndicator({ progress }, Modifier.fillMaxWidth()) else androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+            "done" -> {
+                Text(message, style = MaterialTheme.typography.bodyMedium)
+                Text("You can turn Wireless debugging off on the watch now. The watch and phone keep talking over Bluetooth.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        androidx.compose.material3.TextButton({ showComputer = !showComputer }) { Text(if (showComputer) "Hide the computer method" else "Or install from a computer") }
+        if (showComputer) Text("""
+            1. On the watch: Settings → Developer options → turn on "ADB debugging" and "Wireless debugging"; "Pair new device" shows an address and a code.
+            2. On a computer with Android's platform-tools: adb pair <address> <code>, then adb connect <address under Wireless debugging>, then adb install Ultimate-Plus-Watch-<version>.apk (from the release page).
+        """.trimIndent(), style = MaterialTheme.typography.bodySmall)
     }
 }
 

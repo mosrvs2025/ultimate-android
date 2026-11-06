@@ -30,3 +30,8 @@
 # EdDSA receives its own EdDSAPublicKey, never the optional desktop X509Key branch.
 -dontwarn sun.security.x509.X509Key
 -keep class app.ultimate.mesh.MeshTool { public <init>(android.content.Context); }
+# "Install on my watch": libadb-android and its SPAKE2, whose native library binds to these classes by name (JNI), so
+# they keep their names. Conscrypt is looked up by reflection and falls back to the platform's TLS when absent.
+-keep class io.github.muntashirakon.crypto.spake2.** { *; }
+-keep class io.github.muntashirakon.adb.** { *; }
+-dontwarn org.conscrypt.**
