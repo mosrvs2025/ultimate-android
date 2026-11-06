@@ -276,8 +276,12 @@ class TeachEchoTool(private val app: UltimateApp) : Tool {
                             SonarStatus(sonarState, history, Modifier.align(Alignment.BottomCenter).padding(10.dp))
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button({ step = Step.Choose }) { Text("Done") }
+                            // The last step: make a gesture do something.
+                            app.tools.firstOrNull { it.id == "rules" }?.let { rules ->
+                                Button({ app.shell.open(rules, ToolLaunch(query = "When Echo hears a swipe left, ")) }) { Text("Make a gesture do something") }
+                            }
                             OutlinedButton({ samples.clear(); added = 0; detector.reset(); history.clear(); step = Step.Show(0) }) { Text("Teach more") }
+                            TextButton({ step = Step.Choose }) { Text("Done") }
                         }
                     }
                 }
