@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -88,48 +89,96 @@ class WatchTool(private val app: UltimateApp) : Tool {
             }
         }
 
+        val version by WatchLink.watchVersion.collectAsStateWithLifecycle()
+        LaunchedEffect(watch) { if (watch != null) WatchUpdater.ask(context) }
+        // Setup first until the watch app answers; after that, straight to the gestures.
+        var tab by remember { mutableStateOf(-1) }
+        val shownTab = if (tab >= 0) tab else if (watch == null || version == null) 3 else 0
+
         Scaffold(topBar = { TopAppBar(title = { Text("Watch") }, navigationIcon = { IconButton(onExit) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { pad ->
-            Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // 1. The link.
-                Step(1, if (watch != null) "Linked to $watch" else if (checked) "No watch linked yet" else "Looking for your watch…",
-                    if (watch != null) "Gestures reach the phone over Bluetooth, or over Wi-Fi when you're further away." else "Pair the watch with this phone in the Galaxy Wearable app first, then install Ultimate+ on the watch (step 3).",
-                    done = watch != null)
-                // 2. Permission to act.
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                    .background(if (enabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .clickable { enabled = !enabled; WatchLink.setEnabled(context, enabled) }.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("2.  Watch controls the phone", fontWeight = FontWeight.SemiBold)
-                        Text(if (enabled) "On: the watch's gestures and buttons act on this phone, and gestures can start Rules." else "Off: you'll see what the watch sends, but nothing happens.",
-                            style = MaterialTheme.typography.bodySmall)
+            Column(Modifier.fillMaxSize().padding(pad)) {
+                // Always in view: the link, the switch, and what the watch just did.
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                    .background(if (enabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (watch != null) androidx.compose.ui.graphics.Color(0xFF3DDC97) else MaterialTheme.colorScheme.outline))
+                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                            Text(watch?.let { "Linked to $it" } ?: if (checked) "No watch linked" else "Looking for your watch…", fontWeight = FontWeight.SemiBold)
+                            Text(if (enabled) "Watch controls the phone" else "Watching only: nothing happens on the phone", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(enabled, { enabled = it; WatchLink.setEnabled(context, it) })
                     }
-                    Switch(enabled, { enabled = it; WatchLink.setEnabled(context, it) })
-                }
-                // What arrives, live.
-                Box(Modifier.fillMaxWidth().aspectRatio(3f).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
                     val now = System.currentTimeMillis()
                     val shown = last?.takeIf { now - it.second < 2_000 }
                     val sc by animateFloatAsState(if (shown != null) 1f else 0.85f, label = "watch")
-                    Text(shown?.let { WatchMessages.label(it.first) + if (!enabled) " (watching only)" else "" } ?: "Try a flick on your watch",
-                        Modifier.graphicsLayer { scaleX = sc; scaleY = sc }, fontSize = if (shown != null) 26.sp else 16.sp, fontWeight = FontWeight.Bold)
+                    Text(shown?.let { WatchMessages.label(it.first) } ?: if (watch != null) "Try a flick" else "",
+                        Modifier.padding(top = 8.dp).graphicsLayer { scaleX = sc; scaleY = sc }, fontSize = if (shown != null) 24.sp else 15.sp, fontWeight = FontWeight.Bold)
                 }
-                LiveSensorsCard()
-                CalibrateCard()
-                Text("What each wrist gesture does (tap to change)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                WatchMessages.GESTURES.forEach { (kind, label) ->
-                    val act = chosen[kind] ?: "none"
-                    val name = AirActions.CHOICES.firstOrNull { it.first == act }?.second ?: "Nothing"
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable {
-                        val next = AirActions.CHOICES[(AirActions.CHOICES.indexOfFirst { it.first == act } + 1) % AirActions.CHOICES.size].first
-                        chosen[kind] = next; WatchLink.setAction(context, kind, next)
-                    }.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                        Text(label, Modifier.weight(1f), fontWeight = FontWeight.Medium)
-                        Text(name, color = if (act == "none") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
+                androidx.compose.material3.PrimaryTabRow(shownTab) {
+                    listOf("Gestures", "Live", "Calibrate", "Setup").forEachIndexed { i, label ->
+                        androidx.compose.material3.Tab(shownTab == i, { tab = i }, text = { Text(label) })
                     }
                 }
-                // 3. Installing the watch app, from this phone.
-                InstallCard()
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when (shownTab) {
+                        0 -> {
+                            Text("What each wrist gesture does (tap to change)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            WatchMessages.GESTURES.forEach { (kind, label) ->
+                                val act = chosen[kind] ?: "none"
+                                val name = AirActions.CHOICES.firstOrNull { it.first == act }?.second ?: "Nothing"
+                                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable {
+                                    val next = AirActions.CHOICES[(AirActions.CHOICES.indexOfFirst { it.first == act } + 1) % AirActions.CHOICES.size].first
+                                    chosen[kind] = next; WatchLink.setAction(context, kind, next)
+                                }.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                                    Text(label, Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                                    Text(name, color = if (act == "none") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            Text("Gestures that misfire? Calibrate them to your wrist in the Calibrate tab.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        1 -> LiveSensorsCard()
+                        2 -> { CalibrateCard(); LiveSensorsCard() }
+                        else -> { UpdateCard(version); InstallCard() }
+                    }
+                }
             }
+        }
+    }
+}
+
+/** Updates from this phone, over the watch link: no wireless debugging once the watch app is 1.2.0 or newer. */
+@Composable
+private fun UpdateCard(version: Pair<Long, String>?) {
+    val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val bundled = remember { WatchUpdater.bundled(context) }
+    val status by WatchLink.updateStatus.collectAsStateWithLifecycle()
+    var sending by remember { mutableStateOf(false) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Watch app", fontWeight = FontWeight.SemiBold)
+        Text("On the watch: ${version?.second ?: "not answering (open Ultimate+ on the watch)"} · In this phone: ${bundled?.second ?: "not included in this build"}", style = MaterialTheme.typography.bodySmall)
+        val canUpdate = version != null && bundled != null && bundled.first > version.first
+        when {
+            version != null && version.first < 3 -> Text("This watch version can't take updates from the phone yet. Update it once with \"Install on my watch\" below; after that, updates come from here.", style = MaterialTheme.typography.bodySmall)
+            canUpdate -> androidx.compose.material3.Button({
+                sending = true; problem = null; WatchLink.updateStatus.value = null
+                scope.launch { problem = WatchUpdater.send(context); sending = false }
+            }, enabled = !sending) { Text(if (sending) "Sending…" else "Send update to watch") }
+            version != null && bundled != null -> Text("Up to date ✓", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+        }
+        problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        status?.let { st ->
+            Text(when {
+                st == "receiving" -> "The watch is receiving it…"
+                st == "installing" -> "Installing…"
+                st == "confirm" -> "Tap Install on the watch."
+                st == "installed" -> "Installed on the watch ✓"
+                st == "needs-permission" -> "On the watch, allow Ultimate+ to install apps, then tap Send update again."
+                st.startsWith("unsupported:") -> st.removePrefix("unsupported:").replaceFirstChar { it.uppercase() } + "."
+                st.startsWith("failed:") -> "It didn't install: " + st.removePrefix("failed:")
+                else -> st
+            }, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

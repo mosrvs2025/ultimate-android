@@ -15,6 +15,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * controls the phone" is on, which starts off.
  */
 object WatchLink {
+    /** The watch app's version (code, name), once it says hello. */
+    val watchVersion = MutableStateFlow<Pair<Long, String>?>(null)
+    /** How a phone-sent update is going, as the watch reports it ("receiving", "confirm", "installed", "failed:why"...). */
+    val updateStatus = MutableStateFlow<String?>(null)
+
     /** The watch's live sensors, the last few seconds, while the Watch screen asks for them. */
     val sensors = MutableStateFlow<List<WristCalibration.Sample>>(emptyList())
     /** Gestures the watch recognised, with when, for marking them on the live graph. */
@@ -41,6 +46,12 @@ object WatchLink {
 
     fun receive(app: UltimateApp, text: String) {
         val now = System.currentTimeMillis()
+        if (text.startsWith("hello:")) {
+            val p = text.split(':', limit = 3)
+            p.getOrNull(1)?.toLongOrNull()?.let { watchVersion.value = it to (p.getOrNull(2) ?: "?") }
+            return
+        }
+        if (text.startsWith("update:")) { updateStatus.value = text.removePrefix("update:"); if (text == "update:installed") watchVersion.value = null; return }
         if (text.startsWith("sensors:")) {
             val fresh = WristCalibration.parseSensors(text, now)
             sensors.value = (sensors.value + fresh).filter { now - it.t <= 6_000 }

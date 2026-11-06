@@ -62,6 +62,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.71.0", listOf(
+            "Watch updates from the phone: Watch → Setup shows the watch app's version and sends an update over the watch link, where you tap Install on the watch. No wireless debugging, from watch app 1.2.0 on (this one update still goes the old way).",
+            "The Watch screen is tidier: the link, the on/off switch and the last gesture stay at the top, with tabs for Gestures, Live, Calibrate and Setup.",
+            "The watch app has three pages you swipe between: gestures with a big readout, a remote with big buttons, and status.",
+        ), tries = listOf("watch")),
         Entry("1.70.0", listOf(
             "Watch → Live from your watch: see the watch's sensors on the phone as you move, how fast your wrist turns about each axis and how hard it jolts, with every recognised gesture marked.",
             "Calibrate gestures to your wrist: do each flick and the twist three times, and the phone works out which way each one turns on your watch and how hard you flick, then sends it to the watch. This fixes a flick up reading as a flick down, which happens because a flick's rebound can be stronger than the flick itself.",

@@ -51,6 +51,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val link = PhoneLink(this)
+        // Say which version is here, so the phone can offer an update.
+        link.send(WatchUpdateService.hello(this))
         setContent { MaterialTheme { WatchScreen(link) } }
     }
 }
@@ -130,51 +132,72 @@ private fun WatchScreen(link: PhoneLink) {
         onDispose { sm?.unregisterListener(listener) }
     }
 
-    val list = rememberScalingLazyListState()
-    Scaffold(timeText = { TimeText() }) {
-        ScalingLazyColumn(Modifier.fillMaxWidth(), state = list, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            item {
-                Text(phone?.let { "Linked to $it" } ?: "Looking for your phone…", style = MaterialTheme.typography.caption2, textAlign = TextAlign.Center,
-                    color = if (phone != null) MaterialTheme.colors.secondary else MaterialTheme.colors.onSurfaceVariant)
-            }
-            item {
-                val now = System.currentTimeMillis()
-                val shown = last?.takeIf { now - it.second < 2_500 }
-                Text(shown?.first ?: if (gestures) "Flick, twist or shake" else "Ultimate+", fontSize = if (shown != null) 22.sp else 18.sp,
-                    fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 4.dp))
-            }
-            if (streaming) item { Text("Showing live sensors on your phone", style = MaterialTheme.typography.caption3, color = MaterialTheme.colors.secondary, textAlign = TextAlign.Center) }
-            if (sent == false) item { Text("The phone didn't answer. Is Ultimate+ installed there?", style = MaterialTheme.typography.caption3, textAlign = TextAlign.Center) }
-            item {
-                ToggleChip(gestures, { gestures = it }, label = { Text("Wrist gestures") },
-                    secondaryLabel = { Text(if (gestures) "On while this is open" else "Off") },
-                    toggleControl = { androidx.wear.compose.material.Switch(gestures) }, modifier = Modifier.fillMaxWidth(),
-                    colors = ToggleChipDefaults.toggleChipColors())
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Round("⏮") { send("button:previous", "Previous") }
-                    Round("⏯", primary = true) { send("button:playpause", "Play / pause") }
-                    Round("⏭") { send("button:next", "Next") }
-                }
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Round("−") { send("button:volume_down", "Volume down") }
-                    Round("🔦") { send("button:torch", "Flashlight") }
-                    Round("+") { send("button:volume_up", "Volume up") }
-                }
-            }
-            item {
-                ToggleChip(rightWrist, { rightWrist = it; prefs.edit().putBoolean("right_wrist", it).apply() }, label = { Text("Worn on the right wrist") },
-                    toggleControl = { androidx.wear.compose.material.Switch(rightWrist) }, modifier = Modifier.fillMaxWidth())
-            }
-            item {
-                Text((if (calibrated) "Calibrated to your wrist. " else "Not calibrated yet: calibrate in Ultimate+ → Watch on the phone. ") +
-                    "What each gesture does is set there too, where \"Watch controls the phone\" must be on.",
-                    style = MaterialTheme.typography.caption3, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
+    // Three pages, swiped sideways: gestures, a remote, and status. Each fits the round screen without scrolling far.
+    val pager = androidx.compose.foundation.pager.rememberPagerState { 3 }
+    Scaffold(timeText = { TimeText() }, pageIndicator = {
+        androidx.wear.compose.material.HorizontalPageIndicator(object : androidx.wear.compose.material.PageIndicatorState {
+            override val pageOffset get() = pager.currentPageOffsetFraction
+            override val selectedPage get() = pager.currentPage
+            override val pageCount get() = 3
+        })
+    }) {
+        androidx.compose.foundation.pager.HorizontalPager(pager) { page ->
+            when (page) {
+                0 -> GesturesPage(gestures, { gestures = it }, last, streaming, phone)
+                1 -> RemotePage(::send)
+                else -> StatusPage(phone, calibrated, rightWrist, { rightWrist = it; prefs.edit().putBoolean("right_wrist", it).apply() }, sent == false)
             }
         }
+    }
+}
+
+/** Page 1: the switch and a big readout of what the watch heard. */
+@Composable
+private fun GesturesPage(on: Boolean, setOn: (Boolean) -> Unit, last: Pair<String, Long>?, streaming: Boolean, phone: String?) {
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
+        val now = System.currentTimeMillis()
+        val shown = last?.takeIf { now - it.second < 2_500 }
+        Text(shown?.first ?: if (on) "Flick, twist or shake" else "Wrist gestures", fontSize = if (shown != null) 22.sp else 16.sp,
+            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, color = if (shown != null) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface)
+        ToggleChip(on, setOn, label = { Text(if (on) "On" else "Off") }, secondaryLabel = { Text(if (on) "Listening while open" else "Tap to start") },
+            toggleControl = { androidx.wear.compose.material.Switch(on) }, modifier = Modifier.fillMaxWidth(), colors = ToggleChipDefaults.toggleChipColors())
+        Text(when { phone == null -> "Phone not in reach"; streaming -> "Live on your phone"; else -> "Swipe for the remote →" },
+            style = MaterialTheme.typography.caption3, textAlign = TextAlign.Center, color = MaterialTheme.colors.onSurfaceVariant)
+    }
+}
+
+/** Page 2: big buttons for the phone's music, volume and flashlight. */
+@Composable
+private fun RemotePage(send: (String, String) -> Unit) {
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(vertical = 30.dp), horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Round("⏮") { send("button:previous", "Previous") }
+            Round("⏯", primary = true) { send("button:playpause", "Play / pause") }
+            Round("⏭") { send("button:next", "Next") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Round("−") { send("button:volume_down", "Volume down") }
+            Round("🔦") { send("button:torch", "Flashlight") }
+            Round("+") { send("button:volume_up", "Volume up") }
+        }
+    }
+}
+
+/** Page 3: the link, calibration, which wrist, and the version. */
+@Composable
+private fun StatusPage(phone: String?, calibrated: Boolean, rightWrist: Boolean, setRight: (Boolean) -> Unit, noAnswer: Boolean) {
+    val context = LocalContext.current
+    val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?" }
+    ScalingLazyColumn(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        item { Text(phone?.let { "Linked to $it" } ?: "Looking for your phone…", style = MaterialTheme.typography.caption1, textAlign = TextAlign.Center,
+            color = if (phone != null) MaterialTheme.colors.secondary else MaterialTheme.colors.onSurfaceVariant) }
+        if (noAnswer) item { Text("The phone didn't answer. Is Ultimate+ installed there?", style = MaterialTheme.typography.caption3, textAlign = TextAlign.Center) }
+        item { Text(if (calibrated) "Calibrated to your wrist ✓" else "Not calibrated: on the phone, Watch → Calibrate", style = MaterialTheme.typography.caption2, textAlign = TextAlign.Center) }
+        item { ToggleChip(rightWrist, setRight, label = { Text("Right wrist") }, toggleControl = { androidx.wear.compose.material.Switch(rightWrist) }, modifier = Modifier.fillMaxWidth()) }
+        item { Text("Ultimate+ $version · updates come from the phone (Watch → Setup)", style = MaterialTheme.typography.caption3, textAlign = TextAlign.Center,
+            color = MaterialTheme.colors.onSurfaceVariant, modifier = Modifier.padding(horizontal = 10.dp)) }
     }
 }
 
