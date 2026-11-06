@@ -227,6 +227,12 @@ object SenseNames {
         "air:swipe_right" to "I swipe right in the air",
         "air:pinch" to "I pinch in the air",
         "air:victory" to "I make a peace sign",
+        "air:face_brows_up" to "I raise my eyebrows at the camera",
+        "air:face_brows_down" to "I lower my eyebrows at the camera",
+        "air:face_smile" to "I smile at the camera",
+        "air:face_mouth_open" to "I open my mouth at the camera",
+        "air:face_wink" to "I wink at the camera",
+        "air:face_cheek_puff" to "I puff my cheeks at the camera",
         "air:" to "the camera sees any gesture",
     )
     fun describe(key: String) = choices.firstOrNull { it.first == key }?.second ?: if (key.isEmpty()) "the phone senses anything" else "the phone senses $key"

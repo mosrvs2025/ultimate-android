@@ -61,6 +61,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.64.0", listOf(
+            "Air control opens watching only: you see the tracking and what each gesture would do, and nothing happens on the phone until you turn on \"Gestures do things\". It turns itself off again when you leave.",
+            "Air control can watch your face: eyebrows up or down, smile, mouth open, pucker, puffed cheeks, wink and blink, with live bars measured against your own resting face. Each one can be given an action, or used in Rules.",
+            "Home is calmer: the big orb section at the top is replaced by compact tiles of your tools (pins first, then what you use around this time).",
+        )),
         Entry("1.63.0", listOf(
             "One app: the separate development versions are combined. Home opens on a living surface with your pinned and usual tools, and the orb inside every tool opens the same Jump panel.",
             "Home reminds you of jobs that failed (\"Needs another look\"), and Echo, Air control, the camera calibration and Ruler sit together under Senses.",

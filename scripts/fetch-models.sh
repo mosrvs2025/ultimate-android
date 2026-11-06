@@ -12,4 +12,8 @@ echo "hand model: $(du -h "$out" | cut -f1)"
 g=app/src/vision/assets/gesture_recognizer.task
 [ -s "$g" ] || curl -fsSL "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/latest/gesture_recognizer.task" -o "$g"
 echo "gesture model: $(du -h "$g" | cut -f1)"
+# - MediaPipe Face Landmarker (Apache-2.0), with blendshapes: face expressions (eyebrows, smile, wink...) for Air control.
+fm=app/src/vision/assets/face_landmarker.task
+[ -s "$fm" ] || curl -fsSL "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task" -o "$fm"
+echo "face model: $(du -h "$fm" | cut -f1)"
 ./scripts/fetch-needle.sh
