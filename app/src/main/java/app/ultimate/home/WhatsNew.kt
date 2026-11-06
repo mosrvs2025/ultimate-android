@@ -47,6 +47,12 @@ fun WhatsNewOnUpdate(app: UltimateApp) {
                 if (changes != null) changes.forEach { e ->
                     Text(e.version, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                     e.notes.forEach { Text("•  $it", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 4.dp)) }
+                    // Straight to the new thing: one tap from reading about it to trying it.
+                    e.tries.mapNotNull { id -> app.tools.firstOrNull { it.id == id } }.forEach { tool ->
+                        androidx.compose.material3.FilledTonalButton({ done(); app.shell.open(tool) }, Modifier.padding(start = 4.dp)) {
+                            androidx.compose.material3.Icon(tool.icon, null, Modifier.padding(end = 8.dp)); Text("Try ${tool.title}")
+                        }
+                    }
                 } else Text(Pitch.text(edition, app.tools.size), style = MaterialTheme.typography.bodyMedium)
             }
         },

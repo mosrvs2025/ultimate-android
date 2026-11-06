@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Waves
@@ -111,6 +112,24 @@ class EchoTool(private val app: UltimateApp) : Tool {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(true to "Distance", false to "Motion").forEach { (d, label) ->
                             androidx.compose.material3.FilterChip(distanceMode == d, { if (distanceMode != d) { engine.stop(); sonar.stop(); distanceMode = d } }, { Text(label) })
+                        }
+                    }
+                }
+                // The next step, in plain sight: teach Echo your gestures so they work with the camera off.
+                app.tools.firstOrNull { it.id == "echo-teach" }?.let { teach ->
+                    item {
+                        val known = sonar.learned
+                        androidx.compose.material3.Card(Modifier.fillMaxWidth().clickable { engine.stop(); sonar.stop(); app.shell.open(teach) },
+                            colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                androidx.compose.material3.Icon(teach.icon, null, Modifier.padding(end = 14.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(if (known == null) "Teach Echo your gestures" else "Teach Echo more gestures", fontWeight = FontWeight.SemiBold)
+                                    Text(if (known == null) "About a minute with the camera; then swipes, push and pull work by sound alone."
+                                        else "${known.examples.samples.size} examples so far. ${known.report.note}", style = MaterialTheme.typography.bodySmall)
+                                }
+                                androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowForward, null)
+                            }
                         }
                     }
                 }

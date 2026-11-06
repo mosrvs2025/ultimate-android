@@ -18,13 +18,18 @@ import kotlin.math.sqrt
 object SonarFeatures {
     /** Coarse distance bins of the motion profile used per frame. */
     const val BINS = 8
-    /** Values kept per frame: has-range, range, velocity, confidence, lean, then [BINS] motion levels. */
-    const val PER_FRAME = 5 + BINS
+    /** Bands of the 16-22 kHz spectrum per frame. The chirp fills 17-20 kHz; a moving hand's Doppler shift spills
+     *  energy just outside it, so the outer bands carry its speed and direction. */
+    const val SPEC = 8
+    /** Values kept per frame: has-range, range, velocity, confidence, lean, [BINS] motion levels, [SPEC] spectrum bands. */
+    const val PER_FRAME = 5 + BINS + SPEC
+    /** Length of one window's summary (what the learners see). */
+    const val DIMS = PER_FRAME * 3 + 4
     /** How much sonar one gesture covers. */
     const val SPAN_MS = 600L
 
     /** One sonar frame as numbers; missing values become 0 so a window can always be built. */
-    fun frame(rangeM: Double, velocity: Double, confidence: Double, lean: Int?, motion: FloatArray): FloatArray {
+    fun frame(rangeM: Double, velocity: Double, confidence: Double, lean: Int?, motion: FloatArray, spectrum: FloatArray = FloatArray(0)): FloatArray {
         val f = FloatArray(PER_FRAME)
         val has = !rangeM.isNaN()
         f[0] = if (has) 1f else 0f
@@ -36,6 +41,15 @@ object SonarFeatures {
             val lo = b * motion.size / BINS; val hi = ((b + 1) * motion.size / BINS).coerceAtLeast(lo + 1).coerceAtMost(motion.size)
             var m = 0f; for (i in lo until hi) m = maxOf(m, motion[i])
             f[5 + b] = ln(1 + m.coerceAtLeast(0f))
+        }
+        if (spectrum.isNotEmpty()) {
+            // Each band relative to the whole spectrum, so loudness (volume, distance to the speaker) cancels out.
+            var total = 1e-6f; spectrum.forEach { total += it }
+            for (b in 0 until SPEC) {
+                val lo = b * spectrum.size / SPEC; val hi = ((b + 1) * spectrum.size / SPEC).coerceAtLeast(lo + 1).coerceAtMost(spectrum.size)
+                var e = 0f; for (i in lo until hi) e += spectrum[i]
+                f[5 + BINS + b] = ln(1 + 100f * e / total)
+            }
         }
         return f
     }
@@ -64,12 +78,19 @@ object SonarFeatures {
     }
 }
 
+/** Anything that can name a gesture from a window of sonar. */
+interface GestureClassifier {
+    val labels: List<String>
+    fun predict(x: FloatArray): GestureModel.Guess?
+}
+
 /** Your examples and what they mean. "none" is the room and your hand doing nothing in particular. */
-class GestureModel(val samples: List<Sample>) {
+class GestureModel(val samples: List<Sample>) : GestureClassifier {
     data class Sample(val label: String, val x: FloatArray)
+    /** The winning label and how sure: the share of neighbours that agree, or the network's probability. */
     data class Guess(val label: String, val votes: Float)
 
-    val labels: List<String> = samples.map { it.label }.distinct()
+    override val labels: List<String> = samples.map { it.label }.distinct()
     private val dims = samples.firstOrNull()?.x?.size ?: 0
     private val mean = FloatArray(dims)
     private val scale = FloatArray(dims) { 1f }
@@ -85,7 +106,9 @@ class GestureModel(val samples: List<Sample>) {
     private fun dist(a: FloatArray, b: FloatArray): Float { var s = 0f; for (d in 0 until dims) { val t = (a[d] - b[d]) / scale[d]; s += t * t }; return s }
 
     /** The label most of the [k] closest examples agree on, and what share of them agree. */
-    fun predict(x: FloatArray, k: Int = 5, skip: Int = -1): Guess? {
+    override fun predict(x: FloatArray): Guess? = predict(x, 5, -1)
+
+    fun predict(x: FloatArray, k: Int, skip: Int): Guess? {
         if (x.size != dims || samples.size < 2) return null
         val near = samples.indices.filter { it != skip }.sortedBy { dist(x, samples[it].x) }.take(k)
         val top = near.groupingBy { samples[it].label }.eachCount().maxByOrNull { it.value } ?: return null
@@ -95,19 +118,23 @@ class GestureModel(val samples: List<Sample>) {
     /** How often each gesture is recognised when its own example is held out: an honest score from your data alone. */
     fun accuracy(): Map<String, Double> = labels.associateWith { l ->
         val idx = samples.indices.filter { samples[it].label == l }
-        if (idx.isEmpty()) 0.0 else idx.count { predict(samples[it].x, skip = it)?.label == l }.toDouble() / idx.size
+        if (idx.isEmpty()) 0.0 else idx.count { predict(samples[it].x, 5, it)?.label == l }.toDouble() / idx.size
     }
 
     fun count(label: String) = samples.count { it.label == label }
 
-    fun toJson(): String = JSONObject().put("version", 1).put("samples", JSONArray().apply {
+    fun toJson(): String = JSONObject().put("version", VERSION).put("samples", JSONArray().apply {
         samples.forEach { s -> put(JSONObject().put("label", s.label).put("x", JSONArray().apply { s.x.forEach { put(it.toDouble()) } })) }
     }).toString()
 
     companion object {
         const val NONE = "none"
+        /** 2: spectrum bands added to each frame. Examples saved in another version can't be compared and are dropped. */
+        const val VERSION = 2
         fun fromJson(text: String): GestureModel? = runCatching {
-            val a = JSONObject(text).getJSONArray("samples")
+            val o0 = JSONObject(text)
+            if (o0.optInt("version") != VERSION) return null
+            val a = o0.getJSONArray("samples")
             GestureModel((0 until a.length()).map { i ->
                 val o = a.getJSONObject(i); val x = o.getJSONArray("x")
                 Sample(o.getString("label"), FloatArray(x.length()) { x.getDouble(it).toFloat() })
@@ -125,7 +152,7 @@ class GestureModel(val samples: List<Sample>) {
  * Watches the sonar for learned gestures. A gesture counts when the same one wins on [agree] frames in a row with most
  * of its neighbours behind it, then rests for [refractoryMs], so one wave is one event and noise rarely gets through.
  */
-class LearnedGestureDetector(private val model: GestureModel, private val agree: Int = 3, private val minVotes: Float = 0.6f, private val refractoryMs: Long = 900) {
+class LearnedGestureDetector(private val model: GestureClassifier, private val agree: Int = 3, private val minVotes: Float = 0.6f, private val refractoryMs: Long = 900) {
     private val frames = ArrayDeque<Pair<Long, FloatArray>>()
     private var streak: String? = null
     private var streakLen = 0

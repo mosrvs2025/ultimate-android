@@ -58,25 +58,35 @@ object WhatsNew {
 
 /** What changed, newest first. Add a line here with every release so the About screen can say so. */
 object Changelog {
-    data class Entry(val version: String, val notes: List<String>)
+    /** [tries]: tools this version adds or changes, so What's new and Home can take you straight to them. */
+    data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.67.0", listOf(
+            "New things find you: What's new has a button to try each new feature, Home shows \"New for you\" with one tap each, and new tools wear a New badge until you open them.",
+            "Echo shows \"Teach Echo your gestures\" right at the top, and Teach Echo ends with \"Make a gesture do something\", which takes you to Rules, so each step leads to the next.",
+        ), tries = listOf("echo-teach", "echo")),
+        Entry("1.66.0", listOf(
+            "Echo learns as you use Air control: its sonar listens alongside the camera, and every hand gesture the camera sees becomes another example, so gestures with the camera off keep getting better. You can turn \"Echo learns from this\" off.",
+            "A small neural network, trained on the phone from your own examples, takes over from example-matching once there are enough examples and it scores better on examples held back from training. Teach Echo shows both scores.",
+            "Echo now also listens to the Doppler shift of your hand, the sound spilling just outside its chirp as you move, which helps it tell swipes apart. Gestures taught in 1.65 need teaching once more, because the examples now hold more.",
+        ), tries = listOf("air", "echo-teach")),
         Entry("1.65.0", listOf(
             "Teach Echo: show the camera a few gestures (swipes, push, pull, hold) and Echo learns what each one sounds like, so it recognises them later with the camera off. A guided session takes about a minute, with a dot for every example the camera confirms.",
             "After teaching you see how well Echo tells your gestures apart, scored honestly from your own examples, then try them with the camera off. Learned gestures can start Rules.",
             "Air control links to Teach Echo, and Teach Echo sits with Echo and Air control under Senses on Home.",
-        )),
+        ), tries = listOf("echo-teach")),
         Entry("1.64.0", listOf(
             "Air control opens watching only: you see the tracking and what each gesture would do, and nothing happens on the phone until you turn on \"Gestures do things\". It turns itself off again when you leave.",
             "Air control can watch your face: eyebrows up or down, smile, mouth open, pucker, puffed cheeks, wink and blink, with live bars measured against your own resting face. Each one can be given an action, or used in Rules.",
             "Home is calmer: the big orb section at the top is replaced by compact tiles of your tools (pins first, then what you use around this time).",
-        )),
+        ), tries = listOf("air")),
         Entry("1.63.0", listOf(
             "One app: the separate development versions are combined. Home opens on a living surface with your pinned and usual tools, and the orb inside every tool opens the same Jump panel.",
             "Home reminds you of jobs that failed (\"Needs another look\"), and Echo, Air control, the camera calibration and Ruler sit together under Senses.",
             "Ultimate+: Octopus Mesh shares tasks between your own trusted devices on the same Wi-Fi, with no server. It is off until you pair.",
             "Terminal: Paste and Enter keys, a separate row of arrow keys, and a button that brings the keyboard back.",
-        )),
+        ), tries = listOf("mesh", "terminal")),
         Entry("1.62.2", listOf(
             "Air control and camera calibration really start now: the gesture library couldn't find its own logging code in the release build (\"ExceptionInInitializerError\") and gave up.",
             "Privacy: the gesture library can report anonymous usage statistics to Google; that is now removed from the app, so nothing about your camera use leaves the phone.",

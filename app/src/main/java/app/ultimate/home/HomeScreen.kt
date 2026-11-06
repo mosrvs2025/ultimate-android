@@ -1,5 +1,6 @@
 package app.ultimate.home
 
+import app.ultimate.BuildConfig
 import app.ultimate.insights.InsightsSheet
 import app.ultimate.core.appear
 import app.ultimate.core.pressScale
@@ -116,6 +117,9 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
             .mapNotNull { id -> app.tools.firstOrNull { it.id == id } }
     }
     val pending = remember(revision) { app.insights.pendingTools() }
+    // New tools you haven't opened yet: a card near the top and a badge on their tiles, until you try them or hide it.
+    var fresh by remember(revision) { mutableStateOf(NewFeatures.pending(app, BuildConfig.VERSION_NAME)) }
+    val freshIds = fresh.map { it.id }.toSet()
     val prefs = remember { app.getSharedPreferences("home", android.content.Context.MODE_PRIVATE) }
     var folded by remember { mutableStateOf(prefs.getStringSet("expanded", emptySet()).orEmpty()) }
 
@@ -143,6 +147,9 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
             )
         }
         item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
+        if (fresh.isNotEmpty()) item(key = "new-for-you", span = { GridItemSpan(maxLineSpan) }) {
+            NewForYou(fresh, onTry = { shell.open(it) }, onHide = { NewFeatures.hide(app, fresh.map { it.id }); fresh = emptyList() })
+        }
         item(span = { GridItemSpan(maxLineSpan) }) { TodayDashboard(app) }
         item(key = "live-senses", span = { GridItemSpan(maxLineSpan) }) { LiveSenses(app) }
         app.tools.firstOrNull { it.id == "echo" }?.let { echo -> item(key = "senses", span = { GridItemSpan(maxLineSpan) }) { SensesCard(app, echo as app.ultimate.echo.EchoTool) } }
@@ -175,7 +182,7 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
             val base = ++order
             order += tools.size
             if (!isFolded) itemsIndexed(tools, key = { _, t -> t.id }, span = { _, _ -> GridItemSpan(1) }) { i, tool ->
-                CompactTile(Modifier.animateItem().appear(tool.id, seen, base + i), tool, active = tool.id in runningIds, onLibrary = { shell.showLibraryOf(tool.id) }, onClick = { shell.open(tool) })
+                CompactTile(Modifier.animateItem().appear(tool.id, seen, base + i), tool, active = tool.id in runningIds, isNew = tool.id in freshIds, onLibrary = { shell.showLibraryOf(tool.id) }, onClick = { shell.open(tool) })
             }
         }
         if (recent.isNotEmpty()) {
@@ -237,7 +244,7 @@ private fun SectionHeader(name: String, count: Int, folded: Boolean, modifier: M
 /** Icon and name only: the whole app fits in a glance, and each tool stays in the same place. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun CompactTile(modifier: Modifier, tool: Tool, active: Boolean, onLibrary: () -> Unit, onClick: () -> Unit) {
+private fun CompactTile(modifier: Modifier, tool: Tool, active: Boolean, isNew: Boolean = false, onLibrary: () -> Unit, onClick: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     val container by androidx.compose.animation.animateColorAsState(if (active) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerLow, label = "compact")
@@ -253,6 +260,7 @@ private fun CompactTile(modifier: Modifier, tool: Tool, active: Boolean, onLibra
             }
             Text(tool.title, Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp), style = MaterialTheme.typography.labelSmall, maxLines = 2, minLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center, overflow = TextOverflow.Ellipsis)
         }
+        if (isNew) NewBadge(Modifier.align(Alignment.TopEnd).padding(4.dp))
         DropdownMenu(menu, { menu = false }) {
             DropdownMenuItem({ Text("Open ${tool.title}") }, { menu = false; onClick() }, leadingIcon = { Icon(tool.icon, null) })
             DropdownMenuItem({ Text("Its results in Library") }, { menu = false; onLibrary() }, leadingIcon = { Icon(Icons.Rounded.VideoLibrary, null) })
@@ -506,6 +514,38 @@ private fun SuggestionRow(title: String, detail: String, onClick: () -> Unit) {
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimaryContainer)
             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
+    }
+}
+
+/** A small "New" pill for tools added or changed in the latest versions that you haven't opened yet. */
+@Composable
+internal fun NewBadge(modifier: Modifier = Modifier) {
+    Text("New", modifier.clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.tertiary).padding(horizontal = 6.dp, vertical = 1.dp),
+        color = MaterialTheme.colorScheme.onTertiary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+}
+
+/** "New for you": each new tool with what it does and one button to try it. Gone once tried, or when hidden. */
+@Composable
+private fun NewForYou(tools: List<Tool>, onTry: (Tool) -> Unit, onHide: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer), shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("New for you", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                TextButton(onHide) { Text("Hide") }
+            }
+            tools.forEach { tool ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(40.dp).clip(RoundedCornerShape(13.dp)).background(MaterialTheme.colorScheme.tertiary), contentAlignment = Alignment.Center) {
+                        Icon(tool.icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onTertiary)
+                    }
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                        Text(tool.title, fontWeight = FontWeight.SemiBold)
+                        Text(tool.tagline, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    androidx.compose.material3.FilledTonalButton({ onTry(tool) }) { Text("Try") }
+                }
+            }
         }
     }
 }
