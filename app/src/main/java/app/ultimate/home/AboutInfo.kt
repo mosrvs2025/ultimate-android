@@ -62,6 +62,9 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.69.0", listOf(
+            "Install on my watch: Ultimate+ now carries the watch app and installs it itself, over Wi-Fi. Turn on Wireless debugging on the watch, tap \"Pair new device\", and type the 6-digit code into Ultimate+ → Watch. No computer, no other app; it finds the watch by itself. Next time, \"Update it\" skips the code.",
+        ), tries = listOf("watch")),
         Entry("1.68.0", listOf(
             "Watch: control the phone from a Galaxy Watch (or any Wear OS watch). Flick your wrist left or right, flick up or down, twist or shake, or tap the watch's big buttons, from across the house: the watch reaches the phone over Bluetooth, or Wi-Fi when it's further away.",
             "Nothing happens until you turn on \"Watch controls the phone\", and you choose what each gesture does. Watch gestures can start Rules too. The watch app is a separate install; the Watch tool shows how, step by step.",

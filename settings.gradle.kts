@@ -10,8 +10,15 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // Only Termux's terminal libraries (Apache 2.0) come from JitPack.
-        maven("https://jitpack.io") { content { includeGroup("com.github.termux.termux-app") } }
+        // Only these libraries come from JitPack.
+        maven("https://jitpack.io") {
+            content {
+                includeGroup("com.github.termux.termux-app")
+                // libadb-android (Apache-2.0 / GPL-3.0) and its SPAKE2 (LGPL-3.0): "Install on my watch" over wireless debugging.
+                includeGroup("com.github.MuntashirAkon")
+                includeGroup("com.github.MuntashirAkon.spake2-java")
+            }
+        }
     }
 }
 rootProject.name = "Ultimate"

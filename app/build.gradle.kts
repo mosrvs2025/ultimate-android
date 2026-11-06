@@ -22,8 +22,8 @@ android {
         targetSdk = 35
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 79
-        versionName = "1.68.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 80
+        versionName = "1.69.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -307,6 +307,10 @@ dependencies {
     "ultimateplusImplementation"("com.google.android.gms:play-services-wearable:18.2.0")
     // play-services-wearable brings androidx.fragment 1.0; activity-result APIs need 1.3 or later.
     "ultimateplusImplementation"("androidx.fragment:fragment-ktx:1.8.5")
+    // "Install on my watch": pairs with the watch over wireless debugging and installs the bundled watch app.
+    "ultimateplusImplementation"("com.github.MuntashirAkon:libadb-android:3.1.1")
+    // Its own Bouncy Castle (MIT), used directly to make the phone's pairing certificate.
+    "ultimateplusImplementation"("org.bouncycastle:bcprov-jdk15to18:1.81")
     "ultimateplusImplementation"("org.apache.sshd:sshd-core:2.20.1")
     "ultimateplusImplementation"("org.apache.sshd:sshd-sftp:2.20.1")
     // Ed25519 support on Android releases without Java's native EdEC implementation.
@@ -383,4 +387,24 @@ tasks.withType<Test>().configureEach {
     systemProperty("robolectric.dependency.dir", layout.buildDirectory.dir("robolectric").get().asFile.path)
     // `-Pscreenshots` renders the README screenshots into docs/screenshots; otherwise those tests skip themselves.
     if (project.hasProperty("screenshots")) systemProperty("screenshots.dir", rootProject.layout.projectDirectory.dir("docs/screenshots").asFile.path)
+}
+
+// Ultimate+ carries the watch app, so "Install on my watch" needs nothing downloaded. Release builds only: debug builds and
+// unit tests don't wait for the watch build, and the Watch tool says when this build doesn't include it.
+abstract class BundleWatchApp : DefaultTask() {
+    @get:InputFile abstract val apk: RegularFileProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+    @TaskAction fun copy() {
+        val d = outputDir.get().asFile.resolve("watch").apply { deleteRecursively(); mkdirs() }
+        apk.get().asFile.copyTo(d.resolve("Ultimate-Plus-Watch.apk"), overwrite = true)
+    }
+}
+val bundleWatchApp = tasks.register<BundleWatchApp>("bundleWatchApp") {
+    dependsOn(":wear:assembleRelease")
+    apk.set(rootProject.layout.projectDirectory.file("wear/build/outputs/apk/release/wear-release.apk"))
+}
+androidComponents {
+    onVariants(selector().withFlavor("edition" to "ultimateplus").withBuildType("release")) { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(bundleWatchApp, BundleWatchApp::outputDir)
+    }
 }
