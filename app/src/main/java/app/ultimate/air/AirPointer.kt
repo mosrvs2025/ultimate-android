@@ -118,11 +118,21 @@ class ShortcutHold(private val holdMs: Long = 1_000, private val movePx: Float =
     private var y0 = 0f
     private var lastFired = Long.MIN_VALUE / 2
 
-    /** Feeds the recognised shape ([sign], or null) and the cursor; returns the shape's name when its hold completes. */
-    fun feed(sign: String?, x: Float, y: Float, now: Long): String? {
+    /** Set when a hold that got at least a third of the way was abandoned by moving: you didn't mean it. Read and clear. */
+    var abandoned: String? = null
+
+    /**
+     * Feeds the recognised shape ([sign], or null) and the cursor; returns the shape's name when its hold completes.
+     * [hold] is how long this shape must be held right now (shorter once it has learned you mean it).
+     */
+    fun feed(sign: String?, x: Float, y: Float, now: Long, hold: Long = holdMs): String? {
         if (sign == null || now - lastFired < pauseMs) { this.sign = null; progress = null; return null }
-        if (sign != this.sign || kotlin.math.hypot(x - x0, y - y0) > movePx) { this.sign = sign; since = now; x0 = x; y0 = y; progress = sign to 0f; return null }
-        val p = ((now - since).toFloat() / holdMs).coerceIn(0f, 1f)
+        if (sign != this.sign || kotlin.math.hypot(x - x0, y - y0) > movePx) {
+            val was = progress
+            if (was != null && was.second >= 0.33f) abandoned = was.first
+            this.sign = sign; since = now; x0 = x; y0 = y; progress = sign to 0f; return null
+        }
+        val p = ((now - since).toFloat() / hold.coerceAtLeast(1)).coerceIn(0f, 1f)
         progress = sign to p
         if (p >= 1f) { lastFired = now; this.sign = null; progress = null; return sign }
         return null

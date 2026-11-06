@@ -69,6 +69,13 @@ class AirModeService : LifecycleService() {
     private var pointer: AirPointer? = null
     private val holder = app.ultimate.air.ShortcutHold()
     private var seenSince = 0L
+    /** Learns your shapes while you use Air mode; saved between sessions. */
+    private var learner = app.ultimate.air.ShapeLearner()
+    private var pointingFrames = 0
+    private var lastX = 0f
+    private var lastY = 0f
+    private val trainer = Executors.newSingleThreadExecutor()
+    private fun learnFile() = java.io.File(filesDir, "air_shapes.json")
     private var taps = 0
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -94,6 +101,7 @@ class AirModeService : LifecycleService() {
                 .setRunningMode(RunningMode.LIVE_STREAM).setNumHands(1)
                 .setResultListener { result, _ -> onHand(result) }.setErrorListener { }.build())
         }.getOrNull() ?: run { stopSelf(); return }
+        learner = runCatching { app.ultimate.air.ShapeLearner.fromJson(org.json.JSONObject(learnFile().readText())) }.getOrDefault(app.ultimate.air.ShapeLearner())
         AirBridge.running.value = true
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
@@ -139,10 +147,30 @@ class AirModeService : LifecycleService() {
         if (!AirBridge.shortcutsOn(this)) { AirBridge.hold.value = null; return }
         val top = result.gestures().firstOrNull()?.firstOrNull()?.takeIf { it.score() > 0.7f }?.categoryName()
             ?.takeIf { it in NAMES && !p.pinched }
-        val fired = holder.feed(top, p.x, p.y, now)
+        val shape = app.ultimate.air.ShapeLearner.features(lm.map { it.x() to it.y() })
+        // Plain pointing around (moving, no shortcut shape) is what "not a shortcut" looks like: keep one now and then.
+        val speed = hypot(p.x - lastX, p.y - lastY); lastX = p.x; lastY = p.y
+        if (top == null && speed > 25f && ++pointingFrames % 45 == 0) learn(app.ultimate.air.ShapeLearner.NONE, shape)
+        // Learned: shapes you clearly mean need less holding; ones you never mean start no ring.
+        val hold = top?.let { synchronized(learner) { learner.holdMs(it, shape) } }
+        val fired = holder.feed(top?.takeIf { hold != null }, p.x, p.y, now, hold ?: app.ultimate.air.ShapeLearner.FULL)
+        holder.abandoned?.let { holder.abandoned = null; learn(app.ultimate.air.ShapeLearner.NONE, shape) }
         AirBridge.hold.value = holder.progress?.let { (s, f) -> NAMES.getValue(s) to f }?.takeIf { it.second > 0.15f }
+        if (fired != null) learn(fired, shape)
         when (fired) { "Open_Palm" -> AirBridge.Back; "Closed_Fist" -> AirBridge.Home; "Victory" -> AirBridge.Recents; else -> null }
             ?.let { AirBridge.actions.tryEmit(it) }
+    }
+
+    /** One more lesson; now and then the network retrains and everything is saved, off the camera's thread. */
+    private fun learn(label: String, x: FloatArray) {
+        val l = learner
+        trainer.execute {
+            synchronized(l) {
+                l.add(label, x)
+                if (l.due()) runCatching { l.train() }
+                runCatching { learnFile().writeText(l.toJson().toString()) }
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -150,7 +178,7 @@ class AirModeService : LifecycleService() {
         AirBridge.cursor.value = AirBridge.Cursor(0f, 0f, false, false)
         AirBridge.hold.value = null; AirBridge.hint.value = null
         runCatching { recognizer?.close() }; recognizer = null
-        executor.shutdown()
+        executor.shutdown(); trainer.shutdown()
         super.onDestroy()
     }
 

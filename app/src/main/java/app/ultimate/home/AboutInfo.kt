@@ -65,6 +65,7 @@ object Changelog {
         Entry("1.75.0", listOf(
             "Air mode teaches you first: a one-minute practice with the real cursor (find your hand, point at a circle, pinch three circles, drag a dot) before the first start, and \"Practise again\" any time.",
             "No more surprise Home or Back: hand-shape shortcuts are off unless you turn them on, and then the shape must be held still for a full second while a ring fills on the cursor, labelled with what it will do. Moving your hand cancels it.",
+            "Air mode learns your hand as you use it: every shortcut you hold all the way teaches a small on-phone neural network what you mean, and every hold you abandon (or plain pointing around) teaches it what you don't. Shapes it's sure you mean need less holding, down to a third of a second; shapes it's sure you don't mean never start a ring.",
             "While you get used to it, a tip next to the cursor says what to do next (\"Pinch thumb and finger to tap\"), and goes away after a few taps.",
         ), tries = listOf("air")),
         Entry("1.74.0", listOf(
