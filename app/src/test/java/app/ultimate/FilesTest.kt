@@ -96,3 +96,18 @@ class UpdateRulesTest {
         org.junit.Assert.assertFalse(r.isUpdate("app.ultimate.plus", 99, emptySet(), "app.ultimate.plus", 23, emptySet()))
     }
 }
+
+class CollectTest {
+    @org.junit.Test fun newestFirstSkippingHiddenAndAppData() {
+        val root = kotlin.io.path.createTempDirectory().toFile()
+        java.io.File(root, "DCIM").mkdirs(); java.io.File(root, ".hidden").mkdirs(); java.io.File(root, "Android/data").mkdirs()
+        val old = java.io.File(root, "DCIM/a.jpg").apply { writeText("x"); setLastModified(1_000_000) }
+        val new = java.io.File(root, "DCIM/b.jpg").apply { writeText("x"); setLastModified(2_000_000) }
+        java.io.File(root, ".hidden/c.jpg").writeText("x"); java.io.File(root, "Android/data/d.jpg").writeText("x")
+        java.io.File(root, "notes.txt").apply { writeText("x"); setLastModified(500_000) }
+        val images = app.ultimate.files.FileOps.collect(root, setOf(app.ultimate.files.FileKind.Image))
+        org.junit.Assert.assertEquals(listOf(new, old), images.map { it.file })
+        org.junit.Assert.assertEquals(3, app.ultimate.files.FileOps.collect(root, null).size)
+        root.deleteRecursively()
+    }
+}

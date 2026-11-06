@@ -120,6 +120,17 @@ object FileOps {
     }
 
     /** Files under [dir] whose names contain [query], up to [limit], skipping hidden folders. */
+    /**
+     * The newest files of [kinds] (all files when null) anywhere you'd keep things, newest first: hidden folders, app
+     * data and the bin are skipped. For Recent files and the Images / Videos / Audio / Docs / Install files views.
+     */
+    fun collect(root: File, kinds: Set<FileKind>?, limit: Int = 200): List<Entry> =
+        root.walkTopDown().maxDepth(8).onEnter { it == root || (!it.name.startsWith(".") && it.absolutePath != File(root, "Android").absolutePath) }.onFail { _, _ -> }
+            .filter { it.isFile && !it.name.startsWith(".") }
+            .map { it to FileModel.kindOf(it) }.filter { (_, k) -> kinds == null || k in kinds }
+            .map { (f, k) -> Entry(f, k, f.length(), f.lastModified(), 0) }
+            .sortedByDescending { it.modified }.take(limit).toList()
+
     fun search(dir: File, query: String, limit: Int = 300): List<Entry> {
         val q = query.lowercase(Locale.ROOT)
         return dir.walkTopDown().onEnter { !it.name.startsWith(".") || it == dir }.onFail { _, _ -> }
