@@ -141,6 +141,26 @@ class WatchInstaller(private val context: Context) {
         /** Shown when the watch's connection port isn't announced on the network, so the screen asks for it. */
         const val NEED_PORT = "need-port"
 
+        /** This phone's own network start, like "192.168.1.", so only the end of the watch's address needs typing. */
+        fun networkPrefix(): String = runCatching {
+            NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback }
+                .flatMap { it.inetAddresses.toList() }.filterIsInstance<Inet4Address>().mapNotNull { it.hostAddress }
+                .firstOrNull { it.startsWith("192.168.") || it.startsWith("10.") || it.startsWith("172.") }
+                ?.substringBeforeLast('.')?.plus(".")
+        }.getOrNull() ?: ""
+
+        /** What's wrong with a typed address, in words, or null when it's fine or not finished being typed enough to judge. */
+        fun addressProblem(text: String): String? {
+            if (text.isBlank() || parseAddress(text) != null) return null
+            val ip = text.substringBefore(':').trim()
+            val parts = ip.split('.').filter { it.isNotEmpty() }
+            return when {
+                ':' !in text -> "Add the port: a colon, then the number after it on the watch."
+                parts.size != 4 -> "Needs four numbers with dots (it has ${parts.size}), like 192.168.1.239:40673."
+                else -> "Check it against the watch, like 192.168.1.239:40673."
+            }
+        }
+
         /** Reads "192.168.1.239:37581" (as the watch shows it, spaces or a trailing dot allowed) into address and port. */
         fun parseAddress(text: String): Pair<String, Int>? {
             val m = Regex("""^\s*(\d{1,3}(?:\.\d{1,3}){3})\s*:\s*(\d{2,5})\s*\.?\s*$""").find(text) ?: return null

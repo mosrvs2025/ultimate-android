@@ -22,8 +22,8 @@ android {
         targetSdk = 35
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 81
-        versionName = "1.69.1"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 82
+        versionName = "1.69.2"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -311,6 +311,9 @@ dependencies {
     "ultimateplusImplementation"("com.github.MuntashirAkon:libadb-android:3.1.1")
     // Its own Bouncy Castle (MIT), used directly to make the phone's pairing certificate.
     "ultimateplusImplementation"("org.bouncycastle:bcprov-jdk15to18:1.81")
+    // Conscrypt (Apache-2.0), bundled: pairing needs TLS keying-material export, which the phone's own copy may not
+    // offer (Samsung's didn't: NoSuchMethodException exportKeyingMaterial). libadb uses this copy when it's present.
+    "ultimateplusImplementation"("org.conscrypt:conscrypt-android:2.5.3")
     "ultimateplusImplementation"("org.apache.sshd:sshd-core:2.20.1")
     "ultimateplusImplementation"("org.apache.sshd:sshd-sftp:2.20.1")
     // Ed25519 support on Android releases without Java's native EdEC implementation.

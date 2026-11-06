@@ -34,4 +34,6 @@
 # they keep their names. Conscrypt is looked up by reflection and falls back to the platform's TLS when absent.
 -keep class io.github.muntashirakon.crypto.spake2.** { *; }
 -keep class io.github.muntashirakon.adb.** { *; }
+# Conscrypt is bundled and found by name (Class.forName("org.conscrypt.Conscrypt") / OpenSSLProvider); it is also JNI.
+-keep class org.conscrypt.** { *; }
 -dontwarn org.conscrypt.**

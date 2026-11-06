@@ -166,7 +166,7 @@ private fun InstallCard() {
         stage = "looking"; message = ""
         scope.launch {
             val found = installer.findPairing(10_000)
-            address = found?.let { "${it.first}:${it.second}" } ?: ""
+            address = found?.let { "${it.first}:${it.second}" } ?: WatchInstaller.networkPrefix()
             code = ""; stage = "code"
             if (found == null) message = "Couldn't find the watch by itself (some routers block that). Type what the watch shows instead."
         }
@@ -189,7 +189,7 @@ private fun InstallCard() {
             "looking" -> {
                 Text("Looking for your watch on this Wi-Fi… Keep \"Pair new device\" open on the watch.", style = MaterialTheme.typography.bodySmall)
                 androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
-                androidx.compose.material3.TextButton({ address = ""; code = ""; message = ""; stage = "code" }) { Text("Type it in instead") }
+                androidx.compose.material3.TextButton({ address = WatchInstaller.networkPrefix(); code = ""; message = ""; stage = "code" }) { Text("Type it in instead") }
             }
             "code" -> {
                 if (message.isNotEmpty()) Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
@@ -197,6 +197,8 @@ private fun InstallCard() {
                 androidx.compose.material3.OutlinedTextField(address, { address = it.filter { c -> c.isDigit() || c == '.' || c == ':' } }, Modifier.fillMaxWidth(), singleLine = true,
                     label = { Text("IP address & Port") }, placeholder = { Text("192.168.1.239:37581") },
                     isError = address.isNotEmpty() && WatchInstaller.parseAddress(address) == null,
+                    // Say what's wrong, so a missing piece is obvious (the button stays off until it's right).
+                    supportingText = { WatchInstaller.addressProblem(address)?.let { Text(it) } },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
                 androidx.compose.material3.OutlinedTextField(code, { v -> code = v.filter(Char::isDigit).take(6) }, Modifier.fillMaxWidth(), singleLine = true,
                     label = { Text("Wi-Fi pairing code") }, keyboardOptions = digits)

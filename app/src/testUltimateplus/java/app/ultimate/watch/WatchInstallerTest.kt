@@ -35,4 +35,12 @@ class WatchAddressTest {
             assertEquals(it, null, WatchInstaller.parseAddress(it))
         }
     }
+
+    @Test fun explainsWhatIsMissing() {
+        // The address typed on the owner's phone, with ".1" left out.
+        assertTrue(WatchInstaller.addressProblem("192.168.239:40673")!!.contains("four numbers"))
+        assertTrue(WatchInstaller.addressProblem("192.168.1.239")!!.contains("port"))
+        assertEquals(null, WatchInstaller.addressProblem("192.168.1.239:40673"))
+        assertEquals(null, WatchInstaller.addressProblem(""))
+    }
 }

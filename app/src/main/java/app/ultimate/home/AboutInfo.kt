@@ -62,6 +62,10 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.69.2", listOf(
+            "Install on my watch pairs on Samsung phones: their built-in security library lacks a step the pairing needs (\"NoSuchMethodException … exportKeyingMaterial\"), so Ultimate+ now brings its own.",
+            "Typing the watch's address is easier: your network's start (like 192.168.1.) is filled in, and if something's missing the box says what, instead of only turning red.",
+        ), tries = listOf("watch")),
         Entry("1.69.1", listOf(
             "Install on my watch works when the watch can't be found by itself (some routers block that): type the IP address & port and the code the watch shows. If the watch doesn't announce its connection port either, Ultimate+ asks for the one number from the Wireless debugging screen, and remembers it for next time.",
         ), tries = listOf("watch")),
