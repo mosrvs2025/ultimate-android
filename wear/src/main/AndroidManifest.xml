@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Updates sent from Ultimate+ on the phone; Android still asks for a tap on every install. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Heart rate, only after "Share heart rate" is turned on; it goes to Ultimate+ on the phone and nowhere else. -->
+    <uses-permission android:name="android.permission.BODY_SENSORS" android:maxSdkVersion="35" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
 
     <application
         android:allowBackup="false"

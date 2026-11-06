@@ -4,6 +4,7 @@ import android.content.Context
 import app.ultimate.UltimateApp
 import app.ultimate.air.PhoneActions
 import app.ultimate.air.WatchMessages
+import app.ultimate.health.LiveHeart
 import app.ultimate.air.WristCalibration
 import app.ultimate.core.Signal
 import com.google.android.gms.wearable.MessageEvent
@@ -52,6 +53,7 @@ object WatchLink {
             return
         }
         if (text.startsWith("update:")) { updateStatus.value = text.removePrefix("update:"); if (text == "update:installed") watchVersion.value = null; return }
+        if (text.startsWith("hr:")) { text.removePrefix("hr:").toIntOrNull()?.takeIf { it in 25..240 }?.let { LiveHeart.bpm.value = it to now }; return }
         if (text.startsWith("sensors:")) {
             val fresh = WristCalibration.parseSensors(text, now)
             sensors.value = (sensors.value + fresh).filter { now - it.t <= 6_000 }

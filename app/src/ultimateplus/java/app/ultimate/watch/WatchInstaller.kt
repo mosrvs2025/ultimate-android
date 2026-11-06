@@ -130,6 +130,9 @@ class WatchInstaller(private val context: Context) {
     private fun reason(e: Throwable): String {
         val root = generateSequence(e) { it.cause }.last()
         return when {
+            // The port closed: Wireless debugging was turned off and on (it picks a new port each time). Ask for the new one;
+            // the pairing itself is remembered, so no code is needed.
+            root.message?.contains("ECONNREFUSED") == true || root.message?.contains("Connection refused", true) == true -> NEED_PORT
             root is java.net.ConnectException || root is java.net.SocketTimeoutException -> "Couldn't reach the watch. Is Wireless debugging still on, on the same Wi-Fi?"
             root.javaClass.simpleName.contains("Ssl") || root.message?.contains("TLS", true) == true -> "The secure connection failed: ${root.message}"
             else -> "${root.javaClass.simpleName}: ${root.message ?: "no details"}"

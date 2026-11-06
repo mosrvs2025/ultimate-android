@@ -68,6 +68,32 @@ private fun WatchScreen(link: PhoneLink) {
     var sent by remember { mutableStateOf<Boolean?>(null) }
     val detector = remember { WristGestures().apply { prefs.getString("calibration", null)?.let { configure(it) } } }
     detector.rightWrist = rightWrist
+    // Heart rate goes to the phone only while this is on and the app is open.
+    var shareHeart by remember { mutableStateOf(prefs.getBoolean("share_heart", false)) }
+    val heartPermission = if (android.os.Build.VERSION.SDK_INT >= 36) "android.permission.health.READ_HEART_RATE" else android.Manifest.permission.BODY_SENSORS
+    val askHeart = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+        shareHeart = ok; prefs.edit().putBoolean("share_heart", ok).apply()
+    }
+    DisposableEffect(shareHeart) {
+        val sm = context.getSystemService(SensorManager::class.java)
+        var lastSent = 0L
+        val l = object : SensorEventListener {
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+            override fun onSensorChanged(e: SensorEvent) {
+                val bpm = e.values.firstOrNull()?.toInt() ?: return
+                val now = System.currentTimeMillis()
+                if (bpm > 0 && now - lastSent >= 5_000) { lastSent = now; link.stream("hr:$bpm") }
+            }
+        }
+        val allowed = context.checkSelfPermission(heartPermission) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (shareHeart && allowed) sm?.getDefaultSensor(Sensor.TYPE_HEART_RATE)?.let { sm.registerListener(l, it, SensorManager.SENSOR_DELAY_NORMAL) }
+        onDispose { sm?.unregisterListener(l) }
+    }
+    fun toggleHeart(on: Boolean) {
+        if (!on) { shareHeart = false; prefs.edit().putBoolean("share_heart", false).apply(); return }
+        if (context.checkSelfPermission(heartPermission) == android.content.pm.PackageManager.PERMISSION_GRANTED) { shareHeart = true; prefs.edit().putBoolean("share_heart", true).apply() }
+        else askHeart.launch(heartPermission)
+    }
     var calibrated by remember { mutableStateOf(prefs.getString("calibration", null) != null) }
     // The phone asks for the live sensor stream while its Watch screen shows it, and renews the ask every few seconds.
     var streamUntil by remember { mutableStateOf(0L) }
@@ -107,14 +133,14 @@ private fun WatchScreen(link: PhoneLink) {
             override fun onSensorChanged(e: SensorEvent) {
                 val now = System.currentTimeMillis()
                 if (e.sensor.type == Sensor.TYPE_LINEAR_ACCELERATION) { acc[0] = e.values[0]; acc[1] = e.values[1]; acc[2] = e.values[2] }
-                // The live stream: one frame per gyroscope reading with the latest acceleration, sent in batches of ~100 ms.
+                // The live stream: one frame per gyroscope reading with the latest acceleration, sent in batches of ~50 ms.
                 if (streaming && e.sensor.type == Sensor.TYPE_GYROSCOPE) {
                     if (frameCount == 0) batchStart = now
                     if (frameCount > 0) frames.append('|')
                     frames.append(now - batchStart).append(',')
                         .append("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f".format(java.util.Locale.ROOT, e.values[0], e.values[1], e.values[2], acc[0], acc[1], acc[2]))
                     frameCount++
-                    if (now - batchStart >= 100) { link.stream("sensors:$frames"); frames.setLength(0); frameCount = 0 }
+                    if (now - batchStart >= 50) { link.stream("sensors:$frames"); frames.setLength(0); frameCount = 0 }
                 }
                 if (!gestures) return
                 val g = when (e.sensor.type) {
@@ -132,72 +158,58 @@ private fun WatchScreen(link: PhoneLink) {
         onDispose { sm?.unregisterListener(listener) }
     }
 
-    // Three pages, swiped sideways: gestures, a remote, and status. Each fits the round screen without scrolling far.
-    val pager = androidx.compose.foundation.pager.rememberPagerState { 3 }
-    Scaffold(timeText = { TimeText() }, pageIndicator = {
-        androidx.wear.compose.material.HorizontalPageIndicator(object : androidx.wear.compose.material.PageIndicatorState {
-            override val pageOffset get() = pager.currentPageOffsetFraction
-            override val selectedPage get() = pager.currentPage
-            override val pageCount get() = 3
-        })
-    }) {
-        androidx.compose.foundation.pager.HorizontalPager(pager) { page ->
-            when (page) {
-                0 -> GesturesPage(gestures, { gestures = it }, last, streaming, phone)
-                1 -> RemotePage(::send)
-                else -> StatusPage(phone, calibrated, rightWrist, { rightWrist = it; prefs.edit().putBoolean("right_wrist", it).apply() }, sent == false)
+    // One screen, scrolled with the bezel or a finger: everything in reach without swiping between pages.
+    val list = rememberScalingLazyListState()
+    val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?" }
+    Scaffold(timeText = { TimeText() }) {
+        ScalingLazyColumn(Modifier.fillMaxWidth(), state = list, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            item {
+                Text(phone?.let { "Linked to $it" } ?: "Looking for your phone…", style = MaterialTheme.typography.caption2, textAlign = TextAlign.Center,
+                    color = if (phone != null) MaterialTheme.colors.secondary else MaterialTheme.colors.onSurfaceVariant)
+            }
+            item {
+                val now = System.currentTimeMillis()
+                val shown = last?.takeIf { now - it.second < 2_500 }
+                Text(shown?.first ?: if (gestures) "Flick, twist or shake" else "Ultimate+", fontSize = if (shown != null) 22.sp else 18.sp,
+                    fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 4.dp),
+                    color = if (shown != null) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface)
+            }
+            if (streaming) item { Text("Showing live sensors on your phone", style = MaterialTheme.typography.caption3, color = MaterialTheme.colors.secondary, textAlign = TextAlign.Center) }
+            if (sent == false) item { Text("The phone didn't answer. Is Ultimate+ installed there?", style = MaterialTheme.typography.caption3, textAlign = TextAlign.Center) }
+            item {
+                ToggleChip(gestures, { gestures = it }, label = { Text("Wrist gestures") },
+                    secondaryLabel = { Text(if (gestures) "On while this is open" else "Off") },
+                    toggleControl = { androidx.wear.compose.material.Switch(gestures) }, modifier = Modifier.fillMaxWidth(),
+                    colors = ToggleChipDefaults.toggleChipColors())
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Round("⏮") { send("button:previous", "Previous") }
+                    Round("⏯", primary = true) { send("button:playpause", "Play / pause") }
+                    Round("⏭") { send("button:next", "Next") }
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Round("−") { send("button:volume_down", "Volume down") }
+                    Round("🔦") { send("button:torch", "Flashlight") }
+                    Round("+") { send("button:volume_up", "Volume up") }
+                }
+            }
+            item {
+                ToggleChip(shareHeart, ::toggleHeart, label = { Text("Share heart rate") }, secondaryLabel = { Text(if (shareHeart) "With the phone, while open" else "Off") },
+                    toggleControl = { androidx.wear.compose.material.Switch(shareHeart) }, modifier = Modifier.fillMaxWidth())
+            }
+            item {
+                ToggleChip(rightWrist, { rightWrist = it; prefs.edit().putBoolean("right_wrist", it).apply() }, label = { Text("Worn on the right wrist") },
+                    toggleControl = { androidx.wear.compose.material.Switch(rightWrist) }, modifier = Modifier.fillMaxWidth())
+            }
+            item {
+                Text((if (calibrated) "Calibrated to your wrist. " else "Not calibrated yet: on the phone, Ultimate+ → Watch → Calibrate. ") +
+                    "Ultimate+ $version; updates come from the phone.",
+                    style = MaterialTheme.typography.caption3, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
             }
         }
-    }
-}
-
-/** Page 1: the switch and a big readout of what the watch heard. */
-@Composable
-private fun GesturesPage(on: Boolean, setOn: (Boolean) -> Unit, last: Pair<String, Long>?, streaming: Boolean, phone: String?) {
-    androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
-        val now = System.currentTimeMillis()
-        val shown = last?.takeIf { now - it.second < 2_500 }
-        Text(shown?.first ?: if (on) "Flick, twist or shake" else "Wrist gestures", fontSize = if (shown != null) 22.sp else 16.sp,
-            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, color = if (shown != null) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface)
-        ToggleChip(on, setOn, label = { Text(if (on) "On" else "Off") }, secondaryLabel = { Text(if (on) "Listening while open" else "Tap to start") },
-            toggleControl = { androidx.wear.compose.material.Switch(on) }, modifier = Modifier.fillMaxWidth(), colors = ToggleChipDefaults.toggleChipColors())
-        Text(when { phone == null -> "Phone not in reach"; streaming -> "Live on your phone"; else -> "Swipe for the remote →" },
-            style = MaterialTheme.typography.caption3, textAlign = TextAlign.Center, color = MaterialTheme.colors.onSurfaceVariant)
-    }
-}
-
-/** Page 2: big buttons for the phone's music, volume and flashlight. */
-@Composable
-private fun RemotePage(send: (String, String) -> Unit) {
-    androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(vertical = 30.dp), horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Round("⏮") { send("button:previous", "Previous") }
-            Round("⏯", primary = true) { send("button:playpause", "Play / pause") }
-            Round("⏭") { send("button:next", "Next") }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Round("−") { send("button:volume_down", "Volume down") }
-            Round("🔦") { send("button:torch", "Flashlight") }
-            Round("+") { send("button:volume_up", "Volume up") }
-        }
-    }
-}
-
-/** Page 3: the link, calibration, which wrist, and the version. */
-@Composable
-private fun StatusPage(phone: String?, calibrated: Boolean, rightWrist: Boolean, setRight: (Boolean) -> Unit, noAnswer: Boolean) {
-    val context = LocalContext.current
-    val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?" }
-    ScalingLazyColumn(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        item { Text(phone?.let { "Linked to $it" } ?: "Looking for your phone…", style = MaterialTheme.typography.caption1, textAlign = TextAlign.Center,
-            color = if (phone != null) MaterialTheme.colors.secondary else MaterialTheme.colors.onSurfaceVariant) }
-        if (noAnswer) item { Text("The phone didn't answer. Is Ultimate+ installed there?", style = MaterialTheme.typography.caption3, textAlign = TextAlign.Center) }
-        item { Text(if (calibrated) "Calibrated to your wrist ✓" else "Not calibrated: on the phone, Watch → Calibrate", style = MaterialTheme.typography.caption2, textAlign = TextAlign.Center) }
-        item { ToggleChip(rightWrist, setRight, label = { Text("Right wrist") }, toggleControl = { androidx.wear.compose.material.Switch(rightWrist) }, modifier = Modifier.fillMaxWidth()) }
-        item { Text("Ultimate+ $version · updates come from the phone (Watch → Setup)", style = MaterialTheme.typography.caption3, textAlign = TextAlign.Center,
-            color = MaterialTheme.colors.onSurfaceVariant, modifier = Modifier.padding(horizontal = 10.dp)) }
     }
 }
 
