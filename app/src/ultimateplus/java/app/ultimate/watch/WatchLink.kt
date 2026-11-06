@@ -4,6 +4,7 @@ import android.content.Context
 import app.ultimate.UltimateApp
 import app.ultimate.air.PhoneActions
 import app.ultimate.air.WatchMessages
+import app.ultimate.air.WristCalibration
 import app.ultimate.core.Signal
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
@@ -14,6 +15,21 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * controls the phone" is on, which starts off.
  */
 object WatchLink {
+    /** The watch's live sensors, the last few seconds, while the Watch screen asks for them. */
+    val sensors = MutableStateFlow<List<WristCalibration.Sample>>(emptyList())
+    /** Gestures the watch recognised, with when, for marking them on the live graph. */
+    val marks = MutableStateFlow<List<Pair<Long, String>>>(emptyList())
+
+    /** Path the phone talks to the watch on (stream on/off, calibration); must match the watch's PhoneLink.FROM_PHONE. */
+    const val TO_WATCH = "/ultimate/phone"
+
+    /** Sends [text] to every connected watch. */
+    fun sendToWatch(c: Context, text: String) {
+        com.google.android.gms.wearable.Wearable.getNodeClient(c).connectedNodes.addOnSuccessListener { nodes ->
+            nodes.forEach { com.google.android.gms.wearable.Wearable.getMessageClient(c).sendMessage(it.id, TO_WATCH, text.toByteArray()) }
+        }
+    }
+
     /** The last thing the watch sent, and when. */
     val last = MutableStateFlow<Pair<WatchMessages.Message, Long>?>(null)
 
@@ -24,8 +40,15 @@ object WatchLink {
     fun setAction(c: Context, gesture: String, action: String) = prefs(c).edit().putString("g.$gesture", action).apply()
 
     fun receive(app: UltimateApp, text: String) {
+        val now = System.currentTimeMillis()
+        if (text.startsWith("sensors:")) {
+            val fresh = WristCalibration.parseSensors(text, now)
+            sensors.value = (sensors.value + fresh).filter { now - it.t <= 6_000 }
+            return
+        }
         val m = WatchMessages.parse(text) ?: return
-        last.value = m to System.currentTimeMillis()
+        last.value = m to now
+        if (!m.isButton) marks.value = (marks.value + (now to m.kind)).filter { now - it.first <= 6_000 }
         if (!enabled(app)) return
         val label = WatchMessages.label(m)
         // Wrist gestures are signals for Rules too ("When I flick my wrist left…"); buttons just do their job.

@@ -64,8 +64,27 @@ private fun WatchScreen(link: PhoneLink) {
     var phone by remember { mutableStateOf<String?>(null) }
     var last by remember { mutableStateOf<Pair<String, Long>?>(null) }
     var sent by remember { mutableStateOf<Boolean?>(null) }
-    val detector = remember { WristGestures() }
+    val detector = remember { WristGestures().apply { prefs.getString("calibration", null)?.let { configure(it) } } }
     detector.rightWrist = rightWrist
+    var calibrated by remember { mutableStateOf(prefs.getString("calibration", null) != null) }
+    // The phone asks for the live sensor stream while its Watch screen shows it, and renews the ask every few seconds.
+    var streamUntil by remember { mutableStateOf(0L) }
+    var streaming by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { while (true) { streaming = System.currentTimeMillis() < streamUntil; delay(1_000) } }
+    DisposableEffect(Unit) {
+        val stop = link.listen { text ->
+            when {
+                text == "stream:on" -> { streamUntil = System.currentTimeMillis() + 8_000; streaming = true }
+                text == "stream:off" -> { streamUntil = 0; streaming = false }
+                text.startsWith("config:") -> if (detector.configure(text)) {
+                    prefs.edit().putString("calibration", text).apply(); calibrated = true
+                    last = "Calibrated by your phone" to System.currentTimeMillis(); buzz(context)
+                }
+                text == "calibration:reset" -> { prefs.edit().remove("calibration").apply(); detector.directions = null; detector.flickRate = 4.5f; detector.twistAxis = 'y'; calibrated = false }
+            }
+        }
+        onDispose { stop() }
+    }
 
     fun send(message: String, label: String) {
         last = label to System.currentTimeMillis()
@@ -76,13 +95,26 @@ private fun WatchScreen(link: PhoneLink) {
     // Which phone is in reach, checked every few seconds so the screen says when the link drops.
     LaunchedEffect(Unit) { while (true) { link.phoneName { phone = it }; delay(5_000) } }
 
-    // The sensors listen only while gestures are on and this screen is showing.
-    DisposableEffect(gestures) {
+    // The sensors listen only while gestures are on or the phone is watching them, and this screen is showing.
+    DisposableEffect(gestures, streaming) {
+        val frames = StringBuilder(); var batchStart = 0L; var frameCount = 0
+        val acc = FloatArray(3)
         val sm = context.getSystemService(SensorManager::class.java)
         val listener = object : SensorEventListener {
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
             override fun onSensorChanged(e: SensorEvent) {
                 val now = System.currentTimeMillis()
+                if (e.sensor.type == Sensor.TYPE_LINEAR_ACCELERATION) { acc[0] = e.values[0]; acc[1] = e.values[1]; acc[2] = e.values[2] }
+                // The live stream: one frame per gyroscope reading with the latest acceleration, sent in batches of ~100 ms.
+                if (streaming && e.sensor.type == Sensor.TYPE_GYROSCOPE) {
+                    if (frameCount == 0) batchStart = now
+                    if (frameCount > 0) frames.append('|')
+                    frames.append(now - batchStart).append(',')
+                        .append("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f".format(java.util.Locale.ROOT, e.values[0], e.values[1], e.values[2], acc[0], acc[1], acc[2]))
+                    frameCount++
+                    if (now - batchStart >= 100) { link.stream("sensors:$frames"); frames.setLength(0); frameCount = 0 }
+                }
+                if (!gestures) return
                 val g = when (e.sensor.type) {
                     Sensor.TYPE_GYROSCOPE -> detector.gyro(e.values[0], e.values[1], e.values[2], now)
                     Sensor.TYPE_LINEAR_ACCELERATION -> detector.accel(e.values[0], e.values[1], e.values[2], now)
@@ -91,7 +123,7 @@ private fun WatchScreen(link: PhoneLink) {
                 send("gesture:$g", WristGestures.LABELS[g] ?: g)
             }
         }
-        if (gestures) {
+        if (gestures || streaming) {
             sm?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let { sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME) }
             sm?.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)?.let { sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME) }
         }
@@ -111,6 +143,7 @@ private fun WatchScreen(link: PhoneLink) {
                 Text(shown?.first ?: if (gestures) "Flick, twist or shake" else "Ultimate+", fontSize = if (shown != null) 22.sp else 18.sp,
                     fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 4.dp))
             }
+            if (streaming) item { Text("Showing live sensors on your phone", style = MaterialTheme.typography.caption3, color = MaterialTheme.colors.secondary, textAlign = TextAlign.Center) }
             if (sent == false) item { Text("The phone didn't answer. Is Ultimate+ installed there?", style = MaterialTheme.typography.caption3, textAlign = TextAlign.Center) }
             item {
                 ToggleChip(gestures, { gestures = it }, label = { Text("Wrist gestures") },
@@ -137,7 +170,8 @@ private fun WatchScreen(link: PhoneLink) {
                     toggleControl = { androidx.wear.compose.material.Switch(rightWrist) }, modifier = Modifier.fillMaxWidth())
             }
             item {
-                Text("What each gesture does is set on the phone, in Ultimate+ → Watch, where \"Watch controls the phone\" must be on.",
+                Text((if (calibrated) "Calibrated to your wrist. " else "Not calibrated yet: calibrate in Ultimate+ → Watch on the phone. ") +
+                    "What each gesture does is set there too, where \"Watch controls the phone\" must be on.",
                     style = MaterialTheme.typography.caption3, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
             }
         }

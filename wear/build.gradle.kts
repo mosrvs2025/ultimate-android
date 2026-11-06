@@ -15,8 +15,8 @@ android {
         minSdk = 30
         targetSdk = 35
         // The watch is its own install on its own device, so it keeps its own version.
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     signingConfigs {

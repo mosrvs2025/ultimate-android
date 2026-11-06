@@ -62,6 +62,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.70.0", listOf(
+            "Watch → Live from your watch: see the watch's sensors on the phone as you move, how fast your wrist turns about each axis and how hard it jolts, with every recognised gesture marked.",
+            "Calibrate gestures to your wrist: do each flick and the twist three times, and the phone works out which way each one turns on your watch and how hard you flick, then sends it to the watch. This fixes a flick up reading as a flick down, which happens because a flick's rebound can be stronger than the flick itself.",
+            "Flicks no longer read as a shake: a shake now needs harder jolts and doesn't count while the wrist is turning. Update the watch app too (Watch → Update it).",
+        ), tries = listOf("watch")),
         Entry("1.69.2", listOf(
             "Install on my watch pairs on Samsung phones: their built-in security library lacks a step the pairing needs (\"NoSuchMethodException … exportKeyingMaterial\"), so Ultimate+ now brings its own.",
             "Typing the watch's address is easier: your network's start (like 192.168.1.) is filled in, and if something's missing the box says what, instead of only turning red.",

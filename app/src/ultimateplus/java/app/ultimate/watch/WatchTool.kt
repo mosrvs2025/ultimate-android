@@ -113,6 +113,8 @@ class WatchTool(private val app: UltimateApp) : Tool {
                     Text(shown?.let { WatchMessages.label(it.first) + if (!enabled) " (watching only)" else "" } ?: "Try a flick on your watch",
                         Modifier.graphicsLayer { scaleX = sc; scaleY = sc }, fontSize = if (shown != null) 26.sp else 16.sp, fontWeight = FontWeight.Bold)
                 }
+                LiveSensorsCard()
+                CalibrateCard()
                 Text("What each wrist gesture does (tap to change)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 WatchMessages.GESTURES.forEach { (kind, label) ->
                     val act = chosen[kind] ?: "none"

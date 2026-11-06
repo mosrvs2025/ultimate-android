@@ -67,4 +67,25 @@ class WristGesturesTest {
         assertEquals("shake", d.accel(20f, 0f, 0f, 300))
         assertEquals(null, d.accel(3f, 0f, 0f, 2_000)) // gentle movement does nothing
     }
+
+    @Test fun aCalibrationFromThePhoneDecidesWhichWayIsUp() {
+        // On this wrist "up" turns negative about X, the opposite of the built-in guess.
+        val d = WristGestures()
+        assertEquals(listOf("flick_down"), run(d, on(0, burst(-7f)) + on(0, still(800))))
+        assertTrue(d.configure("config:rate=3.50;twist=y;x-=flick_up;x+=flick_down;z+=flick_left;z-=flick_right"))
+        assertEquals(listOf("flick_up"), run(d, on(0, burst(-5f)) + on(0, still(800)), 5_000)) // and 5 rad/s now clears 3.5
+        assertEquals(false, d.configure("gesture:flick_up"))
+    }
+
+    @Test fun aFlicksOwnJoltIsNotAShake() {
+        val d = WristGestures()
+        var t = 0L
+        // A sharp flick: fast turning with hard jolts back and forth at the same moments.
+        val fired = (0 until 12).flatMap { i ->
+            t += 20
+            val v = 8f * sin(PI * i / 11).toFloat()
+            listOfNotNull(d.gyro(0.2f, 0.2f, v, t), d.accel(if (i % 2 == 0) 25f else -25f, 0f, 0f, t))
+        }
+        assertEquals(listOf("flick_left"), fired)
+    }
 }
