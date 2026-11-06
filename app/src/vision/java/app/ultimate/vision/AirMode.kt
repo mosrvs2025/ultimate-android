@@ -37,6 +37,18 @@ object AirBridge {
     /** Things to do: taps and drags at screen positions, and Back, Home, Recents. */
     val actions = MutableSharedFlow<Any>(extraBufferCapacity = 16)
     object Back; object Home; object Recents
+    /** A shortcut shape being held: what it will do and how full its ring is (0..1). */
+    val hold = MutableStateFlow<Pair<String, Float>?>(null)
+    /** A short tip shown next to the cursor while you get used to Air mode. */
+    val hint = MutableStateFlow<String?>(null)
+
+    private fun prefs(c: Context) = c.getSharedPreferences("air_mode", Context.MODE_PRIVATE)
+    /** Hand-shape shortcuts (palm Back, fist Home, peace Recents): off unless turned on, so nothing happens by accident. */
+    fun shortcutsOn(c: Context) = prefs(c).getBoolean("shortcuts", false)
+    fun setShortcuts(c: Context, on: Boolean) = prefs(c).edit().putBoolean("shortcuts", on).apply()
+    /** Whether the practice has been done once (it's offered before the first start). */
+    fun practiced(c: Context) = prefs(c).getBoolean("practiced", false)
+    fun setPracticed(c: Context) = prefs(c).edit().putBoolean("practiced", true).apply()
 
     fun accessibilityOn(c: Context): Boolean {
         val me = ComponentName(c, AirCursorService::class.java).flattenToString()
@@ -55,9 +67,9 @@ class AirModeService : LifecycleService() {
     private val executor = Executors.newSingleThreadExecutor()
     private var recognizer: GestureRecognizer? = null
     private var pointer: AirPointer? = null
-    private var sign: String? = null
-    private var signSince = 0L
-    private var lastShortcut = 0L
+    private val holder = app.ultimate.air.ShortcutHold()
+    private var seenSince = 0L
+    private var taps = 0
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
@@ -66,7 +78,7 @@ class AirModeService : LifecycleService() {
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Air mode", NotificationManager.IMPORTANCE_LOW))
         val stop = PendingIntent.getService(this, 1, Intent(this, AirModeService::class.java).setAction(STOP), PendingIntent.FLAG_IMMUTABLE)
         val n = Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_stat).setContentTitle("Air mode is on")
-            .setContentText("Point to move, pinch to tap. Open palm: Back. Fist: Home.").setOngoing(true)
+            .setContentText("Point to move, pinch to tap, pinch and move to scroll.").setOngoing(true)
             .addAction(Notification.Action.Builder(null, "Stop", stop).build()).build()
         if (Build.VERSION.SDK_INT >= 30) startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA) else startForeground(ID, n)
         if (recognizer == null) begin()
@@ -104,25 +116,39 @@ class AirModeService : LifecycleService() {
         val p = pointer ?: return
         val lm = result.landmarks().firstOrNull()
         val now = System.currentTimeMillis()
-        if (lm == null || lm.size < 21) { p.lost(); AirBridge.cursor.value = AirBridge.cursor.value.copy(visible = false, pinched = false); sign = null; return }
+        if (lm == null || lm.size < 21) {
+            p.lost(); AirBridge.cursor.value = AirBridge.cursor.value.copy(visible = false, pinched = false)
+            holder.feed(null, 0f, 0f, now); AirBridge.hold.value = null; AirBridge.hint.value = null; seenSince = 0; return
+        }
+        if (seenSince == 0L) seenSince = now
         // The hand's size (wrist to middle knuckle) makes the pinch the same near the camera and far from it.
         val size = hypot(lm[0].x() - lm[9].x(), lm[0].y() - lm[9].y()).coerceAtLeast(1e-3f)
         val pinch = hypot(lm[4].x() - lm[8].x(), lm[4].y() - lm[8].y()) / size
         // Front camera: mirror so moving your hand right moves the cursor right.
-        p.feed(1f - lm[8].x(), lm[8].y(), pinch, now)?.let { AirBridge.actions.tryEmit(it) }
+        p.feed(1f - lm[8].x(), lm[8].y(), pinch, now)?.let { if (it is AirPointer.Action.Tap) taps++; AirBridge.actions.tryEmit(it) }
         AirBridge.cursor.value = AirBridge.Cursor(p.x, p.y, true, p.pinched)
-        // Held hand signs are shortcuts: open palm Back, fist Home, peace sign Recents.
-        val top = result.gestures().firstOrNull()?.firstOrNull()?.takeIf { it.score() > 0.6f }?.categoryName()
-        if (top != sign) { sign = top; signSince = now }
-        if (top != null && !p.pinched && now - signSince > 600 && now - lastShortcut > 1_500) {
-            when (top) { "Open_Palm" -> AirBridge.Back; "Closed_Fist" -> AirBridge.Home; "Victory" -> AirBridge.Recents; else -> null }
-                ?.let { lastShortcut = now; AirBridge.actions.tryEmit(it) }
+        // Tips next to the cursor for the first taps of each session, then they go away.
+        val shown = now - seenSince
+        AirBridge.hint.value = when {
+            taps >= 3 || shown > 20_000 -> null
+            p.pinched -> "Let go to tap · move to scroll"
+            taps == 0 -> "Pinch thumb and finger to tap"
+            else -> "Pinch and move to scroll"
         }
+        // Shortcuts only when turned on, and only for a shape held still for a full second while its ring fills.
+        if (!AirBridge.shortcutsOn(this)) { AirBridge.hold.value = null; return }
+        val top = result.gestures().firstOrNull()?.firstOrNull()?.takeIf { it.score() > 0.7f }?.categoryName()
+            ?.takeIf { it in NAMES && !p.pinched }
+        val fired = holder.feed(top, p.x, p.y, now)
+        AirBridge.hold.value = holder.progress?.let { (s, f) -> NAMES.getValue(s) to f }?.takeIf { it.second > 0.15f }
+        when (fired) { "Open_Palm" -> AirBridge.Back; "Closed_Fist" -> AirBridge.Home; "Victory" -> AirBridge.Recents; else -> null }
+            ?.let { AirBridge.actions.tryEmit(it) }
     }
 
     override fun onDestroy() {
         AirBridge.running.value = false
         AirBridge.cursor.value = AirBridge.Cursor(0f, 0f, false, false)
+        AirBridge.hold.value = null; AirBridge.hint.value = null
         runCatching { recognizer?.close() }; recognizer = null
         executor.shutdown()
         super.onDestroy()
@@ -130,6 +156,7 @@ class AirModeService : LifecycleService() {
 
     companion object {
         const val STOP = "app.ultimate.air.STOP"
+        private val NAMES = mapOf("Open_Palm" to "Back", "Closed_Fist" to "Home", "Victory" to "Recent apps")
         private const val CHANNEL = "air_mode"
         private const val ID = 4401
     }

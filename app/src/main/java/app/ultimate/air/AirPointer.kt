@@ -103,3 +103,28 @@ class OneEuro(private val minCutoff: Float, private val beta: Float, private val
     }
 
 }
+
+/**
+ * Hand-shape shortcuts that only happen on purpose: the shape must be held still for [holdMs] while a ring fills
+ * ([progress]), moving the hand more than [movePx] cancels it, and after one fires there's a pause. A relaxed hand that
+ * briefly looks like a palm or a fist does nothing.
+ */
+class ShortcutHold(private val holdMs: Long = 1_000, private val movePx: Float = 80f, private val pauseMs: Long = 1_500) {
+    /** The shape being held and how far along (0..1), or null. */
+    var progress: Pair<String, Float>? = null; private set
+    private var sign: String? = null
+    private var since = 0L
+    private var x0 = 0f
+    private var y0 = 0f
+    private var lastFired = Long.MIN_VALUE / 2
+
+    /** Feeds the recognised shape ([sign], or null) and the cursor; returns the shape's name when its hold completes. */
+    fun feed(sign: String?, x: Float, y: Float, now: Long): String? {
+        if (sign == null || now - lastFired < pauseMs) { this.sign = null; progress = null; return null }
+        if (sign != this.sign || kotlin.math.hypot(x - x0, y - y0) > movePx) { this.sign = sign; since = now; x0 = x; y0 = y; progress = sign to 0f; return null }
+        val p = ((now - since).toFloat() / holdMs).coerceIn(0f, 1f)
+        progress = sign to p
+        if (p >= 1f) { lastFired = now; this.sign = null; progress = null; return sign }
+        return null
+    }
+}

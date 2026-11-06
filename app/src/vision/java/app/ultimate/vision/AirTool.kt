@@ -68,6 +68,10 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -237,9 +241,14 @@ class AirTool(private val app: UltimateApp) : Tool {
                 }
                 // Air mode uses the camera from a service, so while it runs this screen leaves the camera to it.
                 val airRunning by AirBridge.running.collectAsStateWithLifecycle()
-                AirModeCard(airRunning, onStart = {
-                    onExit(); android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ AirBridge.start(context) }, 400)
-                }, onStop = { AirBridge.stop(context) })
+                var practicing by remember { mutableStateOf(false) }
+                val startAir = { onExit(); android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ AirBridge.start(context) }, 400); Unit }
+                if (practicing) {
+                    AirPractice(pose, onDone = { AirBridge.setPracticed(context); practicing = false; startAir() }, onCancel = { practicing = false })
+                    return@Column
+                }
+                AirModeCard(airRunning, onStart = { if (AirBridge.practiced(context)) startAir() else practicing = true },
+                    onPractice = { practicing = true }, onStop = { AirBridge.stop(context) })
                 if (airRunning) return@Column
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
                     .background(if (acting) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)
@@ -427,11 +436,12 @@ private fun AnalysedCamera(front: Boolean, analyse: (Bitmap, Long) -> Unit) {
 }
 
 
-/** Air mode, step by step: turn on its accessibility service once, then start or stop it here. */
+/** Air mode, step by step: turn on its accessibility service once, practise once, then start or stop it here. */
 @Composable
-private fun AirModeCard(running: Boolean, onStart: () -> Unit, onStop: () -> Unit) {
+private fun AirModeCard(running: Boolean, onStart: () -> Unit, onPractice: () -> Unit, onStop: () -> Unit) {
     val context = LocalContext.current
     var allowed by remember { mutableStateOf(AirBridge.accessibilityOn(context)) }
+    var shortcuts by remember { mutableStateOf(AirBridge.shortcutsOn(context)) }
     // Coming back from Settings: check again.
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
@@ -441,8 +451,16 @@ private fun AirModeCard(running: Boolean, onStart: () -> Unit, onStop: () -> Uni
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (running) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Air mode: control any app", fontWeight = FontWeight.SemiBold)
-        Text("Point to move the cursor · pinch to tap · pinch and move to scroll · hold the pinch for a long press · open palm: Back · fist: Home · peace sign: recent apps.",
-            style = MaterialTheme.typography.bodySmall)
+        Text("☝ Point to move the ring\n🤏 Pinch and let go to tap\n🤏↕ Pinch and move to scroll\n🤏⏳ Hold the pinch for a long press", style = MaterialTheme.typography.bodyMedium)
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { shortcuts = !shortcuts; AirBridge.setShortcuts(context, shortcuts) }.padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Hand-shape shortcuts", fontWeight = FontWeight.Medium)
+                Text("Hold still for a second while the ring fills: ✋ open palm Back · ✊ fist Home · ✌ peace sign recent apps. Off, nothing happens by accident.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(shortcuts, { shortcuts = it; AirBridge.setShortcuts(context, it) })
+        }
         when {
             running -> {
                 Text("Air mode is on. It stays on in other apps until you stop it, here or from its notification.", style = MaterialTheme.typography.bodySmall)
@@ -452,7 +470,97 @@ private fun AirModeCard(running: Boolean, onStart: () -> Unit, onStop: () -> Uni
                 Text("Once: in Settings → Accessibility, turn on \"Ultimate Air mode\". It's what lets Ultimate tap and scroll for your hand; it reads nothing on screen.", style = MaterialTheme.typography.bodySmall)
                 Button({ runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } }) { Text("Open Accessibility settings") }
             }
-            else -> Button(onStart) { Text("Start Air mode") }
+            else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onStart) { Text(if (AirBridge.practiced(context)) "Start Air mode" else "Learn and start") }
+                if (AirBridge.practiced(context)) androidx.compose.material3.OutlinedButton(onPractice) { Text("Practise again") }
+            }
         }
+    }
+}
+
+/**
+ * A one-minute practice before Air mode's first start, with the real pointer: find your hand, point at a circle, pinch
+ * three circles, then pinch and drag a dot along a track. Each step says exactly what to do and moves on by itself.
+ */
+@Composable
+private fun AirPractice(pose: MutableStateFlow<HandPose?>, onDone: () -> Unit, onCancel: () -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    var step by remember { mutableIntStateOf(0) }
+    var box by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    var cursor by remember { mutableStateOf<Offset?>(null) }
+    var pinched by remember { mutableStateOf(false) }
+    var target by remember { mutableStateOf(Offset(0.5f, 0.4f)) }
+    var tapped by remember { mutableIntStateOf(0) }
+    var knob by remember { mutableFloatStateOf(0.15f) }
+    var flash by remember { mutableStateOf(false) }
+    val spots = remember { listOf(Offset(0.25f, 0.3f), Offset(0.75f, 0.35f), Offset(0.5f, 0.65f), Offset(0.3f, 0.7f)) }
+    val steps = listOf(
+        "Raise one hand, palm toward the screen, so the camera sees it.",
+        "Point with your index finger. Move the ring onto the circle and stay there.",
+        "Pinch: touch thumb and index finger together, then let go. That's a tap. Tap the circle.",
+        "Pinch on the dot, keep pinching, and move your hand right. Let go at the end. That's how you scroll.",
+    )
+    LaunchedEffect(box) {
+        if (box.width == 0) return@LaunchedEffect
+        val w = box.width.toFloat(); val h = box.height.toFloat()
+        val pointer = app.ultimate.air.AirPointer(w, h)
+        var seenAt = 0L; var hoverAt = 0L; var dragging = false
+        fun near(o: Offset, x: Float, y: Float, r: Float) = kotlin.math.hypot(o.x * w - x, o.y * h - y) < r
+        pose.collect { p ->
+            if (p == null || p.points.size < 21) { pointer.lost(); cursor = null; pinched = false; seenAt = 0; dragging = false; return@collect }
+            val now = p.at; if (seenAt == 0L) seenAt = now
+            val pts = p.points
+            val size = kotlin.math.hypot(pts[0].first - pts[9].first, pts[0].second - pts[9].second).coerceAtLeast(1e-3f)
+            val pinch = kotlin.math.hypot(pts[4].first - pts[8].first, pts[4].second - pts[8].second) / size
+            val action = pointer.feed(1f - pts[8].first, pts[8].second, pinch, now)
+            cursor = Offset(pointer.x, pointer.y); pinched = pointer.pinched
+            val r = 0.09f * minOf(w, h) + 24f
+            fun advance() { haptics.performHapticFeedback(HapticFeedbackType.LongPress); flash = true; step++ }
+            when (step) {
+                0 -> if (now - seenAt > 800) advance()
+                1 -> if (near(target, pointer.x, pointer.y, r)) { if (hoverAt == 0L) hoverAt = now; if (now - hoverAt > 700) { target = spots[0]; advance() } } else hoverAt = 0
+                2 -> if (action is app.ultimate.air.AirPointer.Action.Tap && near(target, action.x, action.y, r * 1.3f)) {
+                    tapped++; haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    if (tapped >= 3) advance() else target = spots[tapped]
+                }
+                3 -> {
+                    val trackY = 0.55f * h
+                    if (pointer.pinched && !dragging && kotlin.math.hypot(knob * w - pointer.x, trackY - pointer.y) < r * 1.4f) dragging = true
+                    if (dragging) knob = (pointer.x / w).coerceIn(0.1f, 0.9f)
+                    if (!pointer.pinched && dragging) { dragging = false; if (knob > 0.8f) advance() else knob = 0.15f }
+                }
+            }
+        }
+    }
+    LaunchedEffect(flash) { if (flash) { kotlinx.coroutines.delay(500); flash = false } }
+    Text(if (step < steps.size) "Practice · step ${step + 1} of ${steps.size}" else "You're ready", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    Text(if (step < steps.size) steps[step] + (if (step == 2) "  ($tapped of 3)" else "") else
+        "That's all of it: point, pinch to tap, pinch and move to scroll. A tip follows the cursor at first. Stop any time from the notification.",
+        style = MaterialTheme.typography.titleMedium)
+    if (step < steps.size) Box(Modifier.fillMaxWidth().height(440.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black).onSizeChanged { box = it }) {
+        GestureCamera(true, pose)
+        val accent = MaterialTheme.colorScheme.primary
+        Canvas(Modifier.fillMaxSize()) {
+            drawRect(Color.Black.copy(alpha = if (flash) 0.25f else 0.45f))
+            val r = 0.09f * size.minDimension
+            when (step) {
+                1, 2 -> drawCircle(if (flash) Color(0xFF7CFFB2) else accent, r, Offset(target.x * size.width, target.y * size.height), style = androidx.compose.ui.graphics.drawscope.Stroke(6f))
+                3 -> {
+                    val y = 0.55f * size.height
+                    drawLine(Color.White.copy(alpha = 0.5f), Offset(0.1f * size.width, y), Offset(0.9f * size.width, y), 10f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    drawCircle(Color(0xFF7CFFB2), 18f, Offset(0.9f * size.width, y))
+                    drawCircle(accent, r * 0.6f, Offset(knob * size.width, y))
+                }
+            }
+            cursor?.let { c ->
+                if (pinched) drawCircle(Color(0xCC7FD3FF), 36f, c)
+                drawCircle(Color.White, 36f, c, style = androidx.compose.ui.graphics.drawscope.Stroke(6f))
+            }
+        }
+        if (cursor == null) Text("No hand yet", Modifier.align(Alignment.BottomCenter).padding(12.dp), color = Color.White)
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (step >= steps.size) Button(onDone) { Text("Start Air mode") }
+        androidx.compose.material3.TextButton(if (step >= steps.size) onCancel else onDone) { Text(if (step >= steps.size) "Not now" else "Skip practice") }
     }
 }

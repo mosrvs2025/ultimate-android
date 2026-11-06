@@ -73,3 +73,37 @@ class AirPointerTest {
         assertNull(p.feed(0.5f, 0.5f, 1f, t + 2_000).takeIf { it !is Action.LongPress && it != null })
     }
 }
+
+class ShortcutHoldTest {
+    private fun run(h: app.ultimate.air.ShortcutHold, sign: String?, ms: Long, t0: Long, x: Float = 500f, drift: Float = 0f): Pair<List<String>, Long> {
+        val out = ArrayList<String>(); var t = t0; var i = 0
+        while (t < t0 + ms) { h.feed(sign, x + drift * i++, 500f, t)?.let(out::add); t += 33 }
+        return out to t
+    }
+
+    @Test fun aShapeHeldStillForASecondFiresOnce() {
+        val h = app.ultimate.air.ShortcutHold()
+        val (a, _) = run(h, "Open_Palm", 1_400, 0)
+        assertEquals(listOf("Open_Palm"), a)
+    }
+
+    @Test fun aBriefShapeDoesNothing() {
+        val h = app.ultimate.air.ShortcutHold()
+        val (a, t) = run(h, "Closed_Fist", 500, 0)
+        assertTrue(a.isEmpty())
+        assertTrue(run(h, null, 500, t).first.isEmpty())
+    }
+
+    @Test fun movingTheHandCancelsIt() {
+        // Moving the cursor while the hand looks like a fist (normal pointing around) never goes Home.
+        val h = app.ultimate.air.ShortcutHold()
+        assertTrue(run(h, "Closed_Fist", 3_000, 0, drift = 6f).first.isEmpty())
+    }
+
+    @Test fun theRingFillsAsYouHold() {
+        val h = app.ultimate.air.ShortcutHold()
+        run(h, "Open_Palm", 500, 0)
+        val p = h.progress!!
+        assertEquals("Open_Palm", p.first); assertTrue(p.second in 0.4f..0.6f)
+    }
+}
