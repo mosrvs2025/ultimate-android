@@ -256,6 +256,9 @@ class AirTool(private val app: UltimateApp) : Tool {
                     Text("Each bar is measured against your face at rest, which it learns in the first seconds; it counts once a bar passes about halfway.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (!faceMode) app.tools.firstOrNull { it.id == "echo-teach" }?.let { teach ->
+                    androidx.compose.material3.OutlinedButton({ app.shell.open(teach) }, Modifier.fillMaxWidth()) { Text("Teach Echo these gestures, to use them with the camera off") }
+                }
                 Text("What each gesture does (tap to change)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     (if (faceMode) FaceExpressions.ALL else AirGestures.ALL).forEach { (kind, label) ->
@@ -281,7 +284,7 @@ class AirTool(private val app: UltimateApp) : Tool {
 
 /** A camera analysed by MediaPipe's gesture recognizer on its own thread; hand poses go to [out]. */
 @Composable
-private fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
+internal fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
     val context = LocalContext.current
     var problem by remember { mutableStateOf<String?>(null) }
     val recognizer = remember {

@@ -102,6 +102,12 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
 
     /** The last gesture and when it happened, for the screen to answer it visibly. */
     val lastGesture = MutableStateFlow<Pair<EchoGestures.Gesture, Long>?>(null)
+    /** Gestures you taught Echo with the camera; recognised from sound alone. Null until you teach some. */
+    @Volatile var learned: GestureModel? = GestureModel.load(context)
+    /** The last learned gesture recognised, and when. */
+    val lastLearned = MutableStateFlow<Pair<String, Long>?>(null)
+    /** Every frame's features, for teaching (the camera labels them); called on the sonar's thread. */
+    @Volatile var onFeatures: ((Long, FloatArray) -> Unit)? = null
 
     // The gyroscope gates readings: when the phone turns faster than about 17°/s, everything appears to move.
     @Volatile private var turnRate = 0f
@@ -182,6 +188,18 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
                         senses.publish(Signal("echo", kind, if (kind == "approach") "Something came closer, now %.0f cm away".format(fix.rangeM * 100) else "Something moved away, now %.0f cm".format(fix.rangeM * 100),
                             mapOf("distance_cm" to "%.0f".format(fix.rangeM * 100), "speed_m_s" to "%.2f".format(abs(fix.velocity)))))
                     }
+                    // Learned gestures: the sonar alone, compared with the examples the camera labelled when you taught Echo.
+                    val feat = SonarFeatures.frame(if (moving) Double.NaN else fix.rangeM, fix.velocity, fix.confidence, lean, fix.motion)
+                    onFeatures?.invoke(now, feat)
+                    val model = learned
+                    if (model == null || moving) learnedDetector?.reset()
+                    else {
+                        if (learnedFor !== model) { learnedDetector = LearnedGestureDetector(model); learnedFor = model }
+                        learnedDetector?.feed(feat, now)?.let { kind ->
+                            lastLearned.value = kind to now
+                            senses.publish(Signal("echo", "learned_$kind", "You did a ${LearnedNames.label(kind).lowercase()} (heard by Echo)"))
+                        }
+                    }
                     // Deliberate gestures, for rules: push toward the phone, pull away, hold still.
                     gestures.feed(if (moving) Double.NaN else fix.rangeM, now)?.let { g ->
                         val label = when (g.kind) { "push" -> "You pushed toward the phone"; "pull" -> "You pulled away from the phone"; else -> "You held your hand still" } + " at %.0f cm".format(g.atM * 100)
@@ -207,6 +225,8 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
     }
 
     private var frames = 0
+    private var learnedDetector: LearnedGestureDetector? = null
+    private var learnedFor: GestureModel? = null
     private fun t1Warm(@Suppress("UNUSED_PARAMETER") f: SonarTracker.Fix) = ++frames > SonarTracker.WARMUP
 
     /** Stereo when the phone allows it (some give two real mics), the unprocessed source when it exists (no filtering of high sounds). */
