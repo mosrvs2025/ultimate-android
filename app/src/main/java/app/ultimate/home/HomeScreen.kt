@@ -131,8 +131,16 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
                 androidx.compose.material3.IconButton({ app.insights.count("home.about"); shell.showAbout() }) { Icon(Icons.Rounded.Settings, "About and settings") }
             }
         }
-        item(key = "command-surface", span = { GridItemSpan(maxLineSpan) }) {
-            LivingSurface(app, favorites, runningIds)
+        // Your tools: pins first, then what you open around this time and what is running. Compact tiles, two to a row.
+        item(key = "favorites-header", span = { GridItemSpan(maxLineSpan) }) {
+            Text("Your tools", Modifier.padding(start = 4.dp, top = 2.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+        }
+        itemsIndexed(favorites, key = { _, t -> "fav-${t.id}" }, span = { _, _ -> GridItemSpan(2) }) { i, tool ->
+            ToolTile(
+                Modifier.animateItem().appear("fav-${tool.id}", seen, i), tool, wide = false,
+                active = tool.id in runningIds, stop = app.work.sources.firstOrNull { it.workId == tool.id }?.takeIf { src -> running.any { it.first === src } },
+                onLibrary = { shell.showLibraryOf(tool.id) }, onClick = { shell.open(tool) },
+            )
         }
         item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
         item(span = { GridItemSpan(maxLineSpan) }) { TodayDashboard(app) }
@@ -345,7 +353,7 @@ internal fun toolSections(tools: List<app.ultimate.core.Tool>): List<Pair<String
         "Create" to listOf("studio", "squeeze", "audio", "recorder", "photos", "prompter"),
         "Phone" to listOf("files", "storage", "cleanup", "inbox", "clips", "checkup", "pluck", "footprint"),
         // Spatial sensing: sonar, camera hand tracking and the sensors they build on, together in one place.
-        "Senses" to listOf("echo", "air", "echo-camera", "ruler", "sensors", "sound-meter"),
+        "Senses" to listOf("echo", "air", "echo-teach", "echo-camera", "ruler", "sensors", "sound-meter"),
         "Network" to listOf("hosts", "ssh", "traffic", "network", "lan", "send", "mesh"),
         "Smart" to listOf("timeline", "focus", "rules", "recipes", "orb", "screentime", "terminal"),
     )

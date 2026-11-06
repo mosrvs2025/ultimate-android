@@ -98,6 +98,7 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
             // Camera-assisted Echo calibration ships only in the full editions (src/vision, with MediaPipe).
             if (BuildConfig.HAS_SOUND) runCatching { add(Class.forName("app.ultimate.vision.AirTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
             if (BuildConfig.HAS_SOUND) runCatching { add(Class.forName("app.ultimate.vision.HandCalibrationTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
+            if (BuildConfig.HAS_SOUND) runCatching { add(Class.forName("app.ultimate.vision.TeachEchoTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
             if (BuildConfig.HAS_TRAFFIC) add(TrafficTool(this@UltimateApp))
             if (BuildConfig.HAS_NETWORK) add(app.ultimate.lan.LanTool(lanManager))
             if (BuildConfig.HAS_SEND) add(app.ultimate.send.SendTool(sendServer))

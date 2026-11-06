@@ -73,3 +73,9 @@ the app keeps one navigation system:
 - **Floating system orb:** keeps its pins and More drawer.
 - **Not carried over:** the separate Orbit Preview build (`-PorbitPreview=true`) stays available, but the second
   in-tool bottom bar does not.
+
+## 1.64.0
+
+The large living surface was removed from Home after use on a phone: it took a lot of space for three tools. Home now
+shows compact "Your tools" tiles from the same ranking (pins, then the shared memory). The instrument orb inside tools
+stays.

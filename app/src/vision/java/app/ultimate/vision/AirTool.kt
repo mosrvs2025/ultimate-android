@@ -42,6 +42,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -73,6 +75,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.UltimateApp
 import app.ultimate.air.AirActions
 import app.ultimate.air.AirGestures
+import app.ultimate.air.FaceExpressions
 import app.ultimate.air.HandPose
 import app.ultimate.core.LibraryItem
 import app.ultimate.core.Signal
@@ -85,6 +88,7 @@ import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizer
+import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.concurrent.Executors
@@ -92,7 +96,11 @@ import java.util.concurrent.Executors
 /**
  * Air control: the camera watches your hand from across the room (about 2-3 m) and turns gestures into actions: swipe
  * to skip a track, thumbs up for louder, an open palm to pause, a pinch for the flashlight, and anything else through
- * Rules, since every gesture is also a signal. On the phone only; frames are looked at and dropped.
+ * Rules, since every gesture is also a signal. It can also watch your face: eyebrows up or down, smile, mouth open,
+ * pucker, puffed cheeks, wink and blink. On the phone only; frames are looked at and dropped.
+ *
+ * It always opens watching only: you see the tracking and what each gesture would do, and nothing happens on the phone
+ * until you turn on "Gestures do things" for that visit.
  */
 class AirTool(private val app: UltimateApp) : Tool {
     override val id = "air"
@@ -108,6 +116,10 @@ class AirTool(private val app: UltimateApp) : Tool {
 
     private val pose = MutableStateFlow<HandPose?>(null)
     private val gesture = MutableStateFlow<Pair<AirGestures.Gesture, Long>?>(null)
+    private val face = MutableStateFlow<FacePose?>(null)
+
+    /** A face as the landmarker saw it: its points (0..1 of the picture) and its blendshape scores. */
+    data class FacePose(val points: List<Pair<Float, Float>>, val scores: Map<String, Float>, val at: Long)
 
     private fun actionsPrefs(c: Context) = c.getSharedPreferences("air_actions", Context.MODE_PRIVATE)
     private fun action(c: Context, kind: String) = actionsPrefs(c).getString(kind, AirActions.DEFAULTS[kind] ?: "none") ?: "none"
@@ -138,9 +150,22 @@ class AirTool(private val app: UltimateApp) : Tool {
         var front by remember { mutableStateOf(true) }
         val hand by pose.collectAsStateWithLifecycle()
         val last by gesture.collectAsStateWithLifecycle()
-        val chosen = remember { mutableStateMapOf<String, String>().apply { AirGestures.ALL.forEach { (k, _) -> put(k, action(context, k)) } } }
+        val chosen = remember { mutableStateMapOf<String, String>().apply { (AirGestures.ALL + FaceExpressions.ALL).forEach { (k, _) -> put(k, action(context, k)) } } }
         val trail = remember { ArrayDeque<Pair<Float, Float>>() }
         val detector = remember(front) { AirGestures(mirrored = front) }
+        // Off on every visit: watching shows what would happen, and only this switch lets gestures act.
+        var acting by remember { mutableStateOf(false) }
+        var faceMode by remember { mutableStateOf(false) }
+        val seenFace by face.collectAsStateWithLifecycle()
+        val expressions = remember { FaceExpressions() }
+        var levels by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
+        fun fire(kind: String, label: String, now: Long) {
+            gesture.value = AirGestures.Gesture(kind, label) to now
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            if (!acting) return
+            app.senses.publish(Signal("air", kind, "You gestured: $label"))
+            perform(context, kind)
+        }
         // Keep the screen on while it watches, and show it under Live now with Stop.
         val view = LocalView.current
         DisposableEffect(allowed) {
@@ -150,12 +175,13 @@ class AirTool(private val app: UltimateApp) : Tool {
         LaunchedEffect(hand) {
             val now = System.currentTimeMillis()
             hand?.let { trail.addLast(it.palm); while (trail.size > 24) trail.removeFirst() } ?: run { if (trail.isNotEmpty()) trail.removeFirst() }
-            detector.feed(hand, now)?.let { g ->
-                gesture.value = g to now
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                app.senses.publish(Signal("air", g.kind, "You gestured: ${g.label}"))
-                perform(context, g.kind)
-            }
+            detector.feed(hand, now)?.let { g -> fire(g.kind, g.label, now) }
+        }
+        LaunchedEffect(seenFace) {
+            val f = seenFace ?: return@LaunchedEffect
+            val reading = expressions.feed(f.scores, f.at)
+            levels = reading.levels
+            reading.fired?.let { fire("face_${it.kind}", it.label, f.at) }
         }
 
         Scaffold(topBar = { TopAppBar(title = { Text("Air control") }, navigationIcon = { IconButton(onExit) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { pad ->
@@ -165,14 +191,33 @@ class AirTool(private val app: UltimateApp) : Tool {
                     Button({ ask.launch(Manifest.permission.CAMERA) }) { Text("Allow the camera") }
                     return@Column
                 }
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    .background(if (acting) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .clickable { acting = !acting }.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Gestures do things", fontWeight = FontWeight.SemiBold)
+                        Text(if (acting) "On: gestures control the phone and trigger Rules until you leave." else "Off: watching only. You'll see what each gesture would do; nothing happens.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(acting, { acting = it })
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(front, { front = true }, { Text("Front camera") })
-                    FilterChip(!front, { front = false }, { Text("Back camera") })
+                    FilterChip(!faceMode, { faceMode = false; face.value = null }, { Text("Hand") })
+                    FilterChip(faceMode, { faceMode = true; pose.value = null; expressions.reset() }, { Text("Face") })
+                    Box(Modifier.weight(1f))
+                    FilterChip(front, { front = true }, { Text("Front") })
+                    FilterChip(!front, { front = false }, { Text("Back") })
                 }
                 Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
-                    key(front) { GestureCamera(front, pose) }
+                    key(front, faceMode) { if (faceMode) FaceCamera(front, face) else GestureCamera(front, pose) }
                     val now = System.currentTimeMillis()
-                    hand?.takeIf { now - it.at < 400 }?.let { h ->
+                    if (faceMode) seenFace?.takeIf { now - it.at < 400 }?.let { f ->
+                        Canvas(Modifier.fillMaxSize()) {
+                            val c = Color(0xFF7FD3FF).copy(alpha = 0.75f)
+                            f.points.forEach { p -> drawCircle(c, 1.2.dp.toPx(), Offset((if (front) 1 - p.first else p.first) * size.width, p.second * size.height)) }
+                        }
+                    }
+                    if (!faceMode) hand?.takeIf { now - it.at < 400 }?.let { h ->
                         Canvas(Modifier.fillMaxSize()) {
                             fun o(p: Pair<Float, Float>) = Offset((if (front) 1 - p.first else p.first) * size.width, p.second * size.height)
                             // The palm's trail, fading, then the hand's bones and joints, then the air pointer on the index tip.
@@ -188,15 +233,35 @@ class AirTool(private val app: UltimateApp) : Tool {
                     pop?.let { (g, _) ->
                         Column(Modifier.align(Alignment.Center).graphicsLayer { scaleX = scale; scaleY = scale }, horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(g.label, color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Black)
-                            AirActions.CHOICES.firstOrNull { it.first == chosen[g.kind] }?.second?.takeIf { chosen[g.kind] != "none" }?.let { Text("→ $it", color = Color.White.copy(alpha = 0.85f), fontSize = 18.sp) }
+                            AirActions.CHOICES.firstOrNull { it.first == chosen[g.kind] }?.second?.takeIf { chosen[g.kind] != "none" }?.let {
+                                Text(if (acting) "→ $it" else "would: $it (watching only)", color = Color.White.copy(alpha = 0.85f), fontSize = 18.sp)
+                            }
                         }
                     }
-                    Text(if (hand == null) "Show the camera your hand" else hand?.sign?.takeIf { it != "None" }?.let { AirGestures.signLabel(it) } ?: "Tracking your hand",
+                    Text(if (faceMode) (if (seenFace == null) "Look at the camera" else "Tracking your face") else if (hand == null) "Show the camera your hand" else hand?.sign?.takeIf { it != "None" }?.let { AirGestures.signLabel(it) } ?: "Tracking your hand",
                         Modifier.align(Alignment.BottomCenter).padding(10.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 10.dp, vertical = 4.dp), color = Color.White)
+                }
+                if (faceMode) {
+                    // Live levels against your own resting face, so you can see what the camera reads as you move.
+                    Text("Your expressions, live", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    FaceExpressions.LABELS.forEach { (kind, label) ->
+                        val level = levels[kind] ?: 0f
+                        val on = FaceExpressions.THRESHOLDS.getValue(kind).first
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(label, Modifier.fillMaxWidth(0.34f), style = MaterialTheme.typography.labelLarge, fontWeight = if (level >= on) FontWeight.Bold else null)
+                            LinearProgressIndicator({ level }, Modifier.weight(1f).padding(start = 8.dp),
+                                color = if (level >= on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+                        }
+                    }
+                    Text("Each bar is measured against your face at rest, which it learns in the first seconds; it counts once a bar passes about halfway.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (!faceMode) app.tools.firstOrNull { it.id == "echo-teach" }?.let { teach ->
+                    androidx.compose.material3.OutlinedButton({ app.shell.open(teach) }, Modifier.fillMaxWidth()) { Text("Teach Echo these gestures, to use them with the camera off") }
                 }
                 Text("What each gesture does (tap to change)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AirGestures.ALL.forEach { (kind, label) ->
+                    (if (faceMode) FaceExpressions.ALL else AirGestures.ALL).forEach { (kind, label) ->
                         val act = chosen[kind] ?: "none"
                         val name = AirActions.CHOICES.firstOrNull { it.first == act }?.second ?: "Nothing"
                         Text("$label → $name", Modifier.clip(RoundedCornerShape(12.dp)).background(if (act == "none") MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.primaryContainer)
@@ -206,7 +271,7 @@ class AirTool(private val app: UltimateApp) : Tool {
                             }.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge)
                     }
                 }
-                Text("Every gesture is also a signal for Rules, like \"When I give a thumbs up, …\". Works best with good light and your whole hand in view, up to about 2-3 m. The screen stays on while Air control watches; it stops when you leave.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("With \"Gestures do things\" on, every gesture is also a signal for Rules, like \"When I give a thumbs up, …\". Works best with good light and your whole hand in view, up to about 2-3 m. The screen stays on while Air control watches; it stops when you leave.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -219,10 +284,8 @@ class AirTool(private val app: UltimateApp) : Tool {
 
 /** A camera analysed by MediaPipe's gesture recognizer on its own thread; hand poses go to [out]. */
 @Composable
-private fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
+internal fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
     val context = LocalContext.current
-    val owner = LocalLifecycleOwner.current
-    val executor = remember { Executors.newSingleThreadExecutor() }
     var problem by remember { mutableStateOf<String?>(null) }
     val recognizer = remember {
         runCatching {
@@ -242,7 +305,45 @@ private fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
             problem = "${root.javaClass.simpleName}: ${root.message ?: e.message ?: ""}".trim().trimEnd(':')
         }.getOrNull()
     }
-    DisposableEffect(Unit) { onDispose { runCatching { recognizer?.close() }; executor.shutdown(); out.value = null } }
+    DisposableEffect(Unit) { onDispose { runCatching { recognizer?.close() }; out.value = null } }
+    AnalysedCamera(front) { bmp, t -> recognizer?.recognizeAsync(BitmapImageBuilder(bmp).build(), t) }
+    // The camera shows even when the gesture model can't start, and the reason is on screen, so it can be reported.
+    problem?.let { Text("Gesture tracking couldn't start: $it", Modifier.padding(16.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(10.dp), color = Color(0xFFFFC857)) }
+}
+
+/** A camera analysed by MediaPipe's face landmarker (with blendshapes) on its own thread; faces go to [out]. */
+@Composable
+private fun FaceCamera(front: Boolean, out: MutableStateFlow<AirTool.FacePose?>) {
+    val context = LocalContext.current
+    var problem by remember { mutableStateOf<String?>(null) }
+    val landmarker = remember {
+        runCatching {
+            FaceLandmarker.createFromOptions(context, FaceLandmarker.FaceLandmarkerOptions.builder()
+                .setBaseOptions(BaseOptions.builder().setModelAssetPath("face_landmarker.task").build())
+                .setRunningMode(RunningMode.LIVE_STREAM).setNumFaces(1).setOutputFaceBlendshapes(true)
+                .setResultListener { result, _ ->
+                    val lm = result.faceLandmarks().firstOrNull()
+                    if (lm == null) { out.value = null; return@setResultListener }
+                    val scores = result.faceBlendshapes().orElse(null)?.firstOrNull()?.associate { it.categoryName() to it.score() }.orEmpty()
+                    out.value = AirTool.FacePose(lm.map { it.x() to it.y() }, scores, System.currentTimeMillis())
+                }
+                .setErrorListener { e -> out.value = null; problem = e.message }.build())
+        }.onFailure { e ->
+            val root = generateSequence(e) { it.cause }.last()
+            problem = "${root.javaClass.simpleName}: ${root.message ?: e.message ?: ""}".trim().trimEnd(':')
+        }.getOrNull()
+    }
+    DisposableEffect(Unit) { onDispose { runCatching { landmarker?.close() }; out.value = null } }
+    AnalysedCamera(front) { bmp, t -> landmarker?.detectAsync(BitmapImageBuilder(bmp).build(), t) }
+    problem?.let { Text("Face tracking couldn't start: $it", Modifier.padding(16.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(10.dp), color = Color(0xFFFFC857)) }
+}
+
+/** A camera preview whose frames, upright, go to [analyse] on a background thread; the newest frame wins. */
+@Composable
+private fun AnalysedCamera(front: Boolean, analyse: (Bitmap, Long) -> Unit) {
+    val owner = LocalLifecycleOwner.current
+    val executor = remember { Executors.newSingleThreadExecutor() }
+    DisposableEffect(Unit) { onDispose { executor.shutdown() } }
     AndroidView({ ctx ->
         PreviewView(ctx).apply {
             scaleType = PreviewView.ScaleType.FIT_CENTER
@@ -256,7 +357,7 @@ private fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
                     runCatching {
                         val rot = proxy.imageInfo.rotationDegrees
                         val bmp = proxy.toBitmap().let { b -> if (rot == 0) b else Bitmap.createBitmap(b, 0, 0, b.width, b.height, Matrix().apply { postRotate(rot.toFloat()) }, true) }
-                        recognizer?.recognizeAsync(BitmapImageBuilder(bmp).build(), System.currentTimeMillis())
+                        analyse(bmp, System.currentTimeMillis())
                     }
                     proxy.close()
                 }
@@ -264,6 +365,4 @@ private fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
             }, ContextCompat.getMainExecutor(ctx))
         }
     }, Modifier.fillMaxSize())
-    // The camera shows even when the gesture model can't start, and the reason is on screen, so it can be reported.
-    problem?.let { Text("Gesture tracking couldn't start: $it", Modifier.padding(16.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(10.dp), color = Color(0xFFFFC857)) }
 }

@@ -78,7 +78,7 @@ class AirGestures(private val mirrored: Boolean = true, private val refractoryMs
     }
 
     private fun fire(kind: String, label: String, now: Long): Gesture { lastFired = now; track.clear(); return Gesture(kind, label) }
-    private fun reset() { track.clear(); pinched = false; heldSign = null; signFired = false; holdFired = false }
+    fun reset() { track.clear(); pinched = false; heldSign = null; signFired = false; holdFired = false }
 
     companion object {
         fun signKind(s: String) = when (s) {

@@ -61,6 +61,16 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.65.0", listOf(
+            "Teach Echo: show the camera a few gestures (swipes, push, pull, hold) and Echo learns what each one sounds like, so it recognises them later with the camera off. A guided session takes about a minute, with a dot for every example the camera confirms.",
+            "After teaching you see how well Echo tells your gestures apart, scored honestly from your own examples, then try them with the camera off. Learned gestures can start Rules.",
+            "Air control links to Teach Echo, and Teach Echo sits with Echo and Air control under Senses on Home.",
+        )),
+        Entry("1.64.0", listOf(
+            "Air control opens watching only: you see the tracking and what each gesture would do, and nothing happens on the phone until you turn on \"Gestures do things\". It turns itself off again when you leave.",
+            "Air control can watch your face: eyebrows up or down, smile, mouth open, pucker, puffed cheeks, wink and blink, with live bars measured against your own resting face. Each one can be given an action, or used in Rules.",
+            "Home is calmer: the big orb section at the top is replaced by compact tiles of your tools (pins first, then what you use around this time).",
+        )),
         Entry("1.63.0", listOf(
             "One app: the separate development versions are combined. Home opens on a living surface with your pinned and usual tools, and the orb inside every tool opens the same Jump panel.",
             "Home reminds you of jobs that failed (\"Needs another look\"), and Echo, Air control, the camera calibration and Ruler sit together under Senses.",
