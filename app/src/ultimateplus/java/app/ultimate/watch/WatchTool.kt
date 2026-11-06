@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -88,80 +89,137 @@ class WatchTool(private val app: UltimateApp) : Tool {
             }
         }
 
+        val version by WatchLink.watchVersion.collectAsStateWithLifecycle()
+        LaunchedEffect(watch) { if (watch != null) WatchUpdater.ask(context) }
+        // Setup first until the watch app answers; after that, straight to the gestures.
+        var tab by remember { mutableStateOf(-1) }
+        val shownTab = if (tab >= 0) tab else if (watch == null || version == null) 3 else 0
+
         Scaffold(topBar = { TopAppBar(title = { Text("Watch") }, navigationIcon = { IconButton(onExit) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { pad ->
-            Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // 1. The link.
-                Step(1, if (watch != null) "Linked to $watch" else if (checked) "No watch linked yet" else "Looking for your watch…",
-                    if (watch != null) "Gestures reach the phone over Bluetooth, or over Wi-Fi when you're further away." else "Pair the watch with this phone in the Galaxy Wearable app first, then install Ultimate+ on the watch (step 3).",
-                    done = watch != null)
-                // 2. Permission to act.
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                    .background(if (enabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .clickable { enabled = !enabled; WatchLink.setEnabled(context, enabled) }.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("2.  Watch controls the phone", fontWeight = FontWeight.SemiBold)
-                        Text(if (enabled) "On: the watch's gestures and buttons act on this phone, and gestures can start Rules." else "Off: you'll see what the watch sends, but nothing happens.",
-                            style = MaterialTheme.typography.bodySmall)
+            Column(Modifier.fillMaxSize().padding(pad)) {
+                // Always in view: the link, the switch, and what the watch just did.
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                    .background(if (enabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (watch != null) androidx.compose.ui.graphics.Color(0xFF3DDC97) else MaterialTheme.colorScheme.outline))
+                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                            Text(watch?.let { "Linked to $it" } ?: if (checked) "No watch linked" else "Looking for your watch…", fontWeight = FontWeight.SemiBold)
+                            Text(if (enabled) "Watch controls the phone" else "Watching only: nothing happens on the phone", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(enabled, { enabled = it; WatchLink.setEnabled(context, it) })
                     }
-                    Switch(enabled, { enabled = it; WatchLink.setEnabled(context, it) })
-                }
-                // What arrives, live.
-                Box(Modifier.fillMaxWidth().aspectRatio(3f).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
                     val now = System.currentTimeMillis()
                     val shown = last?.takeIf { now - it.second < 2_000 }
                     val sc by animateFloatAsState(if (shown != null) 1f else 0.85f, label = "watch")
-                    Text(shown?.let { WatchMessages.label(it.first) + if (!enabled) " (watching only)" else "" } ?: "Try a flick on your watch",
-                        Modifier.graphicsLayer { scaleX = sc; scaleY = sc }, fontSize = if (shown != null) 26.sp else 16.sp, fontWeight = FontWeight.Bold)
+                    Text(shown?.let { WatchMessages.label(it.first) } ?: if (watch != null) "Try a flick" else "",
+                        Modifier.padding(top = 8.dp).graphicsLayer { scaleX = sc; scaleY = sc }, fontSize = if (shown != null) 24.sp else 15.sp, fontWeight = FontWeight.Bold)
                 }
-                Text("What each wrist gesture does (tap to change)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                WatchMessages.GESTURES.forEach { (kind, label) ->
-                    val act = chosen[kind] ?: "none"
-                    val name = AirActions.CHOICES.firstOrNull { it.first == act }?.second ?: "Nothing"
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable {
-                        val next = AirActions.CHOICES[(AirActions.CHOICES.indexOfFirst { it.first == act } + 1) % AirActions.CHOICES.size].first
-                        chosen[kind] = next; WatchLink.setAction(context, kind, next)
-                    }.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                        Text(label, Modifier.weight(1f), fontWeight = FontWeight.Medium)
-                        Text(name, color = if (act == "none") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
+                androidx.compose.material3.PrimaryTabRow(shownTab) {
+                    listOf("Gestures", "Live", "Calibrate", "Setup").forEachIndexed { i, label ->
+                        androidx.compose.material3.Tab(shownTab == i, { tab = i }, text = { Text(label) })
                     }
                 }
-                // 3. Installing the watch app, from this phone.
-                InstallCard()
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when (shownTab) {
+                        0 -> {
+                            Text("What each wrist gesture does (tap to change)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            WatchMessages.GESTURES.forEach { (kind, label) ->
+                                val act = chosen[kind] ?: "none"
+                                val name = AirActions.CHOICES.firstOrNull { it.first == act }?.second ?: "Nothing"
+                                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable {
+                                    val next = AirActions.CHOICES[(AirActions.CHOICES.indexOfFirst { it.first == act } + 1) % AirActions.CHOICES.size].first
+                                    chosen[kind] = next; WatchLink.setAction(context, kind, next)
+                                }.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                                    Text(label, Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                                    Text(name, color = if (act == "none") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            Text("Gestures that misfire? Calibrate them to your wrist in the Calibrate tab.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        1 -> LiveSensorsCard()
+                        2 -> { CalibrateCard(); LiveSensorsCard() }
+                        else -> { UpdateCard(version); InstallCard() }
+                    }
+                }
             }
         }
     }
 }
 
-/** "Install on my watch", one step at a time: find the watch, type its code, install. */
+/** Updates from this phone, over the watch link: no wireless debugging once the watch app is 1.2.0 or newer. */
+@Composable
+private fun UpdateCard(version: Pair<Long, String>?) {
+    val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val bundled = remember { WatchUpdater.bundled(context) }
+    val status by WatchLink.updateStatus.collectAsStateWithLifecycle()
+    var sending by remember { mutableStateOf(false) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Watch app", fontWeight = FontWeight.SemiBold)
+        Text("On the watch: ${version?.second ?: "not answering (open Ultimate+ on the watch)"} · In this phone: ${bundled?.second ?: "not included in this build"}", style = MaterialTheme.typography.bodySmall)
+        val canUpdate = version != null && bundled != null && bundled.first > version.first
+        when {
+            version != null && version.first < 3 -> Text("This watch version can't take updates from the phone yet. Update it once with \"Install on my watch\" below; after that, updates come from here.", style = MaterialTheme.typography.bodySmall)
+            canUpdate -> androidx.compose.material3.Button({
+                sending = true; problem = null; WatchLink.updateStatus.value = null
+                scope.launch { problem = WatchUpdater.send(context); sending = false }
+            }, enabled = !sending) { Text(if (sending) "Sending…" else "Send update to watch") }
+            version != null && bundled != null -> Text("Up to date ✓", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+        }
+        problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        status?.let { st ->
+            Text(when {
+                st == "receiving" -> "The watch is receiving it…"
+                st == "installing" -> "Installing…"
+                st == "confirm" -> "Tap Install on the watch."
+                st == "installed" -> "Installed on the watch ✓"
+                st == "needs-permission" -> "On the watch, allow Ultimate+ to install apps, then tap Send update again."
+                st.startsWith("unsupported:") -> st.removePrefix("unsupported:").replaceFirstChar { it.uppercase() } + "."
+                st.startsWith("failed:") -> "It didn't install: " + st.removePrefix("failed:")
+                else -> st
+            }, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+/**
+ * "Install on my watch", one step at a time: find the watch (or type the address it shows), type its code, install.
+ * Some routers block the network announcements the automatic search relies on, so typing it in is always offered.
+ */
 @Composable
 private fun InstallCard() {
     val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val installer = remember { WatchInstaller(context) }
     val prefs = remember { context.getSharedPreferences("watch_link", android.content.Context.MODE_PRIVATE) }
-    var stage by remember { mutableStateOf("idle") } // idle, looking, code, working, done, failed
+    var stage by remember { mutableStateOf("idle") } // idle, failed, looking, code, port, working, done
     var host by remember { mutableStateOf(prefs.getString("adb_host", null)) }
-    var port by remember { mutableStateOf(0) }
+    var savedPort by remember { mutableStateOf(prefs.getInt("adb_port", 0).takeIf { it > 0 }) }
+    var address by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
+    var portText by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     var progress by remember { mutableStateOf(0f) }
     var showComputer by remember { mutableStateOf(false) }
+    val digits = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
 
-    fun install(h: String) {
+    fun install(h: String, port: Int?) {
         stage = "working"; message = "Installing on your watch…"; progress = 0f
         scope.launch {
-            when (val r = installer.install(h) { progress = it }) {
-                is WatchInstaller.Outcome.Done -> { stage = "done"; message = r.message }
-                is WatchInstaller.Outcome.Failed -> { stage = "failed"; message = r.why }
+            when (val r = installer.install(h, port) { progress = it }) {
+                is WatchInstaller.Outcome.Done -> { port?.let { prefs.edit().putInt("adb_port", it).apply(); savedPort = it }; stage = "done"; message = r.message }
+                is WatchInstaller.Outcome.Failed -> if (r.why == WatchInstaller.NEED_PORT) { portText = ""; stage = "port" } else { stage = "failed"; message = r.why }
             }
         }
     }
     fun look() {
         stage = "looking"; message = ""
         scope.launch {
-            val found = installer.findPairing()
-            if (found == null) { stage = "failed"; message = "No watch showed up. On the watch, keep the \"Pair new device\" screen open, with the watch and this phone on the same Wi-Fi (this phone's hotspot works too)." }
-            else { host = found.first; port = found.second; code = ""; stage = "code" }
+            val found = installer.findPairing(10_000)
+            address = found?.let { "${it.first}:${it.second}" } ?: WatchInstaller.networkPrefix()
+            code = ""; stage = "code"
+            if (found == null) message = "Couldn't find the watch by itself (some routers block that). Type what the watch shows instead."
         }
     }
 
@@ -176,27 +234,43 @@ private fun InstallCard() {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     androidx.compose.material3.Button({ look() }) { Text("Install on my watch") }
                     // Paired before: the watch remembers this phone, so updating skips the code.
-                    host?.let { h -> androidx.compose.material3.OutlinedButton({ install(h) }) { Text("Update it") } }
+                    host?.let { h -> androidx.compose.material3.OutlinedButton({ install(h, savedPort) }) { Text("Update it") } }
                 }
             }
             "looking" -> {
                 Text("Looking for your watch on this Wi-Fi… Keep \"Pair new device\" open on the watch.", style = MaterialTheme.typography.bodySmall)
                 androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                androidx.compose.material3.TextButton({ address = WatchInstaller.networkPrefix(); code = ""; message = ""; stage = "code" }) { Text("Type it in instead") }
             }
             "code" -> {
-                Text("Found your watch. Type the 6-digit code it shows:", style = MaterialTheme.typography.bodySmall)
+                if (message.isNotEmpty()) Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                Text("From the watch's \"Pair with device\" screen:", style = MaterialTheme.typography.bodySmall)
+                androidx.compose.material3.OutlinedTextField(address, { address = it.filter { c -> c.isDigit() || c == '.' || c == ':' } }, Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("IP address & Port") }, placeholder = { Text("192.168.1.239:37581") },
+                    isError = address.isNotEmpty() && WatchInstaller.parseAddress(address) == null,
+                    // Say what's wrong, so a missing piece is obvious (the button stays off until it's right).
+                    supportingText = { WatchInstaller.addressProblem(address)?.let { Text(it) } },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
                 androidx.compose.material3.OutlinedTextField(code, { v -> code = v.filter(Char::isDigit).take(6) }, Modifier.fillMaxWidth(), singleLine = true,
-                    label = { Text("Pairing code") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword))
+                    label = { Text("Wi-Fi pairing code") }, keyboardOptions = digits)
+                val target = WatchInstaller.parseAddress(address)
                 androidx.compose.material3.Button({
-                    val h = host ?: return@Button
+                    val (h, p) = target ?: return@Button
                     stage = "working"; message = "Pairing…"
                     scope.launch {
-                        when (val r = installer.pair(h, port, code)) {
-                            is WatchInstaller.Outcome.Done -> { prefs.edit().putString("adb_host", h).apply(); install(h) }
+                        when (val r = installer.pair(h, p, code)) {
+                            is WatchInstaller.Outcome.Done -> { prefs.edit().putString("adb_host", h).apply(); host = h; install(h, null) }
                             is WatchInstaller.Outcome.Failed -> { stage = "failed"; message = r.why }
                         }
                     }
-                }, enabled = code.length == 6) { Text("Pair and install") }
+                }, enabled = code.length == 6 && target != null) { Text("Pair and install") }
+            }
+            "port" -> {
+                Text("Paired. One more number: go back one screen on the watch to Wireless debugging, and type the port under \"IP address & Port\" (the number after the colon; it isn't the pairing one).",
+                    style = MaterialTheme.typography.bodySmall)
+                androidx.compose.material3.OutlinedTextField(portText, { portText = it.filter(Char::isDigit).take(5) }, Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Port") }, keyboardOptions = digits)
+                androidx.compose.material3.Button({ host?.let { h -> install(h, portText.toInt()) } }, enabled = portText.toIntOrNull()?.let { it in 1..65535 } == true) { Text("Install") }
             }
             "working" -> {
                 Text(message, style = MaterialTheme.typography.bodySmall)
