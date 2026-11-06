@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -91,9 +92,6 @@ class WatchTool(private val app: UltimateApp) : Tool {
 
         val version by WatchLink.watchVersion.collectAsStateWithLifecycle()
         LaunchedEffect(watch) { if (watch != null) WatchUpdater.ask(context) }
-        // Setup first until the watch app answers; after that, straight to the gestures.
-        var tab by remember { mutableStateOf(-1) }
-        val shownTab = if (tab >= 0) tab else if (watch == null || version == null) 3 else 0
 
         Scaffold(topBar = { TopAppBar(title = { Text("Watch") }, navigationIcon = { IconButton(onExit) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { pad ->
             Column(Modifier.fillMaxSize().padding(pad)) {
@@ -114,32 +112,27 @@ class WatchTool(private val app: UltimateApp) : Tool {
                     Text(shown?.let { WatchMessages.label(it.first) } ?: if (watch != null) "Try a flick" else "",
                         Modifier.padding(top = 8.dp).graphicsLayer { scaleX = sc; scaleY = sc }, fontSize = if (shown != null) 24.sp else 15.sp, fontWeight = FontWeight.Bold)
                 }
-                androidx.compose.material3.PrimaryTabRow(shownTab) {
-                    listOf("Gestures", "Live", "Calibrate", "Setup").forEachIndexed { i, label ->
-                        androidx.compose.material3.Tab(shownTab == i, { tab = i }, text = { Text(label) })
-                    }
-                }
+                // One scroll, everything in order: see it live, calibrate, choose actions, keep it updated.
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    when (shownTab) {
-                        0 -> {
-                            Text("What each wrist gesture does (tap to change)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                            WatchMessages.GESTURES.forEach { (kind, label) ->
-                                val act = chosen[kind] ?: "none"
-                                val name = AirActions.CHOICES.firstOrNull { it.first == act }?.second ?: "Nothing"
-                                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable {
-                                    val next = AirActions.CHOICES[(AirActions.CHOICES.indexOfFirst { it.first == act } + 1) % AirActions.CHOICES.size].first
-                                    chosen[kind] = next; WatchLink.setAction(context, kind, next)
-                                }.padding(horizontal = 14.dp, vertical = 12.dp)) {
-                                    Text(label, Modifier.weight(1f), fontWeight = FontWeight.Medium)
-                                    Text(name, color = if (act == "none") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
-                                }
-                            }
-                            Text("Gestures that misfire? Calibrate them to your wrist in the Calibrate tab.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    LiveSensorsCard()
+                    CalibrateCard()
+                    Text("What each wrist gesture does (tap to change)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    WatchMessages.GESTURES.forEach { (kind, label) ->
+                        val act = chosen[kind] ?: "none"
+                        val name = AirActions.CHOICES.firstOrNull { it.first == act }?.second ?: "Nothing"
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable {
+                            val next = AirActions.CHOICES[(AirActions.CHOICES.indexOfFirst { it.first == act } + 1) % AirActions.CHOICES.size].first
+                            chosen[kind] = next; WatchLink.setAction(context, kind, next)
+                        }.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            Text(label, Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                            Text(name, color = if (act == "none") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
                         }
-                        1 -> LiveSensorsCard()
-                        2 -> { CalibrateCard(); LiveSensorsCard() }
-                        else -> { UpdateCard(version); InstallCard() }
                     }
+                    UpdateCard(version)
+                    // Installing over Wi-Fi is only needed before the watch app answers; after that it folds away.
+                    var showInstall by remember { mutableStateOf(false) }
+                    if (version == null || showInstall) InstallCard()
+                    else TextButton({ showInstall = true }) { Text("Reinstall over Wi-Fi instead") }
                 }
             }
         }
@@ -266,7 +259,7 @@ private fun InstallCard() {
                 }, enabled = code.length == 6 && target != null) { Text("Pair and install") }
             }
             "port" -> {
-                Text("Paired. One more number: go back one screen on the watch to Wireless debugging, and type the port under \"IP address & Port\" (the number after the colon; it isn't the pairing one).",
+                Text("Your watch is paired; it just has a new port (it picks one each time Wireless debugging is turned on). On the watch, open Wireless debugging and type the number after the colon under \"IP address & Port\". No code needed.",
                     style = MaterialTheme.typography.bodySmall)
                 androidx.compose.material3.OutlinedTextField(portText, { portText = it.filter(Char::isDigit).take(5) }, Modifier.fillMaxWidth(), singleLine = true,
                     label = { Text("Port") }, keyboardOptions = digits)

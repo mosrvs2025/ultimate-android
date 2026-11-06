@@ -62,6 +62,13 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.72.0", listOf(
+            "Health: your steps, sleep (with stages), heart rate, resting heart rate, heart rate variability, workouts, blood oxygen, breathing rate, weight and body fat in one place, read from Health Connect, where Samsung Health puts what your watch measures. You choose each kind; it's read-only and stays on the phone.",
+            "Patterns between your health and your phone use, like less sleep after late-night scrolling or fewer steps on heavy phone days. They're shown only with at least 10 days of data and a clear link, and each says it's a pattern, not proof.",
+            "Live heart rate from your watch: turn on \"Share heart rate\" on the watch's status page (watch app 1.3.0, sent from Watch → Setup).",
+            "The Watch screens are one scroll again, on the phone and on the watch, with heart rate sharing and the version added to the watch's list; the live graph is smoother (twice the updates, drawn every frame).",
+            "\"Update it\" no longer shows a connection error when the watch picked a new port; it just asks for the new port, with no new pairing code.",
+        ), tries = listOf("health", "watch")),
         Entry("1.71.0", listOf(
             "Watch updates from the phone: Watch → Setup shows the watch app's version and sends an update over the watch link, where you tap Install on the watch. No wireless debugging, from watch app 1.2.0 on (this one update still goes the old way).",
             "The Watch screen is tidier: the link, the on/off switch and the last gesture stay at the top, with tabs for Gestures, Live, Calibrate and Setup.",

@@ -58,7 +58,8 @@ internal fun LiveSensorsCard() {
     DisposableEffect(Unit) { onDispose { WatchLink.sendToWatch(context, "stream:off") } }
     LaunchedEffect(Unit) { while (true) { WatchLink.sendToWatch(context, "stream:on"); delay(4_000) } }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(50) } }
+    // Redraw on every screen frame, so the graph scrolls smoothly instead of in steps.
+    LaunchedEffect(Unit) { while (true) { androidx.compose.runtime.withFrameMillis { now = System.currentTimeMillis() } } }
     val live = samples.isNotEmpty() && now - samples.last().t < 1_500
 
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp),
