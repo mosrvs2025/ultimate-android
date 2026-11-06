@@ -1,4 +1,6 @@
 <resources>
     <string name="channel_progress">Work in progress</string>
     <string name="channel_done">Finished work</string>
+    <string name="air_cursor_summary">Control any app with your hand in the air, through the camera</string>
+    <string name="air_cursor_description">Air mode moves a cursor with your index finger and pinches to tap, scroll and go Back or Home, in any app. It only acts while you turn Air mode on in Ultimate (Air control), and Android shows its camera indicator then. It reads no screen content, and camera frames are looked at and dropped.</string>
 </resources>
