@@ -53,7 +53,7 @@ jobs:
           ULTIMATE_KEYSTORE_PASSWORD: ${{ secrets.ULTIMATE_KEYSTORE_PASSWORD }}
           ULTIMATE_KEY_ALIAS: ultimate
           ULTIMATE_KEY_PASSWORD: ${{ secrets.ULTIMATE_KEYSTORE_PASSWORD }}
-        run: gradle --no-daemon :app:testUltimateplusDebugUnitTest :app:testUltimateDebugUnitTest :app:testSqueezeDebugUnitTest :app:assembleRelease
+        run: gradle --no-daemon :app:testUltimateplusDebugUnitTest :app:testUltimateDebugUnitTest :app:testSqueezeDebugUnitTest :app:assembleRelease :wear:testReleaseUnitTest :wear:assembleRelease
       - name: Name the files and write checksums
         id: pack
         run: |
@@ -63,6 +63,8 @@ jobs:
             flavor=${pair%%:*}; name=${pair##*:}
             cp "app/build/outputs/apk/$flavor/release/app-$flavor-release.apk" "dist-apk/$name-$v.apk"
           done
+          # Ultimate+ for the watch: same package and key as Ultimate-Plus, installed on the watch itself.
+          cp wear/build/outputs/apk/release/wear-release.apk "dist-apk/Ultimate-Plus-Watch-$v.apk"
           (cd dist-apk && sha256sum *.apk > SHA256SUMS.txt)
           tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           cert=$("$tools/apksigner" verify --print-certs "dist-apk/Ultimate-Plus-$v.apk" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
@@ -99,6 +101,7 @@ jobs:
           - **Ultimate-Plus**: everything, including the SSH client and server, sending files to your computer and network tools. Needs internet permission.
           - **Ultimate**: the same tools without any internet permission. It cannot send anything anywhere.
           - **Studio, Squeeze, Video-to-Audio, Pluck, Traffic-Inspector**: single-purpose apps.
+          - **Ultimate-Plus-Watch**: for a Wear OS watch (such as a Galaxy Watch), alongside Ultimate-Plus on the phone. Install it on the watch; Ultimate+ → Watch on the phone shows how.
 
           ## Install
           Download an APK on your phone, open it and allow installing from your browser when asked. Android 10 or newer.

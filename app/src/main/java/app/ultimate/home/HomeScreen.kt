@@ -361,7 +361,7 @@ internal fun toolSections(tools: List<app.ultimate.core.Tool>): List<Pair<String
         "Create" to listOf("studio", "squeeze", "audio", "recorder", "photos", "prompter"),
         "Phone" to listOf("files", "storage", "cleanup", "inbox", "clips", "checkup", "pluck", "footprint"),
         // Spatial sensing: sonar, camera hand tracking and the sensors they build on, together in one place.
-        "Senses" to listOf("echo", "air", "echo-teach", "echo-camera", "ruler", "sensors", "sound-meter"),
+        "Senses" to listOf("echo", "air", "watch", "echo-teach", "echo-camera", "ruler", "sensors", "sound-meter"),
         "Network" to listOf("hosts", "ssh", "traffic", "network", "lan", "send", "mesh"),
         "Smart" to listOf("timeline", "focus", "rules", "recipes", "orb", "screentime", "terminal"),
     )

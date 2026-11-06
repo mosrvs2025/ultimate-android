@@ -41,3 +41,6 @@
 -assumenosideeffects interface com.google.mediapipe.tasks.core.logging.LoggingClient { void logEvent(...); }
 -assumenosideeffects class com.google.mediapipe.tasks.core.logging.RemoteLoggingClient { void logEvent(...); }
 -assumenosideeffects class com.google.mediapipe.tasks.core.logging.TasksStatsProtoLogger { void log*(...); void record*(...); }
+# Tools loaded by name, kept explicitly like the others (R8 also recognises the Class.forName constants).
+-keep class app.ultimate.vision.TeachEchoTool { public <init>(app.ultimate.UltimateApp); }
+-keep class app.ultimate.watch.WatchTool { public <init>(app.ultimate.UltimateApp); }

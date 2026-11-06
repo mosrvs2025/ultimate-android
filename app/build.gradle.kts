@@ -22,8 +22,8 @@ android {
         targetSdk = 35
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 78
-        versionName = "1.67.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 79
+        versionName = "1.68.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -303,6 +303,10 @@ dependencies {
     // Hand tracking for camera-assisted Echo calibration (Apache-2.0). Model fetched by scripts/fetch-models.sh.
     "ultimateImplementation"("com.google.mediapipe:tasks-vision:0.10.20")
     "ultimateplusImplementation"("com.google.mediapipe:tasks-vision:0.10.20")
+    // Watch: Wear OS's own phone-watch link (Bluetooth, Wi-Fi or the internet), for Ultimate+ on a Galaxy Watch.
+    "ultimateplusImplementation"("com.google.android.gms:play-services-wearable:18.2.0")
+    // play-services-wearable brings androidx.fragment 1.0; activity-result APIs need 1.3 or later.
+    "ultimateplusImplementation"("androidx.fragment:fragment-ktx:1.8.5")
     "ultimateplusImplementation"("org.apache.sshd:sshd-core:2.20.1")
     "ultimateplusImplementation"("org.apache.sshd:sshd-sftp:2.20.1")
     // Ed25519 support on Android releases without Java's native EdEC implementation.

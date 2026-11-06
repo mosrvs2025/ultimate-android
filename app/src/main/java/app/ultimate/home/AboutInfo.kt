@@ -62,6 +62,10 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.68.0", listOf(
+            "Watch: control the phone from a Galaxy Watch (or any Wear OS watch). Flick your wrist left or right, flick up or down, twist or shake, or tap the watch's big buttons, from across the house: the watch reaches the phone over Bluetooth, or Wi-Fi when it's further away.",
+            "Nothing happens until you turn on \"Watch controls the phone\", and you choose what each gesture does. Watch gestures can start Rules too. The watch app is a separate install; the Watch tool shows how, step by step.",
+        ), tries = listOf("watch")),
         Entry("1.67.0", listOf(
             "New things find you: What's new has a button to try each new feature, Home shows \"New for you\" with one tap each, and new tools wear a New badge until you open them.",
             "Echo shows \"Teach Echo your gestures\" right at the top, and Teach Echo ends with \"Make a gesture do something\", which takes you to Rules, so each step leads to the next.",

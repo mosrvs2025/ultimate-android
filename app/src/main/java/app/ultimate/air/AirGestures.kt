@@ -111,3 +111,21 @@ object AirActions {
         "open_palm" to "playpause", "pinch" to "torch",
     )
 }
+
+/** Carries out one of [AirActions.CHOICES] on the phone. Shared by Air control and the watch, so both do exactly the same thing. */
+object PhoneActions {
+    /** Media keys reach whatever is playing, in any app; [goHome] is how "Go to Ultimate" is done by the caller. */
+    fun perform(c: android.content.Context, action: String, goHome: () -> Unit = {}) {
+        val am = c.getSystemService(android.media.AudioManager::class.java)
+        fun key(code: Int) { am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, code)); am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, code)) }
+        when (action) {
+            "next" -> key(android.view.KeyEvent.KEYCODE_MEDIA_NEXT)
+            "previous" -> key(android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+            "playpause" -> key(android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+            "volume_up" -> am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_RAISE, android.media.AudioManager.FLAG_SHOW_UI)
+            "volume_down" -> am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_LOWER, android.media.AudioManager.FLAG_SHOW_UI)
+            "torch" -> app.ultimate.home.QuickActions.toggleTorch(c)
+            "home" -> goHome()
+        }
+    }
+}
