@@ -65,11 +65,14 @@ import app.ultimate.core.LibraryItem
 import app.ultimate.core.Tool
 import app.ultimate.core.ToolLaunch
 import app.ultimate.echo.EchoTool
+import app.ultimate.echo.GestureBrain
 import app.ultimate.echo.GestureModel
 import app.ultimate.echo.LearnedNames
 import app.ultimate.echo.SonarHistory
 import app.ultimate.echo.SonarState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -93,7 +96,8 @@ class TeachEchoTool(private val app: UltimateApp) : Tool {
         data object Choose : Step
         data class Show(val index: Int) : Step
         data class Rest(val secondsLeft: Int) : Step
-        data class Result(val model: GestureModel) : Step
+        data object Training : Step
+        data class Result(val brain: GestureBrain) : Step
         data object Try : Step
     }
 
@@ -121,7 +125,7 @@ class TeachEchoTool(private val app: UltimateApp) : Tool {
         val sonarState by echo.sonar.state.collectAsStateWithLifecycle()
         val learnedLast by echo.sonar.lastLearned.collectAsStateWithLifecycle()
 
-        val sensing = step !is Step.Choose && step !is Step.Result
+        val sensing = step !is Step.Choose && step !is Step.Result && step !is Step.Training
         val view = LocalView.current
         // The sonar runs while teaching and trying; its frames go into the short history the camera labels from.
         DisposableEffect(sensing) {
@@ -169,7 +173,10 @@ class TeachEchoTool(private val app: UltimateApp) : Tool {
                 step = Step.Rest(left)
                 repeat(2) { delay(500); history.window(System.currentTimeMillis())?.let { samples += GestureModel.Sample(GestureModel.NONE, it) } }
             }
-            step = Step.Result(GestureModel((existing?.samples.orEmpty().filter { it.label !in chosen }) + samples))
+            // Your new examples replace the old ones for the gestures you just taught; the rest are kept.
+            step = Step.Training
+            val merged = GestureBrain.merge(existing?.examples, samples.toList(), chosen.toList())
+            step = Step.Result(withContext(Dispatchers.Default) { GestureBrain.build(merged) })
         }
 
         Scaffold(topBar = { TopAppBar(title = { Text("Teach Echo") }, navigationIcon = { IconButton({ if (step is Step.Choose) onExit() else step = Step.Choose }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { pad ->
@@ -184,16 +191,18 @@ class TeachEchoTool(private val app: UltimateApp) : Tool {
                                 FilterChip(kind in chosen, { if (kind in chosen) chosen -= kind else chosen += kind }, { Text(label) })
                             }
                         }
-                        existing?.let { m ->
+                        existing?.let { b ->
+                            val m = b.examples
                             Text("Echo already knows: " + m.labels.filter { it != GestureModel.NONE }.joinToString { "${LearnedNames.label(it)} (${m.count(it)})" } +
                                 ". Teaching a gesture again replaces its examples.", style = MaterialTheme.typography.bodySmall)
+                            Text("${m.samples.size} examples. ${b.report.note}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (!allowed) Button({ ask.launch(Manifest.permission.CAMERA) }) { Text("Allow the camera") }
                             else Button({ samples.clear(); added = 0; detector.reset(); history.clear(); step = Step.Show(0) }, enabled = chosen.isNotEmpty()) { Text("Start teaching") }
                             if (existing != null) OutlinedButton({ step = Step.Try }) { Text("Try with the camera off") }
                         }
-                        if (existing != null) TextButton({ GestureModel.forget(context); echo.sonar.learned = null; existing = null }) { Text("Forget what Echo learned") }
+                        if (existing != null) TextButton({ GestureBrain.forget(context); echo.sonar.learned = null; existing = null }) { Text("Forget what Echo learned") }
                     }
                     is Step.Show -> {
                         val kind = chosen[s.index]
@@ -230,8 +239,13 @@ class TeachEchoTool(private val app: UltimateApp) : Tool {
                         Text("Keep still for ${s.secondsLeft} s, so Echo learns what nothing sounds like and doesn't mistake it for a gesture.", style = MaterialTheme.typography.bodyLarge)
                         LinearProgressIndicator({ 1f - s.secondsLeft / REST_S.toFloat() }, Modifier.fillMaxWidth())
                     }
+                    Step.Training -> {
+                        Text("Learning…", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                        Text("Echo is comparing its two ways of learning on your examples. This takes a few seconds.", style = MaterialTheme.typography.bodyLarge)
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
                     is Step.Result -> {
-                        val acc = remember(s.model) { s.model.accuracy() }
+                        val acc = remember(s.brain) { s.brain.examples.accuracy() }
                         Text("How well Echo tells them apart", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text("Each example was hidden in turn and recognised from the others, so this is an honest score from your own gestures. Above about 80% works well; lower ones get mixed up.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -243,8 +257,10 @@ class TeachEchoTool(private val app: UltimateApp) : Tool {
                                 Text("%.0f%%".format(a * 100), Modifier.size(width = 44.dp, height = 20.dp))
                             }
                         }
+                        Text(s.brain.report.note, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                            color = if (s.brain.usesNet) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button({ GestureModel.save(context, s.model); echo.sonar.learned = s.model; existing = s.model; step = Step.Try }) { Text("Keep and try it") }
+                            Button({ GestureBrain.save(context, s.brain); echo.sonar.learned = s.brain; existing = s.brain; step = Step.Try }) { Text("Keep and try it") }
                             OutlinedButton({ step = Step.Choose }) { Text("Teach again") }
                         }
                     }

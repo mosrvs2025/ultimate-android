@@ -61,6 +61,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>)
 
     val entries = listOf(
+        Entry("1.66.0", listOf(
+            "Echo learns as you use Air control: its sonar listens alongside the camera, and every hand gesture the camera sees becomes another example, so gestures with the camera off keep getting better. You can turn \"Echo learns from this\" off.",
+            "A small neural network, trained on the phone from your own examples, takes over from example-matching once there are enough examples and it scores better on examples held back from training. Teach Echo shows both scores.",
+            "Echo now also listens to the Doppler shift of your hand, the sound spilling just outside its chirp as you move, which helps it tell swipes apart. Gestures taught in 1.65 need teaching once more, because the examples now hold more.",
+        )),
         Entry("1.65.0", listOf(
             "Teach Echo: show the camera a few gestures (swipes, push, pull, hold) and Echo learns what each one sounds like, so it recognises them later with the camera off. A guided session takes about a minute, with a dot for every example the camera confirms.",
             "After teaching you see how well Echo tells your gestures apart, scored honestly from your own examples, then try them with the camera off. Learned gestures can start Rules.",

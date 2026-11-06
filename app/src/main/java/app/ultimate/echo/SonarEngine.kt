@@ -103,7 +103,7 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
     /** The last gesture and when it happened, for the screen to answer it visibly. */
     val lastGesture = MutableStateFlow<Pair<EchoGestures.Gesture, Long>?>(null)
     /** Gestures you taught Echo with the camera; recognised from sound alone. Null until you teach some. */
-    @Volatile var learned: GestureModel? = GestureModel.load(context)
+    @Volatile var learned: GestureBrain? = GestureBrain.load(context)
     /** The last learned gesture recognised, and when. */
     val lastLearned = MutableStateFlow<Pair<String, Long>?>(null)
     /** Every frame's features, for teaching (the camera labels them); called on the sonar's thread. */
@@ -189,7 +189,8 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
                             mapOf("distance_cm" to "%.0f".format(fix.rangeM * 100), "speed_m_s" to "%.2f".format(abs(fix.velocity)))))
                     }
                     // Learned gestures: the sonar alone, compared with the examples the camera labelled when you taught Echo.
-                    val feat = SonarFeatures.frame(if (moving) Double.NaN else fix.rangeM, fix.velocity, fix.confidence, lean, fix.motion)
+                    val spec = Fft.band(a, 16_000.0, 22_000.0)
+                    val feat = SonarFeatures.frame(if (moving) Double.NaN else fix.rangeM, fix.velocity, fix.confidence, lean, fix.motion, spec)
                     onFeatures?.invoke(now, feat)
                     val model = learned
                     if (model == null || moving) learnedDetector?.reset()
@@ -209,7 +210,7 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
                     val ms = (System.nanoTime() - t0) / 1e6f
                     if (now - lastShown >= 50) {
                         lastShown = now
-                        _state.value = if (fix.linkSnr > 0 && t1Warm(fix)) SonarState.Running(SonarFrame(fix, fix2?.motion, bearing, lean, Fft.band(a, 16_000.0, 22_000.0), moving, ms, distinct == true, raw.rangeM, cal != null)) else SonarState.Warming
+                        _state.value = if (fix.linkSnr > 0 && t1Warm(fix)) SonarState.Running(SonarFrame(fix, fix2?.motion, bearing, lean, spec, moving, ms, distinct == true, raw.rangeM, cal != null)) else SonarState.Warming
                     }
                 }
             } finally {
@@ -226,7 +227,7 @@ class SonarEngine(private val context: Context, private val senses: Senses) {
 
     private var frames = 0
     private var learnedDetector: LearnedGestureDetector? = null
-    private var learnedFor: GestureModel? = null
+    private var learnedFor: GestureBrain? = null
     private fun t1Warm(@Suppress("UNUSED_PARAMETER") f: SonarTracker.Fix) = ++frames > SonarTracker.WARMUP
 
     /** Stereo when the phone allows it (some give two real mics), the unprocessed source when it exists (no filtering of high sounds). */

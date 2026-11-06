@@ -81,6 +81,11 @@ import app.ultimate.core.LibraryItem
 import app.ultimate.core.Signal
 import app.ultimate.core.Tool
 import app.ultimate.core.ToolLaunch
+import app.ultimate.echo.EchoTool
+import app.ultimate.echo.GestureBrain
+import app.ultimate.echo.GestureModel
+import app.ultimate.echo.LearnedNames
+import app.ultimate.echo.SonarHistory
 import app.ultimate.echo.Truth
 import app.ultimate.echo.TruthTag
 import app.ultimate.home.QuickActions
@@ -89,6 +94,7 @@ import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizer
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.concurrent.Executors
@@ -117,6 +123,10 @@ class AirTool(private val app: UltimateApp) : Tool {
     private val pose = MutableStateFlow<HandPose?>(null)
     private val gesture = MutableStateFlow<Pair<AirGestures.Gesture, Long>?>(null)
     private val face = MutableStateFlow<FacePose?>(null)
+    /** Retrains Echo after a visit without holding up the screen; lives as long as the app. */
+    private val learnScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+    /** How many sonar examples this visit gave Echo, for the chip. */
+    private val learnedThisVisit = MutableStateFlow(0)
 
     /** A face as the landmarker saw it: its points (0..1 of the picture) and its blendshape scores. */
     data class FacePose(val points: List<Pair<Float, Float>>, val scores: Map<String, Float>, val at: Long)
@@ -159,7 +169,52 @@ class AirTool(private val app: UltimateApp) : Tool {
         val seenFace by face.collectAsStateWithLifecycle()
         val expressions = remember { FaceExpressions() }
         var levels by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
+        // Echo learns in the background: the sonar runs alongside the camera, and every hand gesture the camera confirms
+        // becomes an example of what that gesture sounds like. Saved, and Echo retrained, when you leave.
+        val echo = app.tools.firstOrNull { it.id == "echo" } as? EchoTool
+        val learnPrefs = remember { context.getSharedPreferences("air", Context.MODE_PRIVATE) }
+        var learning by remember { mutableStateOf(learnPrefs.getBoolean("echo_learns", true)) }
+        val history = remember { SonarHistory() }
+        val fresh = remember { mutableListOf<GestureModel.Sample>() }
+        val newCount by learnedThisVisit.collectAsStateWithLifecycle()
+        var lastHandGesture by remember { mutableStateOf(0L) }
+        val teachable = remember { LearnedNames.TEACHABLE.map { it.first }.toSet() }
+        DisposableEffect(allowed, faceMode, learning) {
+            var startedHere = false
+            val on = allowed && !faceMode && learning && echo != null
+            if (on) {
+                echo!!.sonar.onFeatures = { t, f -> history.add(t, f) }
+                if (!echo.sonar.running) { echo.sonar.start(); startedHere = true }
+            }
+            onDispose {
+                if (on) { echo!!.sonar.onFeatures = null; if (startedHere) echo.sonar.stop() }
+                val batch = synchronized(fresh) { fresh.toList().also { fresh.clear() } }
+                if (echo != null && batch.any { it.label != GestureModel.NONE }) learnScope.launch {
+                    val merged = GestureBrain.merge(echo.sonar.learned?.examples, batch)
+                    val brain = GestureBrain.build(merged)
+                    GestureBrain.save(context, brain); echo.sonar.learned = brain
+                }
+            }
+        }
+        LaunchedEffect(learning, faceMode) {
+            learnedThisVisit.value = 0
+            // Quiet moments teach "nothing", about one for every gesture, so a still room stays still.
+            while (learning && !faceMode) {
+                kotlinx.coroutines.delay(2_000)
+                val now = System.currentTimeMillis()
+                val gestures = synchronized(fresh) { fresh.count { it.label != GestureModel.NONE } }
+                val quiet = synchronized(fresh) { fresh.count { it.label == GestureModel.NONE } }
+                if (now - lastHandGesture > 1_500 && quiet < gestures + 5) history.window(now)?.let { x -> synchronized(fresh) { fresh += GestureModel.Sample(GestureModel.NONE, x) } }
+            }
+        }
         fun fire(kind: String, label: String, now: Long) {
+            if (learning && !faceMode && kind in teachable) {
+                lastHandGesture = now
+                learnScope.launch {
+                    kotlinx.coroutines.delay(150) // the sound of the gesture's end arrives just after the camera sees it
+                    history.window(System.currentTimeMillis())?.let { x -> synchronized(fresh) { fresh += GestureModel.Sample(kind, x) }; learnedThisVisit.value++ }
+                }
+            }
             gesture.value = AirGestures.Gesture(kind, label) to now
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             if (!acting) return
@@ -255,6 +310,15 @@ class AirTool(private val app: UltimateApp) : Tool {
                     }
                     Text("Each bar is measured against your face at rest, which it learns in the first seconds; it counts once a bar passes about halfway.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (!faceMode && echo != null) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .clickable { learning = !learning; learnPrefs.edit().putBoolean("echo_learns", learning).apply() }.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Echo learns from this", fontWeight = FontWeight.SemiBold)
+                        Text(if (learning) "Echo's sonar listens too; each gesture the camera sees teaches it, so gestures work later with the camera off. $newCount new this visit."
+                            else "Off: only the camera is used.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(learning, { learning = it; learnPrefs.edit().putBoolean("echo_learns", it).apply() })
                 }
                 if (!faceMode) app.tools.firstOrNull { it.id == "echo-teach" }?.let { teach ->
                     androidx.compose.material3.OutlinedButton({ app.shell.open(teach) }, Modifier.fillMaxWidth()) { Text("Teach Echo these gestures, to use them with the camera off") }
