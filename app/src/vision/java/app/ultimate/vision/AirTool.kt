@@ -235,6 +235,12 @@ class AirTool(private val app: UltimateApp) : Tool {
                     Button({ ask.launch(Manifest.permission.CAMERA) }) { Text("Allow the camera") }
                     return@Column
                 }
+                // Air mode uses the camera from a service, so while it runs this screen leaves the camera to it.
+                val airRunning by AirBridge.running.collectAsStateWithLifecycle()
+                AirModeCard(airRunning, onStart = {
+                    onExit(); android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ AirBridge.start(context) }, 400)
+                }, onStop = { AirBridge.stop(context) })
+                if (airRunning) return@Column
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
                     .background(if (acting) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)
                     .clickable { acting = !acting }.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -418,4 +424,35 @@ private fun AnalysedCamera(front: Boolean, analyse: (Bitmap, Long) -> Unit) {
             }, ContextCompat.getMainExecutor(ctx))
         }
     }, Modifier.fillMaxSize())
+}
+
+
+/** Air mode, step by step: turn on its accessibility service once, then start or stop it here. */
+@Composable
+private fun AirModeCard(running: Boolean, onStart: () -> Unit, onStop: () -> Unit) {
+    val context = LocalContext.current
+    var allowed by remember { mutableStateOf(AirBridge.accessibilityOn(context)) }
+    // Coming back from Settings: check again.
+    val owner = LocalLifecycleOwner.current
+    DisposableEffect(owner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e -> if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) allowed = AirBridge.accessibilityOn(context) }
+        owner.lifecycle.addObserver(obs); onDispose { owner.lifecycle.removeObserver(obs) }
+    }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (running) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Air mode: control any app", fontWeight = FontWeight.SemiBold)
+        Text("Point to move the cursor · pinch to tap · pinch and move to scroll · hold the pinch for a long press · open palm: Back · fist: Home · peace sign: recent apps.",
+            style = MaterialTheme.typography.bodySmall)
+        when {
+            running -> {
+                Text("Air mode is on. It stays on in other apps until you stop it, here or from its notification.", style = MaterialTheme.typography.bodySmall)
+                Button(onStop) { Text("Stop Air mode") }
+            }
+            !allowed -> {
+                Text("Once: in Settings → Accessibility, turn on \"Ultimate Air mode\". It's what lets Ultimate tap and scroll for your hand; it reads nothing on screen.", style = MaterialTheme.typography.bodySmall)
+                Button({ runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } }) { Text("Open Accessibility settings") }
+            }
+            else -> Button(onStart) { Text("Start Air mode") }
+        }
+    }
 }

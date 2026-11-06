@@ -62,6 +62,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.74.0", listOf(
+            "Air mode: control any app with your hand in the air. A cursor follows your index finger; pinch to tap, pinch and move to scroll, hold the pinch to long-press; open palm goes Back, a fist goes Home, a peace sign shows recent apps.",
+            "Start it from Air control: turn on \"Ultimate Air mode\" in Accessibility once (it taps and scrolls for you and reads nothing on screen), then Start. It keeps working in other apps until you tap Stop, there or in its notification.",
+            "The cursor holds steady while you aim and moves fast when you do: smoothed with the 1€ filter, and the middle of the camera's view covers the whole screen.",
+        ), tries = listOf("air")),
         Entry("1.73.0", listOf(
             "Gesture Studio: every sense on one screen, each with a live line: the phone's proximity, light and motion sensors, sound (claps, snaps, knocks), your watch's motion and Echo's distance.",
             "Teach once, every sense learns: name a gesture (or pick one, like \"Wave over phone\" or \"Knock twice\"), do it five times when asked, and all your senses learn it together. You then see how well each sense alone recognises it, and the combined model recognises it live.",

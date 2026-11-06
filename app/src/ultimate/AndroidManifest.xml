@@ -17,6 +17,7 @@
     <!-- Recorder keeps recording with the screen off; Teleprompter films with the camera. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <!-- Only asked for when the user turns on "new screen recordings"; it lets Ultimate notice them. -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
@@ -58,6 +59,15 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application android:requestLegacyExternalStorage="true">
+        <!-- Air mode: the camera watches your hand while you use other apps (started only from Air control, with Stop in its notification). -->
+        <service android:name="app.ultimate.vision.AirModeService" android:exported="false" android:foregroundServiceType="camera" />
+        <!-- Air mode's cursor and taps, in any app; turned on by you in Settings → Accessibility. -->
+        <service android:name="app.ultimate.vision.AirCursorService" android:exported="true" android:label="Ultimate Air mode"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/air_cursor_service" />
+        </service>
+
         <!-- Health Connect asks why the app wants health data, and lists it among apps with access. -->
         <activity android:name=".footprint.HealthRationaleActivity" android:exported="true">
             <intent-filter><action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" /></intent-filter>
