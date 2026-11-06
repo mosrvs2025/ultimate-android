@@ -132,36 +132,43 @@ class WatchTool(private val app: UltimateApp) : Tool {
     }
 }
 
-/** "Install on my watch", one step at a time: find the watch, type its code, install. */
+/**
+ * "Install on my watch", one step at a time: find the watch (or type the address it shows), type its code, install.
+ * Some routers block the network announcements the automatic search relies on, so typing it in is always offered.
+ */
 @Composable
 private fun InstallCard() {
     val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val installer = remember { WatchInstaller(context) }
     val prefs = remember { context.getSharedPreferences("watch_link", android.content.Context.MODE_PRIVATE) }
-    var stage by remember { mutableStateOf("idle") } // idle, looking, code, working, done, failed
+    var stage by remember { mutableStateOf("idle") } // idle, failed, looking, code, port, working, done
     var host by remember { mutableStateOf(prefs.getString("adb_host", null)) }
-    var port by remember { mutableStateOf(0) }
+    var savedPort by remember { mutableStateOf(prefs.getInt("adb_port", 0).takeIf { it > 0 }) }
+    var address by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
+    var portText by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     var progress by remember { mutableStateOf(0f) }
     var showComputer by remember { mutableStateOf(false) }
+    val digits = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
 
-    fun install(h: String) {
+    fun install(h: String, port: Int?) {
         stage = "working"; message = "Installing on your watch…"; progress = 0f
         scope.launch {
-            when (val r = installer.install(h) { progress = it }) {
-                is WatchInstaller.Outcome.Done -> { stage = "done"; message = r.message }
-                is WatchInstaller.Outcome.Failed -> { stage = "failed"; message = r.why }
+            when (val r = installer.install(h, port) { progress = it }) {
+                is WatchInstaller.Outcome.Done -> { port?.let { prefs.edit().putInt("adb_port", it).apply(); savedPort = it }; stage = "done"; message = r.message }
+                is WatchInstaller.Outcome.Failed -> if (r.why == WatchInstaller.NEED_PORT) { portText = ""; stage = "port" } else { stage = "failed"; message = r.why }
             }
         }
     }
     fun look() {
         stage = "looking"; message = ""
         scope.launch {
-            val found = installer.findPairing()
-            if (found == null) { stage = "failed"; message = "No watch showed up. On the watch, keep the \"Pair new device\" screen open, with the watch and this phone on the same Wi-Fi (this phone's hotspot works too)." }
-            else { host = found.first; port = found.second; code = ""; stage = "code" }
+            val found = installer.findPairing(10_000)
+            address = found?.let { "${it.first}:${it.second}" } ?: ""
+            code = ""; stage = "code"
+            if (found == null) message = "Couldn't find the watch by itself (some routers block that). Type what the watch shows instead."
         }
     }
 
@@ -176,27 +183,41 @@ private fun InstallCard() {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     androidx.compose.material3.Button({ look() }) { Text("Install on my watch") }
                     // Paired before: the watch remembers this phone, so updating skips the code.
-                    host?.let { h -> androidx.compose.material3.OutlinedButton({ install(h) }) { Text("Update it") } }
+                    host?.let { h -> androidx.compose.material3.OutlinedButton({ install(h, savedPort) }) { Text("Update it") } }
                 }
             }
             "looking" -> {
                 Text("Looking for your watch on this Wi-Fi… Keep \"Pair new device\" open on the watch.", style = MaterialTheme.typography.bodySmall)
                 androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                androidx.compose.material3.TextButton({ address = ""; code = ""; message = ""; stage = "code" }) { Text("Type it in instead") }
             }
             "code" -> {
-                Text("Found your watch. Type the 6-digit code it shows:", style = MaterialTheme.typography.bodySmall)
+                if (message.isNotEmpty()) Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                Text("From the watch's \"Pair with device\" screen:", style = MaterialTheme.typography.bodySmall)
+                androidx.compose.material3.OutlinedTextField(address, { address = it.filter { c -> c.isDigit() || c == '.' || c == ':' } }, Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("IP address & Port") }, placeholder = { Text("192.168.1.239:37581") },
+                    isError = address.isNotEmpty() && WatchInstaller.parseAddress(address) == null,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
                 androidx.compose.material3.OutlinedTextField(code, { v -> code = v.filter(Char::isDigit).take(6) }, Modifier.fillMaxWidth(), singleLine = true,
-                    label = { Text("Pairing code") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword))
+                    label = { Text("Wi-Fi pairing code") }, keyboardOptions = digits)
+                val target = WatchInstaller.parseAddress(address)
                 androidx.compose.material3.Button({
-                    val h = host ?: return@Button
+                    val (h, p) = target ?: return@Button
                     stage = "working"; message = "Pairing…"
                     scope.launch {
-                        when (val r = installer.pair(h, port, code)) {
-                            is WatchInstaller.Outcome.Done -> { prefs.edit().putString("adb_host", h).apply(); install(h) }
+                        when (val r = installer.pair(h, p, code)) {
+                            is WatchInstaller.Outcome.Done -> { prefs.edit().putString("adb_host", h).apply(); host = h; install(h, null) }
                             is WatchInstaller.Outcome.Failed -> { stage = "failed"; message = r.why }
                         }
                     }
-                }, enabled = code.length == 6) { Text("Pair and install") }
+                }, enabled = code.length == 6 && target != null) { Text("Pair and install") }
+            }
+            "port" -> {
+                Text("Paired. One more number: go back one screen on the watch to Wireless debugging, and type the port under \"IP address & Port\" (the number after the colon; it isn't the pairing one).",
+                    style = MaterialTheme.typography.bodySmall)
+                androidx.compose.material3.OutlinedTextField(portText, { portText = it.filter(Char::isDigit).take(5) }, Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Port") }, keyboardOptions = digits)
+                androidx.compose.material3.Button({ host?.let { h -> install(h, portText.toInt()) } }, enabled = portText.toIntOrNull()?.let { it in 1..65535 } == true) { Text("Install") }
             }
             "working" -> {
                 Text(message, style = MaterialTheme.typography.bodySmall)

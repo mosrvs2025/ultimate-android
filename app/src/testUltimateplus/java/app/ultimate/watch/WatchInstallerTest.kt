@@ -22,3 +22,17 @@ class WatchInstallerTest {
         assertTrue(cert.notAfter.time - System.currentTimeMillis() > 20L * 365 * 86_400_000L)
     }
 }
+
+class WatchAddressTest {
+    @Test fun readsTheAddressAsTheWatchShowsIt() {
+        assertEquals("192.168.1.239" to 37581, WatchInstaller.parseAddress("192.168.1.239:37581"))
+        assertEquals("192.168.1.239" to 37581, WatchInstaller.parseAddress(" 192.168.1.239 : 37581 "))
+        assertEquals("10.0.0.5" to 5555, WatchInstaller.parseAddress("10.0.0.5:5555."))
+    }
+
+    @Test fun rejectsWhatIsNotAnAddress() {
+        listOf("", "192.168.1.239", "192.168.1:37581", "300.1.1.1:5555", "1.2.3.4:0", "1.2.3.4:99999", "phone:5555").forEach {
+            assertEquals(it, null, WatchInstaller.parseAddress(it))
+        }
+    }
+}

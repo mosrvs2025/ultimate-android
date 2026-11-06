@@ -84,11 +84,12 @@ class WatchInstaller(private val context: Context) {
     }
 
     /** Connects to the paired watch at [host] and installs the watch app bundled in Ultimate+, reporting [progress] (0..1). */
-    suspend fun install(host: String, progress: (Float) -> Unit = {}): Outcome = withContext(Dispatchers.IO) {
+    suspend fun install(host: String, knownPort: Int? = null, progress: (Float) -> Unit = {}): Outcome = withContext(Dispatchers.IO) {
         val apk = runCatching { context.assets.open(BUNDLED).use { it.readBytes() } }.getOrNull()
             ?: return@withContext Outcome.Failed("This build of Ultimate+ doesn't include the watch app. Install it from the release page instead.")
-        val (h, port) = discover(AdbMdns.SERVICE_TYPE_TLS_CONNECT, host, 20_000)
-            ?: return@withContext Outcome.Failed("Couldn't reach the watch. Keep Wireless debugging on, with the watch and phone on the same Wi-Fi.")
+        // The port typed from the watch's Wireless debugging screen, else whatever the watch announces on the network.
+        val (h, port) = knownPort?.let { host to it } ?: discover(AdbMdns.SERVICE_TYPE_TLS_CONNECT, host, 8_000)
+            ?: return@withContext Outcome.Failed(NEED_PORT)
         runCatching {
             Manager().use { m ->
                 if (!m.connect(h, port)) return@use Outcome.Failed("The watch refused the connection. Pair again.")
@@ -137,6 +138,16 @@ class WatchInstaller(private val context: Context) {
 
     companion object {
         const val BUNDLED = "watch/Ultimate-Plus-Watch.apk"
+        /** Shown when the watch's connection port isn't announced on the network, so the screen asks for it. */
+        const val NEED_PORT = "need-port"
+
+        /** Reads "192.168.1.239:37581" (as the watch shows it, spaces or a trailing dot allowed) into address and port. */
+        fun parseAddress(text: String): Pair<String, Int>? {
+            val m = Regex("""^\s*(\d{1,3}(?:\.\d{1,3}){3})\s*:\s*(\d{2,5})\s*\.?\s*$""").find(text) ?: return null
+            val ip = m.groupValues[1]; val port = m.groupValues[2].toInt()
+            if (ip.split('.').any { it.toInt() > 255 } || port !in 1..65535) return null
+            return ip to port
+        }
 
         /** A self-signed X.509 certificate for [publicKey], signed with [key] (SHA-256 with RSA). */
         internal fun selfSigned(publicKey: ByteArray, key: PrivateKey): ByteArray {
