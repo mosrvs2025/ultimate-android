@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Ultimate"
 include(":app")
+// Ultimate+ for Wear OS: wrist gestures and buttons that control the phone (same package and key as Ultimate+, so they pair).
+include(":wear")

@@ -76,6 +76,7 @@ import app.ultimate.UltimateApp
 import app.ultimate.air.AirActions
 import app.ultimate.air.AirGestures
 import app.ultimate.air.FaceExpressions
+import app.ultimate.air.PhoneActions
 import app.ultimate.air.HandPose
 import app.ultimate.core.LibraryItem
 import app.ultimate.core.Signal
@@ -134,20 +135,8 @@ class AirTool(private val app: UltimateApp) : Tool {
     private fun actionsPrefs(c: Context) = c.getSharedPreferences("air_actions", Context.MODE_PRIVATE)
     private fun action(c: Context, kind: String) = actionsPrefs(c).getString(kind, AirActions.DEFAULTS[kind] ?: "none") ?: "none"
 
-    /** Carries out what [kind] is set to do. Media keys reach whatever is playing, in any app. */
-    private fun perform(c: Context, kind: String) {
-        val am = c.getSystemService(AudioManager::class.java)
-        fun key(code: Int) { am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code)); am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code)) }
-        when (action(c, kind)) {
-            "next" -> key(KeyEvent.KEYCODE_MEDIA_NEXT)
-            "previous" -> key(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
-            "playpause" -> key(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
-            "volume_up" -> am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
-            "volume_down" -> am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
-            "torch" -> QuickActions.toggleTorch(c)
-            "home" -> app.shell.exitTool()
-        }
-    }
+    /** Carries out what [kind] is set to do. */
+    private fun perform(c: Context, kind: String) = PhoneActions.perform(c, action(c, kind)) { app.shell.exitTool() }
 
     @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
     @Composable

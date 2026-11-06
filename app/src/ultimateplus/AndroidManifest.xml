@@ -52,6 +52,13 @@
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
     <application android:requestLegacyExternalStorage="true">
+        <!-- Watch: Wear OS delivers the watch's gestures here; only Ultimate+ on the watch (same package and key) can send them. -->
+        <service android:name="app.ultimate.watch.WatchListenerService" android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/ultimate/watch" />
+            </intent-filter>
+        </service>
         <!-- Health Connect asks why the app wants health data, and lists it among apps with access. -->
         <activity android:name=".footprint.HealthRationaleActivity" android:exported="true">
             <intent-filter><action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" /></intent-filter>
