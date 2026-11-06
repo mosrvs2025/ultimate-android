@@ -188,3 +188,39 @@ class IntentEngineTest {
         assertTrue(!w.feed(5_000, 12f, 3f))     // the wrist turning hard isn't a finger tap
     }
 }
+
+class AirCommandsTest {
+    private val apps = listOf("Spotify", "YouTube", "YouTube Music", "Google Maps", "Messages", "Samsung Messages")
+    private fun p(s: String) = app.ultimate.air.AirCommands.parse(s, apps)
+
+    @Test fun opensAppsByName() {
+        assertEquals(app.ultimate.air.AirCommands.Command.OpenApp("Spotify"), p("Open Spotify"))
+        assertEquals(app.ultimate.air.AirCommands.Command.OpenApp("YouTube"), p("open youtube"))
+        assertEquals(app.ultimate.air.AirCommands.Command.OpenApp("YouTube Music"), p("launch youtube music"))
+        assertEquals(app.ultimate.air.AirCommands.Command.OpenApp("Google Maps"), p("open maps"))
+        assertEquals(app.ultimate.air.AirCommands.Command.OpenApp("Messages"), p("open the messages app"))
+        assertEquals(null, p("open banana"))
+    }
+
+    @Test fun navigation() {
+        assertEquals(app.ultimate.air.AirCommands.Command.Back, p("go back"))
+        assertEquals(app.ultimate.air.AirCommands.Command.Home, p("Home."))
+        assertEquals(app.ultimate.air.AirCommands.Command.Recents, p("recent apps"))
+        assertEquals(app.ultimate.air.AirCommands.Command.Scroll(true), p("scroll down"))
+        assertEquals(null, p("turn on the flashlight"))
+    }
+}
+
+class PhoneContextTest {
+    @Test fun aWobblyPhoneIsHeldAndAStillOneSettles() {
+        val c = app.ultimate.air.PhoneContext()
+        val r = java.util.Random(2)
+        var t = 0L
+        repeat(50) { c.feed(t, 9.8f + (r.nextFloat() - 0.5f) * 0.05f); t += 20 }
+        assertTrue(!c.held)
+        repeat(50) { c.feed(t, 9.8f + (r.nextFloat() - 0.5f) * 2.5f); t += 20 }
+        assertTrue(c.held)
+        repeat(150) { c.feed(t, 9.8f); t += 20 }   // 3 s still on the table (1 s window + 1.5 s settle)
+        assertTrue(!c.held)
+    }
+}

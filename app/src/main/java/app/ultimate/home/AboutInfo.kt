@@ -62,6 +62,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.77.0", listOf(
+            "Talk to Air mode: an Ask pill sits at the top of the screen. Point at it, pinch, and say what you want: \"open Spotify\", \"go back\", \"scroll down\", or anything Local AI understands (\"turn on the flashlight\"). The pill shows what it heard and did.",
+            "Air mode knows when you pick the phone up: while it's in your hand the cursor steps aside so touch works normally, and it comes back by itself a moment after you set the phone down.",
+            "Fixes updating: 1.75 and 1.76 were built with the wrong signing key, so Android refused them as updates (\"App not installed\") and Ultimate didn't offer them. This version is signed with the right key again.",
+        ), tries = listOf("air")),
         Entry("1.76.0", listOf(
             "Your senses now work together: a new intent engine combines what each one notices, so two half-sure senses that agree make a sure decision, and one that's guessing alone doesn't act.",
             "Air mode with your watch on: the watch feels the tiny tap of thumb meeting finger and confirms the pinch, so clicks land even when the camera can barely see your fingers (far away, at an angle, in dim light). Arm swings and walking don't count; the bar adapts to how much your wrist is moving.",

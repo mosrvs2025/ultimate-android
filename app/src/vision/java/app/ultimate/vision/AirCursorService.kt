@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 class AirCursorService : AccessibilityService() {
     private var scope: CoroutineScope? = null
     private var dot: CursorView? = null
+    private var askPill: View? = null
 
     override fun onServiceConnected() {
         val wm = getSystemService(WindowManager::class.java)
@@ -39,7 +40,31 @@ class AirCursorService : AccessibilityService() {
         view.visibility = View.GONE
         runCatching { wm.addView(view, lp) }
         dot = view
+        // The Ask pill: point at it and pinch, then say what you want.
+        val pill = AskView(this)
+        val pw = (150 * d).toInt(); val ph = (40 * d).toInt(); val top = (36 * d).toInt()
+        val plp = WindowManager.LayoutParams(pw, ph, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = top }
+        pill.visibility = View.GONE
+        runCatching { wm.addView(pill, plp) }
+        askPill = pill
+        val sw = resources.displayMetrics.widthPixels
+        // A little larger than drawn, so it's easy to hit with the cursor.
+        AirBridge.askRect = floatArrayOf((sw - pw) / 2f - 12 * d, top - 12 * d, (sw + pw) / 2f + 12 * d, top + ph + 12 * d)
         val s = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate); scope = s
+        s.launch {
+            combine(AirBridge.running, AirBridge.paused, AirBridge.ask, AirBridge.cursor) { r, p, a, c -> listOf(r, p, a, c) }.collect { v ->
+                val c = v[3] as AirBridge.Cursor; val rect = AirBridge.askRect
+                pill.visibility = if (v[0] as Boolean && !(v[1] as Boolean)) View.VISIBLE else View.GONE
+                pill.label = v[2] as String
+                pill.hover = c.visible && c.x in rect[0]..rect[2] && c.y in rect[1]..rect[3]
+                // Longer messages need a wider pill.
+                val want = maxOf(pw, (pill.textWidth() + 32 * d).toInt()).coerceAtMost(sw - (32 * d).toInt())
+                if (plp.width != want) { plp.width = want; runCatching { wm.updateViewLayout(pill, plp) } }
+                pill.invalidate()
+            }
+        }
         s.launch {
             combine(AirBridge.running, AirBridge.cursor, AirBridge.hold, AirBridge.hint) { r, c, hold, hint -> listOf(r, c, hold, hint) }.collect { v ->
                 val running = v[0] as Boolean; val c = v[1] as AirBridge.Cursor
@@ -60,6 +85,7 @@ class AirCursorService : AccessibilityService() {
                     AirBridge.Back -> performGlobalAction(GLOBAL_ACTION_BACK)
                     AirBridge.Home -> performGlobalAction(GLOBAL_ACTION_HOME)
                     AirBridge.Recents -> performGlobalAction(GLOBAL_ACTION_RECENTS)
+                    is AirBridge.Launch -> runCatching { packageManager.getLaunchIntentForPackage(a.pkg)?.let { startActivity(it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } }
                 }
             }
         }
@@ -77,6 +103,7 @@ class AirCursorService : AccessibilityService() {
     override fun onDestroy() {
         scope?.cancel(); scope = null
         dot?.let { runCatching { getSystemService(WindowManager::class.java).removeView(it) } }; dot = null
+        askPill?.let { runCatching { getSystemService(WindowManager::class.java).removeView(it) } }; askPill = null
         super.onDestroy()
     }
 
@@ -107,6 +134,21 @@ class AirCursorService : AccessibilityService() {
             val top = cy + r + 10 * d
             canvas.drawRoundRect(cx - tw / 2 - 10 * d, top, cx + tw / 2 + 10 * d, top + 26 * d, 13 * d, 13 * d, pill)
             canvas.drawText(label, cx, top + 18 * d, text)
+        }
+    }
+
+    /** The Ask pill: a mic and what it's doing; it lights up when the cursor is over it. */
+    private class AskView(c: Context) : View(c) {
+        var label = "Ask"
+        var hover = false
+        private val d = c.resources.displayMetrics.density
+        private val bg = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt(); textSize = 14 * d; textAlign = Paint.Align.CENTER }
+        fun textWidth() = text.measureText("🎤  $label")
+        override fun onDraw(canvas: Canvas) {
+            bg.color = if (hover) 0xEE2E7DFF.toInt() else 0xCC000000.toInt()
+            canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), height / 2f, height / 2f, bg)
+            canvas.drawText("🎤  $label", width / 2f, height / 2f + 5 * d, text)
         }
     }
 }

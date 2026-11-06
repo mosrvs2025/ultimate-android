@@ -18,6 +18,9 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import app.ultimate.R
+import app.ultimate.UltimateApp
+import app.ultimate.ai.AiActions
+import app.ultimate.ai.LocalAi
 import app.ultimate.air.AirPointer
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
@@ -40,6 +43,14 @@ object AirBridge {
     /** Things to do: taps and drags at screen positions, and Back, Home, Recents. */
     val actions = MutableSharedFlow<Any>(extraBufferCapacity = 16)
     object Back; object Home; object Recents
+    /** Open an app (done by the cursor service, which may start activities from the background). */
+    data class Launch(val pkg: String)
+    /** The "Ask" pill at the top of the screen: what it says now (Ask, Listening…, what happened). */
+    val ask = MutableStateFlow("Ask")
+    /** Where the pill is on screen (left, top, right, bottom), set by the cursor service. */
+    @Volatile var askRect = floatArrayOf(0f, 0f, 0f, 0f)
+    /** True while the phone is in your hand: Air mode steps aside so touch works normally. */
+    val paused = MutableStateFlow(false)
     /** A shortcut shape being held: what it will do and how full its ring is (0..1). */
     val hold = MutableStateFlow<Pair<String, Float>?>(null)
     /** A short tip shown next to the cursor while you get used to Air mode. */
@@ -81,6 +92,15 @@ class AirModeService : LifecycleService() {
     /** The pinch decided from the camera and, when the watch is on your wrist, the taps it feels. */
     private val fusion = app.ultimate.air.PinchFusion()
     private val wristTap = app.ultimate.air.WristTap()
+    private val context = app.ultimate.air.PhoneContext()
+    private val motion = object : android.hardware.SensorEventListener {
+        override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) = Unit
+        override fun onSensorChanged(e: android.hardware.SensorEvent) {
+            val held = context.feed(System.currentTimeMillis(), hypot(hypot(e.values[0], e.values[1]), e.values[2]))
+            if (held != AirBridge.paused.value) AirBridge.paused.value = held
+        }
+    }
+    private var listening: android.speech.SpeechRecognizer? = null
     private fun learnFile() = java.io.File(filesDir, "air_shapes.json")
     private var taps = 0
 
@@ -110,6 +130,9 @@ class AirModeService : LifecycleService() {
         learner = runCatching { app.ultimate.air.ShapeLearner.fromJson(org.json.JSONObject(learnFile().readText())) }.getOrDefault(app.ultimate.air.ShapeLearner())
         AirBridge.running.value = true
         listenToWatch()
+        getSystemService(android.hardware.SensorManager::class.java)?.let { sm ->
+            sm.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)?.let { sm.registerListener(motion, it, android.hardware.SensorManager.SENSOR_DELAY_GAME) }
+        }
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
             val provider = future.get()
@@ -135,12 +158,21 @@ class AirModeService : LifecycleService() {
             p.lost(); AirBridge.cursor.value = AirBridge.cursor.value.copy(visible = false, pinched = false)
             holder.feed(null, 0f, 0f, now); AirBridge.hold.value = null; AirBridge.hint.value = null; seenSince = 0; return
         }
+        // In your hand, the phone is for touching: the cursor hides and nothing is tapped until you set it down.
+        if (AirBridge.paused.value) {
+            p.lost(); AirBridge.cursor.value = AirBridge.cursor.value.copy(visible = false, pinched = false)
+            AirBridge.hold.value = null; AirBridge.hint.value = null; return
+        }
         if (seenSince == 0L) seenSince = now
         // The hand's size (wrist to middle knuckle) makes the pinch the same near the camera and far from it.
         val size = hypot(lm[0].x() - lm[9].x(), lm[0].y() - lm[9].y()).coerceAtLeast(1e-3f)
         val pinch = synchronized(fusion) { fusion.feed(hypot(lm[4].x() - lm[8].x(), lm[4].y() - lm[8].y()) / size, now) }
         // Front camera: mirror so moving your hand right moves the cursor right.
-        p.feed(1f - lm[8].x(), lm[8].y(), pinch, now)?.let { if (it is AirPointer.Action.Tap) taps++; AirBridge.actions.tryEmit(it) }
+        p.feed(1f - lm[8].x(), lm[8].y(), pinch, now)?.let {
+            val r = AirBridge.askRect
+            if (it is AirPointer.Action.Tap && it.x in r[0]..r[2] && it.y in r[1]..r[3]) { ask(); return@let }
+            if (it is AirPointer.Action.Tap) taps++; AirBridge.actions.tryEmit(it)
+        }
         AirBridge.cursor.value = AirBridge.Cursor(p.x, p.y, true, p.pinched)
         // Tips next to the cursor for the first taps of each session, then they go away.
         val shown = now - seenSince
@@ -187,6 +219,67 @@ class AirModeService : LifecycleService() {
         }
     }
 
+    /** Pinching the Ask pill: listen once (on the phone where it can), then do what was said. */
+    private fun ask() = android.os.Handler(mainLooper).post {
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) { say("Allow the microphone for Ultimate first"); return@post }
+        if (!android.speech.SpeechRecognizer.isRecognitionAvailable(this)) { say("No speech recognition on this phone"); return@post }
+        listening?.destroy()
+        val sr = if (Build.VERSION.SDK_INT >= 31 && android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) android.speech.SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+            else android.speech.SpeechRecognizer.createSpeechRecognizer(this)
+        listening = sr
+        sr.setRecognitionListener(object : android.speech.RecognitionListener {
+            override fun onReadyForSpeech(params: android.os.Bundle?) { AirBridge.ask.value = "Listening…" }
+            override fun onResults(results: android.os.Bundle?) {
+                val said = results?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                if (said.isNullOrBlank()) say("Didn't catch that") else act(said)
+                sr.destroy(); if (listening === sr) listening = null
+            }
+            override fun onError(error: Int) { say("Didn't catch that"); sr.destroy(); if (listening === sr) listening = null }
+            override fun onBeginningOfSpeech() = Unit
+            override fun onRmsChanged(rmsdB: Float) = Unit
+            override fun onBufferReceived(buffer: ByteArray?) = Unit
+            override fun onEndOfSpeech() { AirBridge.ask.value = "Thinking…" }
+            override fun onPartialResults(partialResults: android.os.Bundle?) = Unit
+            override fun onEvent(eventType: Int, params: android.os.Bundle?) = Unit
+        })
+        sr.startListening(Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_PREFER_OFFLINE, true))
+    }
+
+    /** Shows [text] on the pill for a few seconds, then it goes back to "Ask". */
+    private fun say(text: String) {
+        AirBridge.ask.value = text
+        lifecycleScope.launch { kotlinx.coroutines.delay(4_000); if (AirBridge.ask.value == text) AirBridge.ask.value = "Ask" }
+    }
+
+    /** Does what was said: navigation and opening apps directly, anything else through Local AI (Needle). */
+    private fun act(said: String) {
+        val pm = packageManager
+        val launchers = runCatching { pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0) }.getOrDefault(emptyList())
+        val labels = launchers.associate { it.loadLabel(pm).toString() to it.activityInfo.packageName }
+        val w = resources.displayMetrics.widthPixels.toFloat(); val h = resources.displayMetrics.heightPixels.toFloat()
+        when (val c = app.ultimate.air.AirCommands.parse(said, labels.keys.toList())) {
+            is app.ultimate.air.AirCommands.Command.OpenApp -> { AirBridge.actions.tryEmit(AirBridge.Launch(labels.getValue(c.label))); say("Opening ${c.label}") }
+            app.ultimate.air.AirCommands.Command.Back -> { AirBridge.actions.tryEmit(AirBridge.Back); say("Back") }
+            app.ultimate.air.AirCommands.Command.Home -> { AirBridge.actions.tryEmit(AirBridge.Home); say("Home") }
+            app.ultimate.air.AirCommands.Command.Recents -> { AirBridge.actions.tryEmit(AirBridge.Recents); say("Recent apps") }
+            is app.ultimate.air.AirCommands.Command.Scroll -> {
+                val (a, b) = if (c.down) h * 0.7f to h * 0.3f else h * 0.3f to h * 0.7f
+                AirBridge.actions.tryEmit(AirPointer.Action.Drag(w / 2, a, w / 2, b, 300)); say(if (c.down) "Scrolled down" else "Scrolled up")
+            }
+            null -> {
+                val ua = application as? UltimateApp
+                val ai = ua?.localAi
+                if (ua == null || ai == null || ai.state.value != LocalAi.State.Ready) { say("\"$said\": I can open apps, go back, home or scroll. Turn on Local AI in About for more"); return }
+                lifecycleScope.launch {
+                    val call = runCatching { ai.propose(said) }.getOrDefault(emptyList()).firstOrNull()
+                    say(if (call == null) "\"$said\": not sure what to do" else AiActions.run(ua, call))
+                }
+            }
+        }
+    }
+
     /** One more lesson; now and then the network retrains and everything is saved, off the camera's thread. */
     private fun learn(label: String, x: FloatArray) {
         val l = learner
@@ -206,6 +299,9 @@ class AirModeService : LifecycleService() {
         runCatching { recognizer?.close() }; recognizer = null
         executor.shutdown(); trainer.shutdown()
         app.ultimate.air.WatchFeed.request(false)
+        getSystemService(android.hardware.SensorManager::class.java)?.unregisterListener(motion)
+        listening?.destroy(); listening = null
+        AirBridge.paused.value = false; AirBridge.ask.value = "Ask"
         super.onDestroy()
     }
 
