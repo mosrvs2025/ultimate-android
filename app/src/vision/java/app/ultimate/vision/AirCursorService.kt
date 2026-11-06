@@ -31,8 +31,9 @@ class AirCursorService : AccessibilityService() {
     override fun onServiceConnected() {
         val wm = getSystemService(WindowManager::class.java)
         val view = CursorView(this)
-        val size = (44 * resources.displayMetrics.density).toInt()
-        val lp = WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        val d = resources.displayMetrics.density
+        val w = (240 * d).toInt(); val h = (96 * d).toInt(); val ringY = (24 * d).toInt()
+        val lp = WindowManager.LayoutParams(w, h, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START }
         view.visibility = View.GONE
@@ -40,10 +41,12 @@ class AirCursorService : AccessibilityService() {
         dot = view
         val s = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate); scope = s
         s.launch {
-            combine(AirBridge.running, AirBridge.cursor) { r, c -> r to c }.collect { (running, c) ->
+            combine(AirBridge.running, AirBridge.cursor, AirBridge.hold, AirBridge.hint) { r, c, hold, hint -> listOf(r, c, hold, hint) }.collect { v ->
+                val running = v[0] as Boolean; val c = v[1] as AirBridge.Cursor
+                @Suppress("UNCHECKED_CAST") val hold = v[2] as Pair<String, Float>?
                 view.visibility = if (running && c.visible) View.VISIBLE else View.GONE
-                view.pinched = c.pinched; view.invalidate()
-                lp.x = (c.x - size / 2).toInt(); lp.y = (c.y - size / 2).toInt()
+                view.pinched = c.pinched; view.hold = hold; view.hint = v[3] as String?; view.invalidate()
+                lp.x = (c.x - w / 2).toInt(); lp.y = (c.y - ringY).toInt()
                 runCatching { wm.updateViewLayout(view, lp) }
             }
         }
@@ -77,17 +80,33 @@ class AirCursorService : AccessibilityService() {
         super.onDestroy()
     }
 
-    /** The cursor: a soft ring that fills in while you pinch. */
+    /**
+     * The cursor: a soft ring that fills in while you pinch. Below it, a tip while you're learning, or, while a shortcut
+     * shape is held, what it will do and a ring that fills until it happens.
+     */
     private class CursorView(c: Context) : View(c) {
         var pinched = false
-        private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3 * c.resources.displayMetrics.density; color = 0xFFFFFFFF.toInt() }
-        private val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 6 * c.resources.displayMetrics.density; color = 0x55000000 }
+        var hold: Pair<String, Float>? = null
+        var hint: String? = null
+        private val d = c.resources.displayMetrics.density
+        private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3 * d; color = 0xFFFFFFFF.toInt() }
+        private val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 6 * d; color = 0x55000000 }
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC7FD3FF.toInt() }
+        private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 4 * d; strokeCap = Paint.Cap.ROUND; color = 0xFFFFC857.toInt() }
+        private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt(); textSize = 13 * d; textAlign = Paint.Align.CENTER }
+        private val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC000000.toInt() }
         override fun onDraw(canvas: Canvas) {
-            val r = width / 2f * 0.7f
-            canvas.drawCircle(width / 2f, height / 2f, r, shadow)
-            if (pinched) canvas.drawCircle(width / 2f, height / 2f, r, fill)
-            canvas.drawCircle(width / 2f, height / 2f, r, ring)
+            val cx = width / 2f; val cy = 24 * d; val r = 15 * d
+            canvas.drawCircle(cx, cy, r, shadow)
+            if (pinched) canvas.drawCircle(cx, cy, r, fill)
+            canvas.drawCircle(cx, cy, r, ring)
+            val h = hold
+            if (h != null) canvas.drawArc(cx - r - 5 * d, cy - r - 5 * d, cx + r + 5 * d, cy + r + 5 * d, -90f, 360f * h.second, false, arc)
+            val label = h?.let { "Keep holding: ${it.first}" } ?: hint ?: return
+            val tw = text.measureText(label)
+            val top = cy + r + 10 * d
+            canvas.drawRoundRect(cx - tw / 2 - 10 * d, top, cx + tw / 2 + 10 * d, top + 26 * d, 13 * d, 13 * d, pill)
+            canvas.drawText(label, cx, top + 18 * d, text)
         }
     }
 }

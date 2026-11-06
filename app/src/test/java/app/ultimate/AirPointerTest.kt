@@ -73,3 +73,76 @@ class AirPointerTest {
         assertNull(p.feed(0.5f, 0.5f, 1f, t + 2_000).takeIf { it !is Action.LongPress && it != null })
     }
 }
+
+class ShortcutHoldTest {
+    private fun run(h: app.ultimate.air.ShortcutHold, sign: String?, ms: Long, t0: Long, x: Float = 500f, drift: Float = 0f): Pair<List<String>, Long> {
+        val out = ArrayList<String>(); var t = t0; var i = 0
+        while (t < t0 + ms) { h.feed(sign, x + drift * i++, 500f, t)?.let(out::add); t += 33 }
+        return out to t
+    }
+
+    @Test fun aShapeHeldStillForASecondFiresOnce() {
+        val h = app.ultimate.air.ShortcutHold()
+        val (a, _) = run(h, "Open_Palm", 1_400, 0)
+        assertEquals(listOf("Open_Palm"), a)
+    }
+
+    @Test fun aBriefShapeDoesNothing() {
+        val h = app.ultimate.air.ShortcutHold()
+        val (a, t) = run(h, "Closed_Fist", 500, 0)
+        assertTrue(a.isEmpty())
+        assertTrue(run(h, null, 500, t).first.isEmpty())
+    }
+
+    @Test fun movingTheHandCancelsIt() {
+        // Moving the cursor while the hand looks like a fist (normal pointing around) never goes Home.
+        val h = app.ultimate.air.ShortcutHold()
+        assertTrue(run(h, "Closed_Fist", 3_000, 0, drift = 6f).first.isEmpty())
+    }
+
+    @Test fun theRingFillsAsYouHold() {
+        val h = app.ultimate.air.ShortcutHold()
+        run(h, "Open_Palm", 500, 0)
+        val p = h.progress!!
+        assertEquals("Open_Palm", p.first); assertTrue(p.second in 0.4f..0.6f)
+    }
+}
+
+class ShapeLearnerTest {
+    private val rnd = java.util.Random(3)
+    // Two clearly different "shapes": a cluster around +1s and one around -1s.
+    private fun shape(c: Float) = FloatArray(42) { c + (rnd.nextFloat() - 0.5f) * 0.2f }
+
+    @Test fun startsAtAFullSecond() {
+        assertEquals(1_000L, app.ultimate.air.ShapeLearner().holdMs("Open_Palm", shape(1f)))
+    }
+
+    @Test fun holdShrinksAsYouConfirmAShape() {
+        val l = app.ultimate.air.ShapeLearner()
+        repeat(20) { l.add("Open_Palm", shape(1f)); l.add("none", shape(-1f)) }
+        l.train()
+        val h = l.holdMs("Open_Palm", shape(1f))!!
+        assertTrue("hold $h", h < 500)
+    }
+
+    @Test fun aShapeYouDontMeanStartsNoRing() {
+        val l = app.ultimate.air.ShapeLearner()
+        repeat(20) { l.add("Open_Palm", shape(1f)); l.add("none", shape(-1f)) }
+        l.train()
+        assertEquals(null, l.holdMs("Open_Palm", shape(-1f)))
+    }
+
+    @Test fun undoTakesTrustBack() {
+        val l = app.ultimate.air.ShapeLearner()
+        repeat(4) { l.add("Closed_Fist", shape(1f)) }
+        l.undo("Closed_Fist", shape(1f))
+        assertEquals(2, l.confirmed["Closed_Fist"])
+    }
+
+    @Test fun abandonedHoldsAreReported() {
+        val h = app.ultimate.air.ShortcutHold()
+        var t = 0L; while (t < 500) { h.feed("Closed_Fist", 500f, 500f, t); t += 33 }
+        h.feed("Closed_Fist", 700f, 500f, t)
+        assertEquals("Closed_Fist", h.abandoned)
+    }
+}

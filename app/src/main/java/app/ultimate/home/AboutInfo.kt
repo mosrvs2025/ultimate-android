@@ -62,6 +62,12 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.75.0", listOf(
+            "Air mode teaches you first: a one-minute practice with the real cursor (find your hand, point at a circle, pinch three circles, drag a dot) before the first start, and \"Practise again\" any time.",
+            "No more surprise Home or Back: hand-shape shortcuts are off unless you turn them on, and then the shape must be held still for a full second while a ring fills on the cursor, labelled with what it will do. Moving your hand cancels it.",
+            "Air mode learns your hand as you use it: every shortcut you hold all the way teaches a small on-phone neural network what you mean, and every hold you abandon (or plain pointing around) teaches it what you don't. Shapes it's sure you mean need less holding, down to a third of a second; shapes it's sure you don't mean never start a ring.",
+            "While you get used to it, a tip next to the cursor says what to do next (\"Pinch thumb and finger to tap\"), and goes away after a few taps.",
+        ), tries = listOf("air")),
         Entry("1.74.0", listOf(
             "Air mode: control any app with your hand in the air. A cursor follows your index finger; pinch to tap, pinch and move to scroll, hold the pinch to long-press; open palm goes Back, a fist goes Home, a peace sign shows recent apps.",
             "Start it from Air control: turn on \"Ultimate Air mode\" in Accessibility once (it taps and scrolls for you and reads nothing on screen), then Start. It keeps working in other apps until you tap Stop, there or in its notification.",
