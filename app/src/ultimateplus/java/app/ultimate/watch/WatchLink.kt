@@ -2,6 +2,7 @@ package app.ultimate.watch
 
 import android.content.Context
 import app.ultimate.UltimateApp
+import app.ultimate.air.WatchFeed
 import app.ultimate.air.PhoneActions
 import app.ultimate.air.WatchMessages
 import app.ultimate.health.LiveHeart
@@ -57,6 +58,7 @@ object WatchLink {
         if (text.startsWith("sensors:")) {
             val fresh = WristCalibration.parseSensors(text, now)
             sensors.value = (sensors.value + fresh).filter { now - it.t <= 6_000 }
+            WatchFeed.samples.value = sensors.value
             return
         }
         val m = WatchMessages.parse(text) ?: return

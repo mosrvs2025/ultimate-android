@@ -230,6 +230,7 @@ object SenseNames {
         "watch:twist" to "I twist my wrist (watch)",
         "watch:shake" to "I shake my wrist (watch)",
         "watch:" to "my watch senses any gesture",
+        "studio:" to "Gesture Studio recognises any gesture I taught",
         "air:thumb_up" to "I give a thumbs up to the camera",
         "air:thumb_down" to "I give a thumbs down to the camera",
         "air:open_palm" to "I show an open palm to the camera",
