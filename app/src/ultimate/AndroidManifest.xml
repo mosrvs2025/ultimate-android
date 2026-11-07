@@ -23,6 +23,7 @@
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
@@ -72,6 +73,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application android:requestLegacyExternalStorage="true">
+        <service android:name="app.ultimate.player.PlaybackService" android:exported="true" android:foregroundServiceType="mediaPlayback">
+            <intent-filter><action android:name="androidx.media3.session.MediaSessionService" /></intent-filter>
+        </service>
         <!-- "Open with Ultimate+": a player for any audio, video or picture opened from another app. -->
         <activity android:name="app.ultimate.player.PlayerActivity" android:exported="true" android:theme="@style/Theme.Ultimate" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
             <intent-filter>

@@ -62,6 +62,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.89.0", listOf(
+            "A real media player for anything you open with Ultimate+: album art (or a colour drawn from the track), title and artist, a big play button, a seek bar with times, skip back and forward 10 seconds, the other songs in the same folder as previous and next, repeat one or all, speed, and a sleep timer.",
+            "Music keeps playing when you leave the player or lock the phone, with controls in the notification, on the lock screen and from headphones; it pauses when headphones come out.",
+            "Video plays full screen with tap-to-show controls, and pictures zoom. \"Do more with it\" hands any of them to Ultimate's tools.",
+        ), tries = listOf("files")),
         Entry("1.88.0", listOf(
             "Open with Ultimate+: Ultimate now shows up when you open any audio, video or picture from another app (a downloaded WAV, a video in Files…). It plays right away with seek, speed and loop, shows pictures with pinch to zoom, and \"Do more with it\" hands the file to Ultimate's tools.",
             "One flick is one flick: the smaller swing back as your wrist stops no longer counts as the opposite flick (fixed on the watch, 1.6, and on the phone), so rules fire once.",
