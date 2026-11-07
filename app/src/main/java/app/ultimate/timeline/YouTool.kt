@@ -1,5 +1,6 @@
 package app.ultimate.timeline
 
+import app.ultimate.health.YouToday
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -64,7 +65,7 @@ import kotlinx.coroutines.withContext
 class YouTool(private val app: UltimateApp) : Tool {
     override val id = "timeline"
     override val title = "You"
-    override val tagline = "Your days, your patterns, and what your phone knows"
+    override val tagline = "How you're doing: body, mind, days and what your phone knows"
     override val icon = Icons.Rounded.Face
     override val acceptedMimePrefixes = emptyList<String>()
     override val headline: StateFlow<String> = MutableStateFlow("Everything about you, searchable").asStateFlow()
@@ -78,8 +79,10 @@ class YouTool(private val app: UltimateApp) : Tool {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun YouScreen(app: UltimateApp, query: String?, onExit: () -> Unit) {
-    val tabs = if (BuildConfig.HAS_FOOTPRINT) listOf("Days", "Patterns", "Privacy") else listOf("Days")
-    var tab by remember { mutableIntStateOf(0) }
+    // Today first: body, mind and phone life together.
+    val tabs = if (BuildConfig.HAS_FOOTPRINT) listOf("Today", "Days", "Patterns", "Privacy") else listOf("Today", "Days")
+    // A search lands on Days; otherwise open on Today.
+    var tab by remember { mutableIntStateOf(if (query.isNullOrBlank()) 0 else 1) }
     var aboutMe by remember { mutableStateOf(false) }
     Scaffold(topBar = {
         TopAppBar(title = { Text("You") }, navigationIcon = { ToolBackButton(onExit) }, actions = {
@@ -90,6 +93,7 @@ internal fun YouScreen(app: UltimateApp, query: String?, onExit: () -> Unit) {
         Column(Modifier.padding(pad)) {
             if (tabs.size > 1) GooeyTabs(tabs, tab, { tab = it }, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             when (tabs[tab]) {
+                "Today" -> YouToday(app)
                 "Days" -> TimelineScreen(app, query.orEmpty(), onExit, embedded = true)
                 "Patterns" -> FootprintScreen(app, onExit, part = FootprintPart.Patterns)
                 else -> FootprintScreen(app, onExit, part = FootprintPart.Privacy)

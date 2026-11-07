@@ -234,7 +234,7 @@ private fun Bars(title: String, values: List<Float?>, color: Color) {
 }
 
 /** Each day's screen time and its midnight-to-5am part, from Android's usage log (needs usage access). */
-private fun phoneDays(c: android.content.Context, count: Int = 60): List<PhoneDay> = runCatching {
+internal fun phoneDays(c: android.content.Context, count: Int = 60): List<PhoneDay> = runCatching {
     val st = ScreenTime(c); val now = System.currentTimeMillis()
     val today = UsageMath.startOfDay(now); val from = today - (count - 1) * 86_400_000L
     val events = st.events(from - 3_600_000L, now)

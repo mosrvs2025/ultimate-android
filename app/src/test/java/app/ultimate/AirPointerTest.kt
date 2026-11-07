@@ -468,3 +468,15 @@ class SearchLeftoverTest {
         assertEquals(null, app.ultimate.search.PaletteMath.leftover("notification history"))
     }
 }
+
+class MindCheckTest {
+    @Test fun aRoughNightReadsHeavierThanAGoodOne() {
+        val rough = app.ultimate.health.MindCheck.read(300, 30.0, 50.0, 66, 58.0, 90, 120, 60.0, 0)!!
+        val good = app.ultimate.health.MindCheck.read(480, 60.0, 50.0, 56, 58.0, 0, 40, 60.0, 3)!!
+        assertTrue(rough.load > 75); assertTrue(good.load < 30)
+        assertTrue(rough.factors.none { it.good }); assertTrue(good.factors.all { it.good })
+    }
+    @Test fun nothingKnownSaysNothing() {
+        assertEquals(null, app.ultimate.health.MindCheck.read(null, null, null, null, null, null, null, null, null))
+    }
+}
