@@ -62,6 +62,9 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.82.1", listOf(
+            "Fixes 1.82.0, which was built without its hand and face models (\"Gesture tracking couldn't start … gesture_recognizer.task\") and without Local AI's engine. Everything is back, and builds now refuse to ship without them.",
+        ), tries = listOf("playground")),
         Entry("1.82.0", listOf(
             "Search understands what you mean: \"Play YouTube\" or \"open the YouTube app\" puts YouTube itself on top, instead of searching for the words.",
             "Air control: all five fingertips light up, and a new Both mode tracks your hand and face together from one camera. A ✨ Playground button sits in the top bar.",
