@@ -90,7 +90,7 @@ object RuleParser {
         }
         // Spatial: "when my watch comes close", "when I walk away with my watch", "when I'm at my desk", "when I leave the kitchen".
         hit("\\b(?:my )?watch (?:comes?|gets?|is|moves?) (?:close|closer|near|next to)(?: to)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "spatial:watch_near")) }
-        hit("\\b(?:my )?watch (?:goes|moves|gets) (?:away|far)(?: from)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)|\\bi walk away(?: from (?:the|my) phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "spatial:watch_far")) }
+        hit("\\b(?:my )?watch (?:goes|moves|gets) (?:away|far)(?: from)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)|\\bi walk away with my watch(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "spatial:watch_far")) }
         hit("\\bi(?:'m| am| get| arrive)(?: back)? (?:at|in|to) (?:the |my )?([a-z][a-z ]{1,30}?)(?=,| then | and |$)")?.let { m ->
             add(m, Trigger(TriggerType.Sensed, contains = "spatial:place_" + m.groupValues[1].trim().replace(Regex("[^a-z0-9]+"), "_")))
         }

@@ -68,7 +68,7 @@ object Changelog {
             "Bring the watch close to open the Orb, move it away to close it (turn it on in Spatial). It has to hold for a moment, so passing by doesn't trigger it.",
             "Wi-Fi: the strength of the network you're on, every network you can hear, and a signal map you build by walking (placed by your steps and compass, coloured by strength), with dead zones marked.",
             "Places: save where you spend time (\"Desk\", \"Kitchen\") and Ultimate recognises them by their Wi-Fi fingerprint, with a confidence.",
-            "Rules can use all of it: \"When I'm at my desk, …\", \"When my watch comes close, …\", \"When I walk away, …\". Turn on Keep sensing for rules with the screen off (it shows a notification with Stop).",
+            "Rules can use all of it: \"When I'm at my desk, …\", \"When my watch comes close, …\", \"When my watch moves away, …\". Turn on Keep sensing for rules with the screen off (it shows a notification with Stop).",
             "It checks what your phone really supports (Bluetooth LE, UWB, Wi-Fi ranging, Bluetooth channel sounding) and says so. Everything stays on the phone.",
         ), tries = listOf("spatial")),
         Entry("1.86.0", listOf(
