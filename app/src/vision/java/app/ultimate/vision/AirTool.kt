@@ -326,6 +326,8 @@ class AirTool(private val app: UltimateApp) : Tool {
                         }
                     }
                     TruthTag(Truth.Estimate, Modifier.align(Alignment.TopStart).padding(10.dp))
+                    // The watch's motion along the bottom, so camera and wrist can be read together.
+                    WatchRibbon(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(44.dp))
                     // Hand / Face and the camera flip float on the picture, so they never scroll away.
                     Row(Modifier.align(Alignment.TopEnd).padding(8.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(2.dp),
                         verticalAlignment = Alignment.CenterVertically) {

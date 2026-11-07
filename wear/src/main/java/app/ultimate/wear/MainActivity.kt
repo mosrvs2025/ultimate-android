@@ -84,6 +84,17 @@ private fun WatchScreen(link: PhoneLink) {
         if (context.checkSelfPermission(heartPermission) == android.content.pm.PackageManager.PERMISSION_GRANTED) { shareHeart = true; prefs.edit().putBoolean("share_heart", true).apply() }
         else askHeart.launch(heartPermission)
     }
+    // Proximity beacon: lets the phone feel how close the watch is (Spatial in Ultimate+).
+    var beacon by remember { mutableStateOf(prefs.getBoolean("beacon", false)) }
+    val askBeacon = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+        beacon = ok; prefs.edit().putBoolean("beacon", ok).apply()
+    }
+    LaunchedEffect(beacon) { if (beacon) BeaconService.start(context) else BeaconService.stop(context) }
+    fun toggleBeacon(on: Boolean) {
+        if (!on) { beacon = false; prefs.edit().putBoolean("beacon", false).apply(); return }
+        if (android.os.Build.VERSION.SDK_INT < 31 || context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE) == android.content.pm.PackageManager.PERMISSION_GRANTED) { beacon = true; prefs.edit().putBoolean("beacon", true).apply() }
+        else askBeacon.launch(android.Manifest.permission.BLUETOOTH_ADVERTISE)
+    }
     var calibrated by remember { mutableStateOf(prefs.getString("calibration", null) != null) }
     // The phone asks for the live sensor stream while its Watch screen shows it, and renews the ask every few seconds.
     var streamUntil by remember { mutableStateOf(0L) }
@@ -187,8 +198,12 @@ private fun WatchScreen(link: PhoneLink) {
                 }
             }
             item {
-                ToggleChip(shareHeart, ::toggleHeart, label = { Text("Share heart rate") }, secondaryLabel = { Text(if (shareHeart) "With the phone, while open" else "Off") },
+                ToggleChip(shareHeart, ::toggleHeart, label = { Text("Share heart rate") }, secondaryLabel = { Text(if (shareHeart) "With the phone, every 5 min" else "Off") },
                     toggleControl = { androidx.wear.compose.material.Switch(shareHeart) }, modifier = Modifier.fillMaxWidth())
+            }
+            item {
+                ToggleChip(beacon, ::toggleBeacon, label = { Text("Proximity beacon") }, secondaryLabel = { Text(if (beacon) "Phone can feel how close" else "Off") },
+                    toggleControl = { androidx.wear.compose.material.Switch(beacon) }, modifier = Modifier.fillMaxWidth())
             }
             item {
                 ToggleChip(rightWrist, { rightWrist = it; prefs.edit().putBoolean("right_wrist", it).apply() }, label = { Text("Worn on the right wrist") },

@@ -16,6 +16,18 @@
     <!-- Home search: find people by name. Only asked for when "Search your contacts too" is tapped. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- Spatial (opt-in): Wi-Fi networks heard, your watch's Bluetooth beacon, steps for walking a signal map. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <!-- Recorder keeps recording with the screen off; Teleprompter films with the camera. -->
@@ -64,6 +76,23 @@
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
     <application android:requestLegacyExternalStorage="true">
+        <service android:name="app.ultimate.player.PlaybackService" android:exported="true" android:foregroundServiceType="mediaPlayback">
+            <intent-filter><action android:name="androidx.media3.session.MediaSessionService" /></intent-filter>
+        </service>
+        <!-- "Open with Ultimate+": a player for any audio, video or picture opened from another app. -->
+        <activity android:name="app.ultimate.player.PlayerActivity" android:exported="true" android:theme="@style/Theme.Ultimate" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+        <service android:name="app.ultimate.spatial.SpatialService" android:exported="false" android:foregroundServiceType="connectedDevice|location" />
         <!-- Air mode: the camera watches your hand while you use other apps (started only from Air control, with Stop in its notification). -->
         <service android:name="app.ultimate.vision.AirModeService" android:exported="false" android:foregroundServiceType="camera" />
         <!-- Air mode's cursor and taps, in any app; turned on by you in Settings → Accessibility. -->

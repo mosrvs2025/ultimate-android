@@ -186,6 +186,8 @@ class OrbService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         intent?.getStringExtra(EXTRA_PEEK)?.let { showPeek(it, null) }
+        // Opened or closed from outside, like bringing the watch to the phone (Spatial).
+        when (intent?.action) { BLOOM -> if (orbView != null) bloom(); CLOSE -> bloomClose?.invoke() }
         return START_NOT_STICKY
     }
 
@@ -494,6 +496,8 @@ class OrbService : Service() {
 
     companion object {
         const val EXTRA_PEEK = "peek"
+        const val BLOOM = "app.ultimate.orb.BLOOM"
+        const val CLOSE = "app.ultimate.orb.CLOSE"
         fun on(context: Context) = context.getSharedPreferences("orb", Context.MODE_PRIVATE).getBoolean("on", false)
         fun set(context: Context, on: Boolean) {
             context.getSharedPreferences("orb", Context.MODE_PRIVATE).edit().putBoolean("on", on).apply()
