@@ -441,7 +441,7 @@ internal fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
 
 /** A camera analysed by MediaPipe's face landmarker (with blendshapes) on its own thread; faces go to [out]. */
 @Composable
-private fun FaceCamera(front: Boolean, out: MutableStateFlow<AirTool.FacePose?>) {
+internal fun FaceCamera(front: Boolean, out: MutableStateFlow<AirTool.FacePose?>) {
     val context = LocalContext.current
     var problem by remember { mutableStateOf<String?>(null) }
     val landmarker = remember {

@@ -278,3 +278,42 @@ class FingerShapesTest {
         assertEquals(null, s.feed(hand(listOf(true, true, true, true, true)), 900))
     }
 }
+
+class PlaygroundTest {
+    @Test fun aFingerComingDownThroughTheDeskPlaysTheKeyUnderIt() {
+        val p = app.ultimate.air.DeskPiano()
+        p.setDesk(listOf(0.2f to 0.7f, 0.4f to 0.7f, 0.5f to 0.7f, 0.6f to 0.7f, 0.7f to 0.7f))
+        fun tips(y: Float) = listOf<Pair<Float, Float>?>(null, 0.5f to y, null, null, null)
+        assertTrue(p.feed(tips(0.70f)).isEmpty())         // resting: nothing
+        assertTrue(p.feed(tips(0.62f)).isEmpty())         // lift
+        assertEquals(listOf(p.keyAt(0.5f)), p.feed(tips(0.70f)))  // down: plays
+        assertTrue(p.feed(tips(0.71f)).isEmpty())         // staying down doesn't repeat
+        assertTrue(p.feed(tips(0.675f)).isEmpty())        // a small wobble isn't a new press
+        assertTrue(p.feed(tips(0.70f)).isEmpty())
+    }
+
+    @Test fun fingersPlayIndependently() {
+        val p = app.ultimate.air.DeskPiano()
+        p.setDesk(List(5) { 0.5f to 0.7f })
+        p.feed(listOf(0.1f to 0.6f, null, 0.5f to 0.6f, null, 0.9f to 0.6f))
+        assertEquals(listOf(0, 4, 7), p.feed(listOf(0.1f to 0.7f, null, 0.5f to 0.7f, null, 0.9f to 0.7f)))
+    }
+
+    @Test fun pinchDrawsAndOpeningLifts() {
+        val c = app.ultimate.air.AirCanvas()
+        c.feed(0.1f, 0.1f, 0.8f, 1); assertEquals(0, c.strokes.size)
+        c.feed(0.1f, 0.1f, 0.2f, 1); c.feed(0.2f, 0.2f, 0.2f, 1); c.feed(0.3f, 0.3f, 0.6f, 1)
+        assertEquals(1, c.strokes.size); assertEquals(2, c.strokes[0].points.size)
+    }
+
+    @Test fun faceDrawingsFollowTheFace() {
+        fun face(ox: Float, scale: Float): List<Pair<Float, Float>> = MutableList(468) { 0f to 0f }.also {
+            it[1] = ox to 0.5f; it[234] = ox - scale / 2 to 0.5f; it[454] = ox + scale / 2 to 0.5f
+        }
+        val f1 = app.ultimate.air.FaceFrame.of(face(0.5f, 0.2f))!!
+        val (u, v) = app.ultimate.air.FaceFrame.toFace(f1, 0.55f, 0.55f)   // on the right cheek
+        val f2 = app.ultimate.air.FaceFrame.of(face(0.3f, 0.4f))!!          // moved left and came closer
+        val (x, y) = app.ultimate.air.FaceFrame.toPicture(f2, u, v)
+        assertEquals(0.4f, x, 1e-4f); assertEquals(0.6f, y, 1e-4f)
+    }
+}

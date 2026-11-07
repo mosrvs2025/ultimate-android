@@ -62,6 +62,12 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.79.0", listOf(
+            "New: Playground, the camera as a toy, kept apart from Air control so nothing fires by accident.",
+            "🎹 Desk piano: point the back camera down at your desk, rest your fingertips and tap Set the desk. A keyboard (C to C) appears along it; lift a finger and bring it down to play the key under it. All five fingertips play on their own, with a piano sound made on the phone.",
+            "✏️ Air draw: pinch thumb and index to put the pen down, move to draw glowing lines in the air, open to lift. Pick colours, undo, clear.",
+            "😎 Face fun: stickers that sit on your face (crown, shades, dog, cat, butterfly…), and paint on your face with your finger on the screen; it stays on your cheek as you move, tilt or come closer.",
+        ), tries = listOf("playground")),
         Entry("1.78.0", listOf(
             "Home, rearranged: search sits right under the title, then today's live picture (photos, screen time, what's running, your senses), then your tools in more compact tiles, so the live stuff is the first thing you see.",
             "Air control, tidied: one compact bar (Start Air mode, gestures on or off, and ⓘ for how it works) instead of three stacked cards; the camera stays pinned at the top with Hand / Face and the camera flip floating on it; what each gesture does is a clean list in groups (Navigation, Media, System), each a tap to change.",
