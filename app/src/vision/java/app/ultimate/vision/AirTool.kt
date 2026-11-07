@@ -281,6 +281,7 @@ class AirTool(private val app: UltimateApp) : Tool {
                         AirModeCard(false, onStart = { info = false; tryStart() }, onPractice = { info = false; practicing = true }, onStop = { AirBridge.stop(context) })
                         Text("Gestures act: off, this screen only shows what each gesture would do. On, gestures control the phone and trigger Rules (\"When I give a thumbs up, …\") until you leave.",
                             style = MaterialTheme.typography.bodyMedium)
+                        RecordForTraining()
                         Text("Works best in good light with your whole hand in view, up to about 2-3 m. Frames are looked at and dropped, never saved.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -372,6 +373,40 @@ class AirTool(private val app: UltimateApp) : Tool {
     companion object {
         /** The hand's bones, as pairs of MediaPipe landmark numbers. */
         val BONES = listOf(0 to 1, 1 to 2, 2 to 3, 3 to 4, 0 to 5, 5 to 6, 6 to 7, 7 to 8, 5 to 9, 9 to 10, 10 to 11, 11 to 12, 9 to 13, 13 to 14, 14 to 15, 15 to 16, 13 to 17, 0 to 17, 17 to 18, 18 to 19, 19 to 20)
+    }
+}
+
+/**
+ * Recording for training your own model: a switch, how much is kept, and Export to send it as one zip. Only hand
+ * points, the pinch, the watch's motion and what you did are kept; never pictures.
+ */
+@Composable
+private fun RecordForTraining() {
+    val context = LocalContext.current
+    var on by remember { mutableStateOf(AirBridge.recordOn(context)) }
+    val rec = remember { AirBridge.recorder(context) }
+    var size by remember { mutableStateOf(rec.bytes()) }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Record for training", fontWeight = FontWeight.SemiBold)
+                Text("While Air mode runs, keep your hand points, pinches, watch motion and what you did (no pictures), to train a model made for you. Stays on the phone until you export it.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(on, { on = it; AirBridge.setRecord(context, it) })
+        }
+        if (size > 0) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("%.1f MB recorded, %d sessions".format(size / 1e6, rec.sessions().size), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+            androidx.compose.material3.FilledTonalButton({
+                val out = java.io.File(context.cacheDir, "senses").apply { mkdirs() }.let { java.io.File(it, "ultimate-senses-${System.currentTimeMillis()}.zip") }
+                rec.export(out)?.let { f ->
+                    val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", f)
+                    context.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/zip")
+                        .putExtra(android.content.Intent.EXTRA_STREAM, uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), "Send recordings").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            }) { Text("Export") }
+            androidx.compose.material3.TextButton({ rec.deleteAll(); size = 0 }) { Text("Delete") }
+        }
     }
 }
 

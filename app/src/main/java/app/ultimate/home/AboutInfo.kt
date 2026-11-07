@@ -63,6 +63,7 @@ object Changelog {
 
     val entries = listOf(
         Entry("1.80.0", listOf(
+            "Record for training (Air mode ⓘ): when you turn it on, Air mode keeps your hand points, pinches, watch motion and what you did (never pictures) so a model can be trained just for you. Export sends it all as one zip; it's capped at 50 MB and deletable any time.",
             "Made for tablets too: on a big screen (like a Galaxy Tab) Home shows your tools three to five to a row instead of stretching two, Air control puts the camera and its controls side by side, and Files lays its categories out in three columns.",
         )),
         Entry("1.79.0", listOf(
