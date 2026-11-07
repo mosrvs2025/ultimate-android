@@ -8,26 +8,43 @@ import kotlin.math.hypot
  * before it can play again, so resting on a key doesn't repeat it. The camera sees the desk from above (picture
  * coordinates, 0..1, y down). Pure, so it is tested.
  */
-class DeskPiano(val keys: Int = 8, private val left: Float = 0.06f, private val right: Float = 0.94f, private val lift: Float = 0.035f) {
-    /** Where the desk is in the picture (y), once set. */
+class DeskPiano(val keys: Int = 8, private val left: Float = 0.06f, private val right: Float = 0.94f, private val lift: Float = 0.035f,
+                private val minSpeed: Float = 0.004f) {
+    /** Where the desk is in the picture (y), once set; in pad mode, the lowest finger's rest. */
     var line: Float? = null; private set
+    /** Pad mode: each finger plays its own note, on a pad where that finger rests (x, y), thumb first. */
+    var pads: List<Pair<Float, Float>>? = null; private set
     private val armed = BooleanArray(5)
+    private val lastY = FloatArray(5) { Float.NaN }
 
-    /** Sets the desk from fingertips resting on it: the line sits just above where they rest. */
-    fun setDesk(tips: List<Pair<Float, Float>>) { line = tips.map { it.second }.sorted().let { it[it.size / 2] } - 0.01f; armed.fill(false) }
+    /** Sets the desk from fingertips resting on it. In [padMode], each finger gets a pad right where it rests. */
+    fun setDesk(tips: List<Pair<Float, Float>>, padMode: Boolean = false) {
+        line = tips.map { it.second }.sorted().let { it[it.size / 2] } - 0.01f
+        pads = if (padMode) tips.take(5) else null
+        armed.fill(false); lastY.fill(Float.NaN)
+    }
 
     /** Which key is under picture position [x], or null off the keyboard. */
     fun keyAt(x: Float): Int? = ((x - left) / (right - left) * keys).toInt().takeIf { x in left..right }?.coerceIn(0, keys - 1)
 
-    /** Feeds the five fingertips (thumb first, null when not seen); returns the keys struck now. */
+    /**
+     * Feeds the five fingertips (thumb first, null when not seen); returns the keys struck now. A strike is a finger
+     * that lifted clearly, then came down to the desk while moving down (a tap), not one that drifted there.
+     */
     fun feed(tips: List<Pair<Float, Float>?>): List<Int> {
         val l = line ?: return emptyList()
         val out = ArrayList<Int>()
         tips.forEachIndexed { i, t ->
             if (i >= 5) return@forEachIndexed
-            if (t == null) { armed[i] = false; return@forEachIndexed }
-            if (t.second < l - lift) armed[i] = true
-            else if (armed[i] && t.second >= l) { armed[i] = false; keyAt(t.first)?.let(out::add) }
+            if (t == null) { armed[i] = false; lastY[i] = Float.NaN; return@forEachIndexed }
+            val desk = pads?.getOrNull(i)?.second ?: l
+            val speed = if (lastY[i].isNaN()) 0f else t.second - lastY[i]
+            lastY[i] = t.second
+            if (t.second < desk - lift) armed[i] = true
+            else if (armed[i] && t.second >= desk - lift * 0.3f && speed >= minSpeed) {
+                armed[i] = false
+                (if (pads != null) i else keyAt(t.first))?.let(out::add)
+            }
         }
         return out
     }
@@ -95,7 +112,7 @@ object FaceFrame {
  * Each move is measured against your own resting face, which it keeps learning while you're still, and holding a
  * move repeats it slowly so long lists are quick. Pure, so it is tested.
  */
-class FaceNavigator(private val margin: Float = 0.3f, private val selectMs: Long = 700, private val backMs: Long = 900,
+class FaceNavigator(private val margin: Float = 0.18f, private val nodMargin: Float = 0.06f, private val selectMs: Long = 700, private val backMs: Long = 900,
                     private val repeatMs: Long = 700, private val gapMs: Long = 350) {
     enum class Move { Up, Down, Select, Back }
     private val rest = HashMap<String, Float>()
@@ -105,19 +122,32 @@ class FaceNavigator(private val margin: Float = 0.3f, private val selectMs: Long
     private var done = false
     /** What's being held right now and how far along a hold-to-choose is (0..1), for the screen to show. */
     var holding: Pair<String, Float>? = null; private set
+    /** How close each move is to counting (0..1): "up", "down", "select", "back", for live meters. */
+    var levels: Map<String, Float> = emptyMap(); private set
 
-    fun feed(scores: Map<String, Float>, now: Long): Move? {
+    /**
+     * [pitch] is optional: how far the nose sits between the eyes and the chin (from the face mesh). Tilting the head
+     * back or forward moves it, so nodding scrolls too.
+     */
+    fun feed(scores: Map<String, Float>, now: Long, pitch: Float? = null): Move? {
         fun s(n: String) = scores[n] ?: 0f
-        val raw = mapOf(
-            "up" to maxOf((s("browInnerUp") + (s("browOuterUpLeft") + s("browOuterUpRight")) / 2) / 2, (s("eyeLookUpLeft") + s("eyeLookUpRight")) / 2),
-            "down" to maxOf((s("browDownLeft") + s("browDownRight")) / 2, (s("eyeLookDownLeft") + s("eyeLookDownRight")) / 2),
+        val raw = HashMap<String, Float>().apply {
+            put("brow_up", maxOf((s("browInnerUp") + (s("browOuterUpLeft") + s("browOuterUpRight")) / 2) / 2, (s("eyeLookUpLeft") + s("eyeLookUpRight")) / 2))
+            put("brow_down", maxOf((s("browDownLeft") + s("browDownRight")) / 2, (s("eyeLookDownLeft") + s("eyeLookDownRight")) / 2))
             // Mouth open or tongue out: either chooses.
-            "select" to maxOf(s("jawOpen"), s("tongueOut")),
-            "back" to minOf(s("eyeBlinkLeft"), s("eyeBlinkRight")),
-        )
-        // Above your resting level by the margin counts; eyes closed is judged on the raw score (they rest open).
-        val on = raw.filter { (k, v) -> if (k == "back") v > 0.6f else v - (rest[k] ?: v) > margin }.maxByOrNull { (k, v) -> v - (rest[k] ?: 0f) }?.key
-        raw.forEach { (k, v) -> if (k != on) rest[k] = rest[k]?.let { it + 0.03f * (v - it) } ?: v }
+            put("select", maxOf(s("jawOpen"), s("tongueOut")))
+            put("back", minOf(s("eyeBlinkLeft"), s("eyeBlinkRight")))
+            if (pitch != null) { put("nod_up", -pitch); put("nod_down", pitch) }
+        }
+        // How far above your resting level each one is, as a share of what counts.
+        fun over(k: String, v: Float) = if (k == "back") ((v - 0.3f) / 0.3f) else (v - (rest[k] ?: v)) / (if (k.startsWith("nod")) nodMargin else margin)
+        val share = raw.mapValues { (k, v) -> over(k, v) }
+        val chan = mapOf("up" to listOf("brow_up", "nod_up"), "down" to listOf("brow_down", "nod_down"), "select" to listOf("select"), "back" to listOf("back"))
+        val lv = chan.mapValues { (_, ks) -> ks.maxOf { share[it] ?: 0f }.coerceIn(0f, 1f) }
+        levels = lv
+        val on = lv.filter { it.value >= 1f }.maxByOrNull { it.value }?.key
+        // Keep learning the resting face from channels that aren't being used right now.
+        raw.forEach { (k, v) -> if (chan[on]?.contains(k) != true) rest[k] = rest[k]?.let { it + 0.03f * (v - it) } ?: v }
         if (on != active) { active = on; since = now; done = false }
         val held = now - since
         holding = when (on) { "select" -> on to (held.toFloat() / selectMs).coerceAtMost(1f); "back" -> on to (held.toFloat() / backMs).coerceAtMost(1f); null -> null; else -> on to 1f }
@@ -129,6 +159,15 @@ class FaceNavigator(private val margin: Float = 0.3f, private val selectMs: Long
         } ?: return null
         done = true; lastMove = now
         return move
+    }
+
+    companion object {
+        /** Where the nose tip sits between the eyes and the chin (0..1); tilting the head back makes it smaller. */
+        fun pitch(points: List<Pair<Float, Float>>): Float? {
+            if (points.size < 400) return null
+            val eyes = (points[33].second + points[263].second) / 2; val chin = points[152].second
+            return ((points[1].second - eyes) / (chin - eyes).coerceAtLeast(1e-3f))
+        }
     }
 }
 

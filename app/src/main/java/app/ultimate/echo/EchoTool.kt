@@ -285,7 +285,7 @@ private fun DistanceView(tool: EchoTool) {
     if (state is SonarState.Off) farthest = 0.0
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         androidx.compose.material3.SecondaryTabRow(view) {
-            listOf("Reach", "Echogram", "Space", "Spectrum").forEachIndexed { i, t -> androidx.compose.material3.Tab(view == i, { view = i }, text = { Text(t) }) }
+            listOf("Reach", "Echogram", "Space", "Spectrum").forEachIndexed { i, t -> androidx.compose.material3.Tab(view == i, { view = i }, text = { Text(t, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge) }) }
         }
         val mod = Modifier.fillMaxWidth().height(280.dp)
         when (view) {

@@ -111,6 +111,8 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         var mode by remember { mutableIntStateOf(if (launch.query == "call" && context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEPHONY)) 3 else 0) }
         val view = LocalView.current
         DisposableEffect(Unit) { view.keepScreenOn = true; onDispose { view.keepScreenOn = false } }
+        var ring by remember { mutableStateOf(false) }
+        androidx.compose.foundation.layout.Box {
         Scaffold(topBar = { TopAppBar(title = { Text("Playground") }, navigationIcon = { ToolBackButton(onExit) }) }) { pad ->
             Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (!allowed) {
@@ -127,8 +129,11 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = if (mode == i) FontWeight.SemiBold else null)
                     }
                 }
+                DarkHint(ring) { ring = !ring }
                 when (mode) { 0 -> Piano(); 1 -> Draw(); 2 -> FaceFun(); else -> FaceCall() }
             }
+        }
+        RingLight(ring)
         }
     }
 
@@ -141,19 +146,32 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         DisposableEffect(Unit) { onDispose { synth.release() } }
         val lit = remember { mutableStateListOf<Pair<Int, Long>>() }
         var line by remember { mutableStateOf<Float?>(null) }
+        // Finger pads (each finger its own note, where it rests) or a keyboard along the desk.
+        var padMode by remember { mutableStateOf(true) }
+        val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
         fun x(p: Pair<Float, Float>) = if (front) 1 - p.first else p.first
         LaunchedEffect(pose) {
             val h = pose ?: run { piano.feed(List(5) { null }); return@LaunchedEffect }
-            piano.feed(DeskPiano.TIPS.map { x(h.points[it]) to h.points[it].second }).forEach { k -> synth.play(k); lit += k to System.currentTimeMillis() }
+            piano.feed(DeskPiano.TIPS.map { x(h.points[it]) to h.points[it].second }).forEach { k -> synth.play(k); lit += k to System.currentTimeMillis(); haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove) }
             lit.removeAll { System.currentTimeMillis() - it.second > 250 }
         }
-        Text(if (line == null) "Point the back camera down at your desk, rest your fingertips on it, then tap Set the desk." else "Lift a finger and bring it down onto a key. Each fingertip plays on its own.",
+        Text(if (line == null) "Point the camera down at your desk, rest all five fingertips on it, then tap Set the desk." else if (padMode) "Each finger has its own note right where it rests: tap a finger down to play it (thumb C, index D, middle E, ring F, little G)." else "Lift a finger and tap it down onto a key.",
             style = MaterialTheme.typography.bodyMedium)
         Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
             androidx.compose.runtime.key(front) { GestureCamera(front, hand) }
             Canvas(Modifier.fillMaxSize()) {
                 val l = line
-                if (l != null) {
+                val now0 = System.currentTimeMillis()
+                piano.pads?.let { pads ->
+                    pads.forEachIndexed { i, (px, py) ->
+                        val on = lit.any { it.first == i && now0 - it.second < 250 }
+                        val c = Offset(px * size.width, py * size.height)
+                        drawCircle(if (on) Color(0xFF7FD3FF) else Color.White.copy(alpha = 0.25f), 34.dp.toPx() * (if (on) 1.25f else 1f), c)
+                        drawCircle(Color.White, 34.dp.toPx(), c, style = Stroke(3f))
+                        drawContext.canvas.nativeCanvas.drawText(DeskPiano.NAMES[i], c.x, c.y + 10.dp.toPx(), android.graphics.Paint().apply { color = android.graphics.Color.WHITE; textSize = 26.sp.toPx(); textAlign = android.graphics.Paint.Align.CENTER; isFakeBoldText = true })
+                    }
+                }
+                if (l != null && piano.pads == null) {
                     val left = 0.06f * size.width; val w = 0.88f * size.width / piano.keys
                     val top = l * size.height; val h = 0.16f * size.height
                     val now = System.currentTimeMillis()
@@ -165,15 +183,16 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                 }
                 pose?.let { h -> DeskPiano.TIPS.forEach { t -> drawCircle(Color(0xFFFF8A5C), 10.dp.toPx(), Offset(x(h.points[t]) * size.width, h.points[t].second * size.height)) } }
             }
-            if (line != null) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp)) {
+            if (line != null && piano.pads == null) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp)) {
                 DeskPiano.NAMES.forEach { Text(it, Modifier.weight(1f), color = Color.Black, textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontSize = 12.sp) }
             }
             IconButton({ front = !front }, Modifier.align(Alignment.TopEnd).padding(6.dp)) { Icon(Icons.Rounded.Cameraswitch, "Switch camera", tint = Color.White) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button({ pose?.let { h -> piano.setDesk(DeskPiano.TIPS.map { x(h.points[it]) to h.points[it].second }); line = piano.line } }, enabled = pose != null) {
+            Button({ pose?.let { h -> piano.setDesk(DeskPiano.TIPS.map { x(h.points[it]) to h.points[it].second }, padMode); line = piano.line } }, enabled = pose != null) {
                 Text(if (line == null) "Set the desk" else "Set it again")
             }
+            androidx.compose.material3.FilterChip(padMode, { padMode = !padMode; line = null }, { Text(if (padMode) "Finger pads" else "Keyboard") })
             if (pose == null) Text("Show the camera your hand", Modifier.align(Alignment.CenterVertically), style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -182,6 +201,10 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
     private fun ColumnScope.Draw() {
         val pose by hand.collectAsState()
         val canvas = remember { AirCanvas() }
+        // Drawn on your face: kept in face coordinates, so it moves, tilts and scales with your head.
+        val onFace = remember { AirCanvas() }
+        var lockToFace by remember { mutableStateOf(true) }
+        val fpose by face.collectAsState()
         var tick by remember { mutableIntStateOf(0) }
         val colors = listOf(0xFF7FD3FF, 0xFFFF8A5C, 0xFF3DDC97, 0xFFFFC857, 0xFFE25CFF, 0xFFFFFFFF)
         var color by remember { mutableStateOf(colors[0]) }
@@ -189,26 +212,34 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
             val h = pose ?: run { canvas.lost(); return@LaunchedEffect }
             val p = h.points
             val gap = hypot(p[4].first - p[8].first, p[4].second - p[8].second) / hypot(p[0].first - p[9].first, p[0].second - p[9].second).coerceAtLeast(1e-3f)
-            canvas.feed(1 - p[8].first, p[8].second, gap, color); tick++
+            val fr = fpose?.takeIf { lockToFace && System.currentTimeMillis() - it.at < 400 }?.let { FaceFrame.of(it.points) }
+            if (fr != null) { val (u, v) = FaceFrame.toFace(fr, p[8].first, p[8].second); onFace.feed(u, v, gap, color); canvas.lost() }
+            else { canvas.feed(1 - p[8].first, p[8].second, gap, color); onFace.lost() }
+            tick++
         }
-        Text("Pinch thumb and index together to put the pen down, move to draw, open to lift it.", style = MaterialTheme.typography.bodyMedium)
+        Text("Pinch thumb and index together to put the pen down, move to draw, open to lift it." + if (lockToFace) " Drawing sticks to your face." else "", style = MaterialTheme.typography.bodyMedium)
         Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
-            GestureCamera(true, hand)
+            HolisticCamera(true, hand, face)
             Canvas(Modifier.fillMaxSize()) {
                 tick.let { }
-                canvas.strokes.forEach { s ->
-                    if (s.points.size < 2) return@forEach
-                    val path = Path().apply { s.points.forEachIndexed { i, (x, y) -> if (i == 0) moveTo(x * size.width, y * size.height) else lineTo(x * size.width, y * size.height) } }
-                    drawPath(path, Color(s.color).copy(alpha = 0.35f), style = Stroke(22f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-                    drawPath(path, Color(s.color), style = Stroke(8f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                fun neon(pts: List<Offset>, c: Long) {
+                    if (pts.size < 2) return
+                    val path = Path().apply { pts.forEachIndexed { i, o -> if (i == 0) moveTo(o.x, o.y) else lineTo(o.x, o.y) } }
+                    drawPath(path, Color(c).copy(alpha = 0.35f), style = Stroke(22f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    drawPath(path, Color(c), style = Stroke(8f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                }
+                canvas.strokes.forEach { s -> neon(s.points.map { (x, y) -> Offset(x * size.width, y * size.height) }, s.color) }
+                fpose?.takeIf { System.currentTimeMillis() - it.at < 500 }?.let { FaceFrame.of(it.points) }?.let { fr ->
+                    onFace.strokes.forEach { s -> neon(s.points.map { (u, v) -> FaceFrame.toPicture(fr, u, v).let { (x, y) -> Offset((1 - x) * size.width, y * size.height) } }, s.color) }
                 }
                 pose?.let { h -> drawCircle(if (canvas.drawing) Color(color) else Color.White, 12.dp.toPx(), Offset((1 - h.points[8].first) * size.width, h.points[8].second * size.height), style = if (canvas.drawing) androidx.compose.ui.graphics.drawscope.Fill else Stroke(4f)) }
             }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             colors.forEach { c -> Box(Modifier.size(32.dp).clip(RoundedCornerShape(16.dp)).background(Color(c)).clickable { color = c }.then(if (c == color) Modifier.padding(4.dp) else Modifier)) }
-            OutlinedButton({ canvas.undo(); tick++ }) { Text("Undo") }
-            FilledTonalButton({ canvas.clear(); tick++ }) { Text("Clear") }
+            androidx.compose.material3.FilterChip(lockToFace, { lockToFace = !lockToFace }, { Text(if (lockToFace) "📌 On my face" else "🌐 On the screen") })
+            OutlinedButton({ if (lockToFace) onFace.undo() else canvas.undo(); tick++ }) { Text("Undo") }
+            FilledTonalButton({ canvas.clear(); onFace.clear(); tick++ }) { Text("Clear") }
         }
     }
 
@@ -232,10 +263,11 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         var at by remember { mutableIntStateOf(0) }
         var calling by remember { mutableStateOf<Pair<Callee, Long>?>(null) }
         var hold by remember { mutableStateOf<Pair<String, Float>?>(null) }
+        var levels by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
         val list = androidx.compose.foundation.lazy.rememberLazyListState()
         LaunchedEffect(f) {
             val face = f ?: return@LaunchedEffect
-            val move = nav.feed(face.scores, face.at); hold = nav.holding
+            val move = nav.feed(face.scores, face.at, FaceNavigator.pitch(face.points)); hold = nav.holding; levels = nav.levels
             val c = calling
             if (c != null) { if (move == FaceNavigator.Move.Back || move == FaceNavigator.Move.Up) calling = null; return@LaunchedEffect }
             when (move) {
@@ -254,15 +286,24 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
             val direct = context.checkSelfPermission(Manifest.permission.CALL_PHONE) == android.content.pm.PackageManager.PERMISSION_GRANTED
             runCatching { context.startActivity(android.content.Intent(if (direct) android.content.Intent.ACTION_CALL else android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:" + android.net.Uri.encode(who.number))).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.size(width = 96.dp, height = 128.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black)) { FaceCamera(true, face) }
-            Column(Modifier.weight(1f)) {
-                Text("🤨 Eyebrows up or look up: up", style = MaterialTheme.typography.bodySmall)
-                Text("😠 Eyebrows down or look down: down", style = MaterialTheme.typography.bodySmall)
-                Text("😮 or 😛 Hold your mouth open or stick your tongue out: call", style = MaterialTheme.typography.bodySmall)
-                Text("😌 Close your eyes a moment: cancel", style = MaterialTheme.typography.bodySmall)
-                hold?.let { (what, p) -> if (what == "select" || what == "back") androidx.compose.material3.LinearProgressIndicator({ p }, Modifier.fillMaxWidth().padding(top = 4.dp)) }
-                if (f == null) Text("Look at the camera", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelLarge)
+        // A live view of your face with its mesh, and a meter for each move, so you can see what the camera reads.
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(width = 120.dp, height = 160.dp).clip(RoundedCornerShape(20.dp)).background(Color.Black)) {
+                FaceCamera(true, face)
+                f?.let { ff -> Canvas(Modifier.fillMaxSize()) { ff.points.forEachIndexed { i, p -> if (i % 3 == 0) drawCircle(Color(0xFF7FD3FF).copy(alpha = 0.7f), 1.5f, Offset((1 - p.first) * size.width, p.second * size.height)) } } }
+                if (f == null) Text("Look here", Modifier.align(Alignment.Center), color = Color.White, style = MaterialTheme.typography.labelLarge)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(Triple("up", "🤨 Up", "eyebrows up, look up or tilt back"), Triple("down", "😠 Down", "eyebrows down, look down or nod"),
+                    Triple("select", "😮 Call", "hold mouth open or tongue out"), Triple("back", "😌 Cancel", "close your eyes")).forEach { (k, name, how) ->
+                    val lv = levels[k] ?: 0f
+                    val holdP = hold?.takeIf { it.first == k && (k == "select" || k == "back") }?.second
+                    Column {
+                        Row { Text(name, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, fontWeight = if (lv >= 1f) FontWeight.Bold else null); Text(how, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        androidx.compose.material3.LinearProgressIndicator({ holdP ?: lv }, Modifier.fillMaxWidth().padding(top = 2.dp),
+                            color = if (lv >= 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+                    }
+                }
             }
         }
         calling?.let { (who, since) ->
@@ -295,9 +336,22 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         // Finger-paint by touching the screen; each point is kept relative to your face, so it moves with you.
         val strokes = remember { mutableStateListOf<MutableList<Pair<Float, Float>>>() }
         var tick by remember { mutableIntStateOf(0) }
-        Text("Pick a sticker, or paint on your face with your finger on the screen. It stays on as you move.", style = MaterialTheme.typography.bodyMedium)
+        // Pinch in the air to paint on your face too, not only with a finger on the screen.
+        val hp by hand.collectAsState()
+        val pen = remember { AirCanvas() }
+        LaunchedEffect(hp) {
+            val h = hp ?: run { pen.lost(); return@LaunchedEffect }
+            val fr = face.value?.let { FaceFrame.of(it.points) } ?: return@LaunchedEffect
+            val p = h.points
+            val gap = hypot(p[4].first - p[8].first, p[4].second - p[8].second) / hypot(p[0].first - p[9].first, p[0].second - p[9].second).coerceAtLeast(1e-3f)
+            val was = pen.strokes.size
+            val (u, v) = FaceFrame.toFace(fr, p[8].first, p[8].second)
+            pen.feed(u, v, gap, 0xFFE25CFF)
+            if (pen.drawing) { if (pen.strokes.size != was) strokes += mutableListOf<Pair<Float, Float>>(); strokes.lastOrNull()?.add(u to v); tick++ }
+        }
+        Text("Pick a sticker. Paint on your face by pinching in the air, or with your finger on the screen. It stays on as you move.", style = MaterialTheme.typography.bodyMedium)
         Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
-            FaceCamera(true, face)
+            HolisticCamera(true, hand, face)
             Canvas(Modifier.fillMaxSize().pointerInput(Unit) {
                 detectDragGestures(onDragStart = { o ->
                     val fr = face.value?.let { FaceFrame.of(it.points) } ?: return@detectDragGestures
@@ -321,6 +375,7 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                 drawContext.canvas.nativeCanvas.drawText(emoji, o.x, o.y + px / 3, android.graphics.Paint().apply { textSize = px; textAlign = android.graphics.Paint.Align.CENTER })
             }
             if (f == null) Text("Look at the camera", Modifier.align(Alignment.BottomCenter).padding(12.dp), color = Color.White)
+            hp?.let { h -> Canvas(Modifier.fillMaxSize()) { drawCircle(if (pen.drawing) Color(0xFFE25CFF) else Color.White, 10.dp.toPx(), Offset((1 - h.points[8].first) * size.width, h.points[8].second * size.height), style = if (pen.drawing) androidx.compose.ui.graphics.drawscope.Fill else Stroke(4f)) } }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             stickers.forEachIndexed { i, (e, _) ->
