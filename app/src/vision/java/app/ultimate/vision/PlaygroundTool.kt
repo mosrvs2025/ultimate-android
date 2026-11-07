@@ -259,7 +259,7 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
             Column(Modifier.weight(1f)) {
                 Text("🤨 Eyebrows up or look up: up", style = MaterialTheme.typography.bodySmall)
                 Text("😠 Eyebrows down or look down: down", style = MaterialTheme.typography.bodySmall)
-                Text("😮 Hold your mouth open: call", style = MaterialTheme.typography.bodySmall)
+                Text("😮 or 😛 Hold your mouth open or stick your tongue out: call", style = MaterialTheme.typography.bodySmall)
                 Text("😌 Close your eyes a moment: cancel", style = MaterialTheme.typography.bodySmall)
                 hold?.let { (what, p) -> if (what == "select" || what == "back") androidx.compose.material3.LinearProgressIndicator({ p }, Modifier.fillMaxWidth().padding(top = 4.dp)) }
                 if (f == null) Text("Look at the camera", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelLarge)

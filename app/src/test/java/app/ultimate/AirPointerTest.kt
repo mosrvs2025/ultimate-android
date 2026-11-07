@@ -372,3 +372,26 @@ class SenseRecorderTest {
         zip.delete(); dir.deleteRecursively()
     }
 }
+
+class TongueDetectorTest {
+    private fun face(): List<Pair<Float, Float>> = MutableList(468) { 0.5f to 0.5f }.also {
+        it[17] = 0.5f to 0.6f; it[152] = 0.5f to 0.8f; it[61] = 0.42f to 0.55f; it[291] = 0.58f to 0.55f
+        it[50] = 0.35f to 0.45f; it[280] = 0.65f to 0.45f
+    }
+    private val skin = (220 shl 16) or (170 shl 8) or 140
+    private val tongue = (225 shl 16) or (90 shl 8) or 110
+
+    @Test fun aPinkStripBelowTheLipIsATongue() {
+        val d = app.ultimate.air.TongueDetector()
+        repeat(20) { assertTrue(d.feed(face()) { _, _ -> skin } < 0.1f) }
+        val out = d.feed(face()) { _, y -> if (y in 0.62f..0.7f) tongue else skin }
+        assertTrue("level $out", out > 0.8f)
+    }
+
+    @Test fun evenLightingChangesDontLookLikeATongue() {
+        val d = app.ultimate.air.TongueDetector()
+        repeat(20) { d.feed(face()) { _, _ -> skin } }
+        val warm = (240 shl 16) or (160 shl 8) or 120
+        assertTrue(d.feed(face()) { _, _ -> warm } < 0.2f)
+    }
+}

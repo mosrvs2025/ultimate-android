@@ -497,15 +497,22 @@ internal fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
 internal fun FaceCamera(front: Boolean, out: MutableStateFlow<AirTool.FacePose?>) {
     val context = LocalContext.current
     var problem by remember { mutableStateOf<String?>(null) }
+    val tongue = remember { app.ultimate.air.TongueDetector() }
     val landmarker = remember {
         runCatching {
             FaceLandmarker.createFromOptions(context, FaceLandmarker.FaceLandmarkerOptions.builder()
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath("face_landmarker.task").build())
                 .setRunningMode(RunningMode.LIVE_STREAM).setNumFaces(1).setOutputFaceBlendshapes(true)
-                .setResultListener { result, _ ->
+                .setResultListener { result, image ->
                     val lm = result.faceLandmarks().firstOrNull()
                     if (lm == null) { out.value = null; return@setResultListener }
-                    val scores = result.faceBlendshapes().orElse(null)?.firstOrNull()?.associate { it.categoryName() to it.score() }.orEmpty()
+                    var scores = result.faceBlendshapes().orElse(null)?.firstOrNull()?.associate { it.categoryName() to it.score() }.orEmpty()
+                    // The tracker has no tongue, so look at the picture for one.
+                    runCatching {
+                        val bmp = com.google.mediapipe.framework.image.BitmapExtractor.extract(image)
+                        val level = tongue.feed(lm.map { it.x() to it.y() }) { x, y -> bmp.getPixel((x * bmp.width).toInt().coerceIn(0, bmp.width - 1), (y * bmp.height).toInt().coerceIn(0, bmp.height - 1)) }
+                        scores = scores + ("tongueOut" to level)
+                    }
                     out.value = AirTool.FacePose(lm.map { it.x() to it.y() }, scores, System.currentTimeMillis())
                 }
                 .setErrorListener { e -> out.value = null; problem = e.message }.build())

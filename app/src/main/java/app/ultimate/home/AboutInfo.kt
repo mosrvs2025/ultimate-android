@@ -62,6 +62,9 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.81.0", listOf(
+            "😛 Tongue out, seen by the camera: the face tracker has no tongue, so Ultimate looks at the picture just below your lower lip for it, against your own skin in the same light. It's a new face gesture you can give an action in Air control, and in hands-free calling sticking your tongue out (held) calls, just like holding your mouth open.",
+        ), tries = listOf("playground", "air")),
         Entry("1.80.0", listOf(
             "Record for training (Air mode ⓘ): when you turn it on, Air mode keeps your hand points, pinches, watch motion and what you did (never pictures) so a model can be trained just for you. Export sends it all as one zip; it's capped at 50 MB and deletable any time.",
             "Made for tablets too: on a big screen (like a Galaxy Tab) Home shows your tools three to five to a row instead of stretching two, Air control puts the camera and its controls side by side, and Files lays its categories out in three columns.",

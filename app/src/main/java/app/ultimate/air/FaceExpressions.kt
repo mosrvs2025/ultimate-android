@@ -32,13 +32,14 @@ class FaceExpressions(private val refractoryMs: Long = 600) {
             // One eye closed and the other open; which side is which depends on the camera's mirroring, so it is one gesture.
             "wink" to maxOf(s("eyeBlinkLeft") - s("eyeBlinkRight"), s("eyeBlinkRight") - s("eyeBlinkLeft")).coerceAtLeast(0f),
             "blink" to minOf(s("eyeBlinkLeft"), s("eyeBlinkRight")),
+            "tongue_out" to s("tongueOut"),
         )
         frames++
         val levels = HashMap<String, Float>()
         var fired: Expression? = null
         for ((kind, value) in raw) {
             // Blinks and winks are judged on the raw score: the eyes' resting state is reliably open.
-            val rest = if (kind == "wink" || kind == "blink") 0f else baseline[kind] ?: value
+            val rest = if (kind == "wink" || kind == "blink" || kind == "tongue_out") 0f else baseline[kind] ?: value
             val level = ((value - rest) / (1f - rest).coerceAtLeast(0.2f)).coerceIn(0f, 1f)
             levels[kind] = level
             val (on, off) = THRESHOLDS.getValue(kind)
@@ -67,11 +68,11 @@ class FaceExpressions(private val refractoryMs: Long = 600) {
         val THRESHOLDS = mapOf(
             "brows_up" to (0.45f to 0.25f), "brows_down" to (0.45f to 0.25f), "smile" to (0.55f to 0.3f),
             "mouth_open" to (0.5f to 0.25f), "pucker" to (0.55f to 0.3f), "cheek_puff" to (0.5f to 0.25f),
-            "wink" to (0.5f to 0.25f), "blink" to (0.6f to 0.3f),
+            "wink" to (0.5f to 0.25f), "blink" to (0.6f to 0.3f), "tongue_out" to (0.6f to 0.3f),
         )
         val LABELS = mapOf(
             "brows_up" to "Eyebrows up", "brows_down" to "Eyebrows down", "smile" to "Smile", "mouth_open" to "Mouth open",
-            "pucker" to "Pucker", "cheek_puff" to "Puffed cheeks", "wink" to "Wink", "blink" to "Blink",
+            "pucker" to "Pucker", "cheek_puff" to "Puffed cheeks", "wink" to "Wink", "blink" to "Blink", "tongue_out" to "Tongue out",
         )
         /** The face gestures Air control can map to actions, in display order. */
         val ALL = LABELS.map { (k, v) -> "face_$k" to v }

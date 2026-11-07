@@ -111,7 +111,8 @@ class FaceNavigator(private val margin: Float = 0.3f, private val selectMs: Long
         val raw = mapOf(
             "up" to maxOf((s("browInnerUp") + (s("browOuterUpLeft") + s("browOuterUpRight")) / 2) / 2, (s("eyeLookUpLeft") + s("eyeLookUpRight")) / 2),
             "down" to maxOf((s("browDownLeft") + s("browDownRight")) / 2, (s("eyeLookDownLeft") + s("eyeLookDownRight")) / 2),
-            "select" to s("jawOpen"),
+            // Mouth open or tongue out: either chooses.
+            "select" to maxOf(s("jawOpen"), s("tongueOut")),
             "back" to minOf(s("eyeBlinkLeft"), s("eyeBlinkRight")),
         )
         // Above your resting level by the margin counts; eyes closed is judged on the raw score (they rest open).
@@ -128,5 +129,33 @@ class FaceNavigator(private val margin: Float = 0.3f, private val selectMs: Long
         } ?: return null
         done = true; lastMove = now
         return move
+    }
+}
+
+/**
+ * Sees a tongue sticking out. The face tracker has no tongue, so this looks at the picture itself: the strip just
+ * below the lower lip turns pink-red when the tongue is out, compared with your own skin (cheeks and chin) in the same
+ * light. It learns your resting difference in the first moments, so lipstick, beards and lighting don't matter much.
+ * [feed] takes a colour sampler over the picture (0..1 coordinates) and the face mesh points; returns 0..1.
+ * Pure, so it is tested.
+ */
+class TongueDetector(private val span: Float = 0.06f) {
+    private var base: Float? = null
+
+    fun feed(points: List<Pair<Float, Float>>, rgb: (Float, Float) -> Int): Float {
+        if (points.size < 400) return 0f
+        fun red(x: Float, y: Float): Float { val c = rgb(x, y); val r = (c shr 16) and 255; val g = (c shr 8) and 255; val b = c and 255; return r / (r + g + b + 1f) }
+        fun lerp(a: Pair<Float, Float>, b: Pair<Float, Float>, t: Float) = (a.first + (b.first - a.first) * t) to (a.second + (b.second - a.second) * t)
+        val lip = points[17]; val chin = points[152]
+        val w = (points[291].first - points[61].first) * 0.25f
+        // Where a tongue shows: the upper part of the strip between the lower lip and the chin, across the mouth's middle.
+        val region = listOf(0.2f, 0.4f).flatMap { t -> val c = lerp(lip, chin, t); listOf(-w, 0f, w).map { dx -> red(c.first + dx, c.second) } }.average().toFloat()
+        val skin = listOf(points[50], points[280], lerp(lip, chin, 0.85f)).map { red(it.first, it.second) }.average().toFloat()
+        val d = region - skin
+        val b = base ?: d.also { base = it }
+        val level = ((d - b) / span).coerceIn(0f, 1f)
+        // Learn the resting difference only while the tongue is clearly in.
+        if (level < 0.3f) base = b + 0.03f * (d - b)
+        return level
     }
 }
