@@ -63,6 +63,7 @@ object Changelog {
 
     val entries = listOf(
         Entry("1.88.0", listOf(
+            "Open with Ultimate+: Ultimate now shows up when you open any audio, video or picture from another app (a downloaded WAV, a video in Files…). It plays right away with seek, speed and loop, shows pictures with pinch to zoom, and \"Do more with it\" hands the file to Ultimate's tools.",
             "One flick is one flick: the smaller swing back as your wrist stops no longer counts as the opposite flick (fixed on the watch, 1.6, and on the phone), so rules fire once.",
             "Pattern Studio on the Watch screen: do a motion for a few seconds (scratching, fidgeting, a gym rep, brushing teeth), tap 🏷 Teach this and name it. From then on the live graph says when it sees it (\"🔍 Scratching (91% match)\") and counts it for the day.",
             "The live watch graph can be paused and scrubbed back through the last 30 seconds, and Record keeps every reading on the phone (exportable from Air mode's ⓘ) to look for patterns later.",

@@ -72,6 +72,19 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application android:requestLegacyExternalStorage="true">
+        <!-- "Open with Ultimate+": a player for any audio, video or picture opened from another app. -->
+        <activity android:name="app.ultimate.player.PlayerActivity" android:exported="true" android:theme="@style/Theme.Ultimate" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
         <service android:name="app.ultimate.spatial.SpatialService" android:exported="false" android:foregroundServiceType="connectedDevice|location" />
         <!-- Air mode: the camera watches your hand while you use other apps (started only from Air control, with Stop in its notification). -->
         <service android:name="app.ultimate.vision.AirModeService" android:exported="false" android:foregroundServiceType="camera" />
