@@ -108,7 +108,7 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         var allowed by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) }
         val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed = it }
         // "call" opens straight into hands-free calling (from the call-me hand shape in Air control).
-        var mode by remember { mutableIntStateOf(if (launch.query == "call") 3 else 0) }
+        var mode by remember { mutableIntStateOf(if (launch.query == "call" && context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEPHONY)) 3 else 0) }
         val view = LocalView.current
         DisposableEffect(Unit) { view.keepScreenOn = true; onDispose { view.keepScreenOn = false } }
         Scaffold(topBar = { TopAppBar(title = { Text("Playground") }, navigationIcon = { ToolBackButton(onExit) }) }) { pad ->
