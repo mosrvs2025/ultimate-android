@@ -146,7 +146,11 @@ class AirTool(private val app: UltimateApp) : Tool {
     private fun action(c: Context, kind: String) = actionsPrefs(c).getString(kind, AirActions.DEFAULTS[kind] ?: "none") ?: "none"
 
     /** Carries out what [kind] is set to do. */
-    private fun perform(c: Context, kind: String) = PhoneActions.perform(c, action(c, kind)) { app.shell.exitTool() }
+    private fun perform(c: Context, kind: String) {
+        // "Hands-free call" opens Playground's calling, where the face picks who to call.
+        if (action(c, kind) == "call") { app.tools.firstOrNull { it.id == "playground" }?.let { app.shell.open(it, ToolLaunch(query = "call")) }; return }
+        PhoneActions.perform(c, action(c, kind)) { app.shell.exitTool() }
+    }
 
     @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
     @Composable
@@ -441,7 +445,7 @@ internal fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
 
 /** A camera analysed by MediaPipe's face landmarker (with blendshapes) on its own thread; faces go to [out]. */
 @Composable
-private fun FaceCamera(front: Boolean, out: MutableStateFlow<AirTool.FacePose?>) {
+internal fun FaceCamera(front: Boolean, out: MutableStateFlow<AirTool.FacePose?>) {
     val context = LocalContext.current
     var problem by remember { mutableStateOf<String?>(null) }
     val landmarker = remember {
