@@ -62,6 +62,9 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.85.0", listOf(
+            "Watch 1.4: with \"Share heart rate\" on, the watch keeps sending your heart rate when its app is closed and the screen is off, so body rules and the heart rate on Home work all day. It shows a notification on the watch with Stop, and uses more of the watch's battery. Update the watch from Watch in Ultimate+.",
+        ), tries = listOf("watch")),
         Entry("1.84.0", listOf(
             "Your body on Home: a pulse strip under the search bar shows your watch's heart rate right now and how you feel today, with a one-tap mood check-in when you haven't given one. Tap it for You → Today.",
             "Body rules: Rules can now react to you. \"When my heart rate stays high, turn on Do Not Disturb\", \"When I'm stressed, …\", \"When my heart rate calms down, …\", \"When I feel low, …\". A high heart rate counts once it has lasted a minute, so standing up or a sneeze doesn't trigger anything.",

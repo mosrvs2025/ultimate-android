@@ -74,20 +74,10 @@ private fun WatchScreen(link: PhoneLink) {
     val askHeart = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
         shareHeart = ok; prefs.edit().putBoolean("share_heart", ok).apply()
     }
-    DisposableEffect(shareHeart) {
-        val sm = context.getSystemService(SensorManager::class.java)
-        var lastSent = 0L
-        val l = object : SensorEventListener {
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
-            override fun onSensorChanged(e: SensorEvent) {
-                val bpm = e.values.firstOrNull()?.toInt() ?: return
-                val now = System.currentTimeMillis()
-                if (bpm > 0 && now - lastSent >= 5_000) { lastSent = now; link.stream("hr:$bpm") }
-            }
-        }
+    // Sharing runs in a small background service, so it keeps going with the app closed and the screen off.
+    LaunchedEffect(shareHeart) {
         val allowed = context.checkSelfPermission(heartPermission) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (shareHeart && allowed) sm?.getDefaultSensor(Sensor.TYPE_HEART_RATE)?.let { sm.registerListener(l, it, SensorManager.SENSOR_DELAY_NORMAL) }
-        onDispose { sm?.unregisterListener(l) }
+        if (shareHeart && allowed) HeartService.start(context) else HeartService.stop(context)
     }
     fun toggleHeart(on: Boolean) {
         if (!on) { shareHeart = false; prefs.edit().putBoolean("share_heart", false).apply(); return }
