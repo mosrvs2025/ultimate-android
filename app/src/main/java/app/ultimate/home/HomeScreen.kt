@@ -129,8 +129,10 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
     var folded by remember { mutableStateOf(prefs.getStringSet("expanded", emptySet()).orEmpty()) }
 
     // Four columns: favorites take two each, every other tool one, and headers, search and results the full row.
+    // Tablets get more columns, so tools sit four or more to a row instead of stretching.
+    val cols = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.let { if (it >= 1000) 10 else if (it >= 840) 8 else if (it >= 600) 6 else 4 }
     LazyVerticalGrid(
-        GridCells.Fixed(4), Modifier.padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        GridCells.Fixed(cols), Modifier.padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {

@@ -471,7 +471,7 @@ private fun FilesHome(root: File, recent: List<Entry>, onCategory: (String, Set<
             Cat("Install files", Icons.Rounded.Android, Color(0xFF8DBF3F)) { onCategory("Install files", setOf(FileKind.Apk)) },
         )
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(12.dp)) {
-            cats.chunked(2).forEach { row ->
+            cats.chunked(if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 600) 3 else 2).forEach { row ->
                 Row {
                     row.forEach { c ->
                         Row(Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).clickable(onClick = c.act).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {

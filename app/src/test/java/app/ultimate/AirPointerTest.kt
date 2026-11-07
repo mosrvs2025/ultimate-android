@@ -350,3 +350,25 @@ class FaceNavigatorTest {
         assertTrue(run(app.ultimate.air.FaceNavigator(), rest + ("browDownLeft" to 0.2f) + ("browDownRight" to 0.2f), 5_000, 0).first.isEmpty())
     }
 }
+
+class SenseRecorderTest {
+    @Test fun linesAreCompactAndParseable() {
+        val l = app.ultimate.air.SenseRecorder.Lines.hand(5, "Open_Palm", 0.9f, 0.31f, List(21) { 0.5f to 0.25f })
+        val parts = l.split(',')
+        assertEquals("h", parts[0]); assertEquals(5 + 42, parts.size)
+        assertEquals("0.2500", parts.last())
+        assertEquals("e,7,tap,a;b", app.ultimate.air.SenseRecorder.Lines.event(7, "tap", "a,b"))
+    }
+
+    @Test fun recordsExportsAndTrims() {
+        val dir = kotlin.io.path.createTempDirectory().toFile()
+        val r = app.ultimate.air.SenseRecorder(dir, capBytes = 1)
+        r.start(1); r.write("e,1,tap,"); r.stop()
+        r.start(2); r.write("e,2,tap,"); r.stop()
+        assertEquals(2, r.sessions().size)
+        val zip = r.export(java.io.File(dir.parentFile, "x-${System.nanoTime()}.zip"))!!
+        assertTrue(zip.length() > 0)
+        r.trim(); assertEquals(1, r.sessions().size)   // over the cap: the oldest goes, the newest stays
+        zip.delete(); dir.deleteRecursively()
+    }
+}

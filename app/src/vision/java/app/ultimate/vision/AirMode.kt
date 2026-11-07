@@ -61,6 +61,10 @@ object AirBridge {
     fun shortcutsOn(c: Context) = prefs(c).getBoolean("shortcuts", false)
     fun setShortcuts(c: Context, on: Boolean) = prefs(c).edit().putBoolean("shortcuts", on).apply()
     /** Whether the practice has been done once (it's offered before the first start). */
+    /** Recording for training: off unless turned on; hand points and motion only, never pictures. */
+    fun recordOn(c: Context) = prefs(c).getBoolean("record", false)
+    fun setRecord(c: Context, on: Boolean) = prefs(c).edit().putBoolean("record", on).apply()
+    fun recorder(c: Context) = app.ultimate.air.SenseRecorder(java.io.File(c.filesDir, "senses"))
     fun practiced(c: Context) = prefs(c).getBoolean("practiced", false)
     fun setPracticed(c: Context) = prefs(c).edit().putBoolean("practiced", true).apply()
 
@@ -101,6 +105,8 @@ class AirModeService : LifecycleService() {
         }
     }
     private var listening: android.speech.SpeechRecognizer? = null
+    private var rec: app.ultimate.air.SenseRecorder? = null
+    private fun log(line: () -> String) { rec?.let { r -> trainer.execute { r.write(line()) } } }
     private fun learnFile() = java.io.File(filesDir, "air_shapes.json")
     private var taps = 0
 
@@ -130,6 +136,7 @@ class AirModeService : LifecycleService() {
         learner = runCatching { app.ultimate.air.ShapeLearner.fromJson(org.json.JSONObject(learnFile().readText())) }.getOrDefault(app.ultimate.air.ShapeLearner())
         AirBridge.running.value = true
         listenToWatch()
+        if (AirBridge.recordOn(this)) rec = AirBridge.recorder(this).also { it.start(System.currentTimeMillis()) }
         getSystemService(android.hardware.SensorManager::class.java)?.let { sm ->
             sm.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)?.let { sm.registerListener(motion, it, android.hardware.SensorManager.SENSOR_DELAY_GAME) }
         }
@@ -172,6 +179,7 @@ class AirModeService : LifecycleService() {
             val r = AirBridge.askRect
             if (it is AirPointer.Action.Tap && it.x in r[0]..r[2] && it.y in r[1]..r[3]) { ask(); return@let }
             if (it is AirPointer.Action.Tap) taps++; AirBridge.actions.tryEmit(it)
+            log { app.ultimate.air.SenseRecorder.Lines.event(now, it.javaClass.simpleName.lowercase(), it.toString()) }
         }
         AirBridge.cursor.value = AirBridge.Cursor(p.x, p.y, true, p.pinched)
         // Tips next to the cursor for the first taps of each session, then they go away.
@@ -187,15 +195,16 @@ class AirModeService : LifecycleService() {
         val top = result.gestures().firstOrNull()?.firstOrNull()?.takeIf { it.score() > 0.7f }?.categoryName()
             ?.takeIf { it in NAMES && !p.pinched }
         val shape = app.ultimate.air.ShapeLearner.features(lm.map { it.x() to it.y() })
+        if (rec != null) { val pts = lm.map { it.x() to it.y() }; val sc = result.gestures().firstOrNull()?.firstOrNull(); log { app.ultimate.air.SenseRecorder.Lines.hand(now, sc?.categoryName(), sc?.score() ?: 0f, pinch, pts) } }
         // Plain pointing around (moving, no shortcut shape) is what "not a shortcut" looks like: keep one now and then.
         val speed = hypot(p.x - lastX, p.y - lastY); lastX = p.x; lastY = p.y
         if (top == null && speed > 25f && ++pointingFrames % 45 == 0) learn(app.ultimate.air.ShapeLearner.NONE, shape)
         // Learned: shapes you clearly mean need less holding; ones you never mean start no ring.
         val hold = top?.let { synchronized(learner) { learner.holdMs(it, shape) } }
         val fired = holder.feed(top?.takeIf { hold != null }, p.x, p.y, now, hold ?: app.ultimate.air.ShapeLearner.FULL)
-        holder.abandoned?.let { holder.abandoned = null; learn(app.ultimate.air.ShapeLearner.NONE, shape) }
+        holder.abandoned?.let { a -> holder.abandoned = null; learn(app.ultimate.air.ShapeLearner.NONE, shape); log { app.ultimate.air.SenseRecorder.Lines.event(now, "abandoned", a) } }
         AirBridge.hold.value = holder.progress?.let { (s, f) -> NAMES.getValue(s) to f }?.takeIf { it.second > 0.15f }
-        if (fired != null) learn(fired, shape)
+        if (fired != null) { learn(fired, shape); log { app.ultimate.air.SenseRecorder.Lines.event(now, "shortcut", fired) } }
         when (fired) { "Open_Palm" -> AirBridge.Back; "Closed_Fist" -> AirBridge.Home; "Victory" -> AirBridge.Recents; else -> null }
             ?.let { AirBridge.actions.tryEmit(it) }
     }
@@ -212,7 +221,8 @@ class AirModeService : LifecycleService() {
                 if (now - renewed > 4_000) { app.ultimate.air.WatchFeed.request(true); renewed = now }
                 app.ultimate.air.WatchFeed.samples.value.filter { it.t > lastT }.forEach { s ->
                     lastT = s.t
-                    if (wristTap.feed(s.t, s.jolt, s.turn)) synchronized(fusion) { fusion.watchTap(System.currentTimeMillis()) }
+                    if (rec != null) log { app.ultimate.air.SenseRecorder.Lines.watch(s.t, s.gx, s.gy, s.gz, s.ax, s.ay, s.az) }
+                    if (wristTap.feed(s.t, s.jolt, s.turn)) { synchronized(fusion) { fusion.watchTap(System.currentTimeMillis()) }; log { app.ultimate.air.SenseRecorder.Lines.event(System.currentTimeMillis(), "watch_tap") } }
                 }
                 kotlinx.coroutines.delay(20)
             }
@@ -297,6 +307,7 @@ class AirModeService : LifecycleService() {
         AirBridge.cursor.value = AirBridge.Cursor(0f, 0f, false, false)
         AirBridge.hold.value = null; AirBridge.hint.value = null
         runCatching { recognizer?.close() }; recognizer = null
+        rec?.let { r -> trainer.execute { r.stop() } }; rec = null
         executor.shutdown(); trainer.shutdown()
         app.ultimate.air.WatchFeed.request(false)
         getSystemService(android.hardware.SensorManager::class.java)?.unregisterListener(motion)
