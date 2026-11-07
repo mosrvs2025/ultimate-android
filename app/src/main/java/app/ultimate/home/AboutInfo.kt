@@ -65,6 +65,8 @@ object Changelog {
         Entry("1.78.0", listOf(
             "Home, rearranged: search sits right under the title, then today's live picture (photos, screen time, what's running, your senses), then your tools in more compact tiles, so the live stuff is the first thing you see.",
             "Air control, tidied: one compact bar (Start Air mode, gestures on or off, and ⓘ for how it works) instead of three stacked cards; the camera stays pinned at the top with Hand / Face and the camera flip floating on it; what each gesture does is a clean list in groups (Navigation, Media, System), each a tap to change.",
+            "New finger shapes, read finger by finger: middle finger, rock on, call me, three and four fingers. Find them under Finger shapes in Air control and give each an action.",
+            "The practice now shows your hand faintly behind the targets, so you can see the ring rides on your index fingertip.",
             "Pinch to tap lands where you aimed: closing your fingers pulls the fingertip toward your thumb, so the tap now goes where the cursor was just before the pinch started.",
         ), tries = listOf("air")),
         Entry("1.77.0", listOf(

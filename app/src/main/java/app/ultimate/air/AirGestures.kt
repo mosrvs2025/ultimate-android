@@ -96,6 +96,7 @@ class AirGestures(private val mirrored: Boolean = true, private val refractoryMs
             "push" to "Push", "pull" to "Pull", "pinch" to "Pinch", "hold" to "Hold",
             "thumb_up" to "Thumbs up", "thumb_down" to "Thumbs down", "open_palm" to "Open palm", "fist" to "Fist",
             "victory" to "Peace sign", "pointing_up" to "Pointing up", "i_love_you" to "I love you",
+            "middle_finger" to "Middle finger", "rock_on" to "Rock on", "call_me" to "Call me", "three" to "Three fingers", "four" to "Four fingers",
         )
     }
 }

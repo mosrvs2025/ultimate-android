@@ -87,6 +87,7 @@ import app.ultimate.air.AirGestures
 import app.ultimate.air.FaceExpressions
 import app.ultimate.air.PhoneActions
 import app.ultimate.air.HandPose
+import app.ultimate.air.FingerShapes
 import app.ultimate.core.LibraryItem
 import app.ultimate.core.Signal
 import app.ultimate.core.Tool
@@ -161,6 +162,7 @@ class AirTool(private val app: UltimateApp) : Tool {
         val chosen = remember { mutableStateMapOf<String, String>().apply { (AirGestures.ALL + FaceExpressions.ALL).forEach { (k, _) -> put(k, action(context, k)) } } }
         val trail = remember { ArrayDeque<Pair<Float, Float>>() }
         val detector = remember(front) { AirGestures(mirrored = front) }
+        val shapes = remember { FingerShapes() }
         // Off on every visit: watching shows what would happen, and only this switch lets gestures act.
         var acting by remember { mutableStateOf(false) }
         var faceMode by remember { mutableStateOf(false) }
@@ -229,6 +231,7 @@ class AirTool(private val app: UltimateApp) : Tool {
             val now = System.currentTimeMillis()
             hand?.let { trail.addLast(it.palm); while (trail.size > 24) trail.removeFirst() } ?: run { if (trail.isNotEmpty()) trail.removeFirst() }
             detector.feed(hand, now)?.let { g -> fire(g.kind, g.label, now) }
+            hand?.let { h -> shapes.feed(h.points, now)?.let { k -> fire(k, FingerShapes.LABELS.getValue(k), now) } }
         }
         LaunchedEffect(seenFace) {
             val f = seenFace ?: return@LaunchedEffect
@@ -370,6 +373,7 @@ private val HAND_GROUPS: List<Pair<String, List<Pair<String, String>>>> = run {
         "Navigation · swipes and moves" to g("swipe_left", "swipe_right", "swipe_up", "swipe_down", "push", "pull"),
         "Media · thumbs and palm" to g("thumb_up", "thumb_down", "open_palm", "hold"),
         "System · pinch, fist and signs" to g("pinch", "fist", "victory", "pointing_up", "i_love_you"),
+        "Finger shapes" to g("middle_finger", "rock_on", "call_me", "three", "four"),
     )
 }
 
@@ -607,6 +611,12 @@ private fun AirPractice(pose: MutableStateFlow<HandPose?>, onDone: () -> Unit, o
                     drawCircle(Color(0xFF7CFFB2), 18f, Offset(0.9f * size.width, y))
                     drawCircle(accent, r * 0.6f, Offset(knob * size.width, y))
                 }
+            }
+            // The hand, faintly, so you can see the ring rides on your index fingertip.
+            pose.value?.takeIf { System.currentTimeMillis() - it.at < 400 }?.let { h ->
+                fun o(p: Pair<Float, Float>) = Offset((1 - p.first) * size.width, p.second * size.height)
+                AirTool.BONES.forEach { (a, b) -> drawLine(Color.White.copy(alpha = 0.35f), o(h.points[a]), o(h.points[b]), strokeWidth = 4f) }
+                drawCircle(Color(0xFFFF8A5C).copy(alpha = 0.6f), 10f, o(h.points[8]))
             }
             cursor?.let { c ->
                 if (pinched) drawCircle(Color(0xCC7FD3FF), 36f, c)
