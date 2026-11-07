@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -58,16 +60,51 @@ internal fun LiveSensorsCard() {
     DisposableEffect(Unit) { onDispose { WatchLink.sendToWatch(context, "stream:off") } }
     LaunchedEffect(Unit) { while (true) { WatchLink.sendToWatch(context, "stream:on"); delay(4_000) } }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    // Pause freezes the graph; drag it to scrub back through the last 30 seconds.
+    var paused by remember { mutableStateOf(false) }
+    var pausedAt by remember { mutableStateOf(0L) }
+    var back by remember { mutableStateOf(0f) }
     // Redraw on every screen frame, so the graph scrolls smoothly instead of in steps.
-    LaunchedEffect(Unit) { while (true) { androidx.compose.runtime.withFrameMillis { now = System.currentTimeMillis() } } }
-    val live = samples.isNotEmpty() && now - samples.last().t < 1_500
+    LaunchedEffect(paused) { while (!paused) { androidx.compose.runtime.withFrameMillis { now = System.currentTimeMillis() } } }
+    val live = samples.isNotEmpty() && System.currentTimeMillis() - samples.last().t < 1_500
+    val view = if (paused) pausedAt - back.toLong() else now
+    // Patterns you taught, matched live over the last 3 seconds.
+    val prefs = remember { context.getSharedPreferences("watch_patterns", android.content.Context.MODE_PRIVATE) }
+    var taught by remember { mutableStateOf(loadPatterns(prefs)) }
+    var detected by remember { mutableStateOf<Pair<String, Double>?>(null) }
+    var naming by remember { mutableStateOf<app.ultimate.air.WatchPatterns.Signature?>(null) }
+    LaunchedEffect(taught) {
+        var lastCounted = ""; var lastAt = 0L
+        while (true) {
+            delay(500)
+            val t = System.currentTimeMillis()
+            val sig = app.ultimate.air.WatchPatterns.signature(frames(WatchLink.sensors.value.filter { t - it.t <= 3_000 }))
+            detected = sig?.let { app.ultimate.air.WatchPatterns.match(it, taught) }
+            detected?.let { (name, _) -> if (name != lastCounted || t - lastAt > 3_000) { countPattern(prefs, name); lastCounted = name; lastAt = t } }
+        }
+    }
+    // Recording: every reading kept on the phone (no other data), for patterns and anomalies; exportable from Air mode's ⓘ.
+    var recording by remember { mutableStateOf(false) }
+    val recorder = remember { app.ultimate.air.SenseRecorder(java.io.File(context.filesDir, "senses")) }
+    LaunchedEffect(recording) {
+        if (!recording) { recorder.stop(); return@LaunchedEffect }
+        recorder.start(System.currentTimeMillis()); var lastT = 0L
+        while (recording) {
+            WatchLink.sensors.value.filter { it.t > lastT }.forEach { s -> recorder.write(app.ultimate.air.SenseRecorder.Lines.watch(s.t, s.gx, s.gy, s.gz, s.ax, s.ay, s.az)); lastT = s.t }
+            delay(250)
+        }
+    }
+    DisposableEffect(Unit) { onDispose { recorder.stop() } }
 
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Live from your watch", fontWeight = FontWeight.SemiBold)
         if (!live) Text("Open Ultimate+ on the watch to see its sensors here.", style = MaterialTheme.typography.bodySmall)
-        Box(Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF111418))) {
+        detected?.let { (name, score) -> Text("🔍 $name (%.0f%% match)".format(score * 100), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
+        Box(Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF111418))
+            .pointerInput(paused) { if (paused) detectHorizontalDragGestures { _, dx -> back = (back + dx * 12f).coerceIn(0f, 26_000f) } }) {
             Canvas(Modifier.fillMaxWidth().height(150.dp)) {
+                val now = view
                 val span = 4_000f; val maxTurn = 12f; val maxJolt = 30f
                 fun xOf(t: Long) = size.width * (1f - (now - t) / span)
                 val mid = size.height / 2
@@ -81,11 +118,12 @@ internal fun LiveSensorsCard() {
                 }
                 line(J.copy(alpha = 0.6f), { it.jolt }, maxJolt, size.height)
                 line(X, { it.gx }, maxTurn); line(Y, { it.gy }, maxTurn); line(Z, { it.gz }, maxTurn)
-                marks.filter { now - it.first <= span }.forEach { (t, _) ->
-                    drawLine(Color.White.copy(alpha = 0.7f), Offset(xOf(t), 0f), Offset(xOf(t), size.height), strokeWidth = 1.5.dp.toPx())
+                marks.filter { now - it.first in 0..span.toLong() }.forEach { (t, _) ->
+                    drawLine(Color(0xFF3DDC97), Offset(xOf(t), 0f), Offset(xOf(t), size.height), strokeWidth = 2.dp.toPx())
                 }
             }
-            marks.lastOrNull()?.takeIf { now - it.first < 1_500 }?.let { (_, k) ->
+            if (paused) Text("Paused · %.1f s ago · drag to scrub".format(back / 1000f), Modifier.align(Alignment.BottomStart).padding(8.dp), color = Color.White, style = MaterialTheme.typography.labelSmall)
+            marks.lastOrNull()?.takeIf { view - it.first in 0..1_500 }?.let { (_, k) ->
                 Text(WatchMessages.GESTURES.firstOrNull { it.first == k }?.second ?: k, Modifier.align(Alignment.TopEnd).padding(8.dp), color = Color.White, fontWeight = FontWeight.Bold)
             }
         }
@@ -99,10 +137,41 @@ internal fun LiveSensorsCard() {
         samples.lastOrNull()?.takeIf { live }?.let { s ->
             Text("Now: X %+.1f  Y %+.1f  Z %+.1f rad/s · jolt %.1f m/s²".format(s.gx, s.gy, s.gz, s.jolt), style = MaterialTheme.typography.labelMedium)
         }
-        Text("White lines mark gestures the watch recognised. A flick shows as a spike on one colour and a smaller one back as your wrist stops.",
+        Text("Green lines mark gestures the watch recognised, once each: a flick's smaller spike back as your wrist stops is part of the same flick.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton({ if (paused) { paused = false; back = 0f } else { pausedAt = System.currentTimeMillis(); paused = true } }) { Text(if (paused) "▶ Live" else "⏸ Pause") }
+            Button({ naming = app.ultimate.air.WatchPatterns.signature(frames(WatchLink.sensors.value.filter { view - it.t in 0..5_000 })) }, enabled = live || paused) { Text("🏷 Teach this") }
+            TextButton({ recording = !recording }) { Text(if (recording) "⏺ Recording" else "Record") }
+        }
+        naming?.let { sig ->
+            var name by remember { mutableStateOf("") }
+            Text("Name the last 5 seconds of motion (do it a few seconds first, like scratching or a rep):", style = MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.OutlinedTextField(name, { name = it }, Modifier.weight(1f), singleLine = true, placeholder = { Text("Scratching, Gym rep…") })
+                Button({ prefs.edit().putString("p_" + name.trim(), sig.encode()).apply(); taught = loadPatterns(prefs); naming = null }, enabled = name.isNotBlank()) { Text("Save") }
+            }
+        }
+        if (taught.isNotEmpty()) {
+            Text("Your patterns, today", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            taught.keys.forEach { n ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(n, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Text("${todayCount(prefs, n)}×", style = MaterialTheme.typography.labelLarge)
+                    TextButton({ prefs.edit().remove("p_$n").apply(); taught = loadPatterns(prefs) }) { Text("Forget") }
+                }
+            }
+            Text("Counted while this screen is open and the watch is streaming. Teach a pattern a second time to make it surer.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
+
+private fun frames(s: List<WristCalibration.Sample>) = s.map { app.ultimate.air.WatchPatterns.Frame(it.t, it.gx, it.gy, it.gz, it.jolt) }
+private fun loadPatterns(p: android.content.SharedPreferences) = p.all.filterKeys { it.startsWith("p_") }
+    .mapNotNull { (k, v) -> (v as? String)?.let { app.ultimate.air.WatchPatterns.Signature.decode(it) }?.let { k.removePrefix("p_") to it } }.toMap()
+private fun today() = java.time.LocalDate.now().toEpochDay()
+private fun todayCount(p: android.content.SharedPreferences, n: String) = p.getInt("c_${today()}_$n", 0)
+private fun countPattern(p: android.content.SharedPreferences, n: String) = p.edit().putInt("c_${today()}_$n", todayCount(p, n) + 1).apply()
 
 /**
  * Calibrate: do each gesture three times; the phone reads which way each turns on this watch and how hard you flick,

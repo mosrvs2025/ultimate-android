@@ -62,6 +62,12 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.88.0", listOf(
+            "One flick is one flick: the smaller swing back as your wrist stops no longer counts as the opposite flick (fixed on the watch, 1.6, and on the phone), so rules fire once.",
+            "Pattern Studio on the Watch screen: do a motion for a few seconds (scratching, fidgeting, a gym rep, brushing teeth), tap 🏷 Teach this and name it. From then on the live graph says when it sees it (\"🔍 Scratching (91% match)\") and counts it for the day.",
+            "The live watch graph can be paused and scrubbed back through the last 30 seconds, and Record keeps every reading on the phone (exportable from Air mode's ⓘ) to look for patterns later.",
+            "Air control shows your watch's motion as a live strip along the bottom of the camera, so hand and wrist can be read together.",
+        ), tries = listOf("watch", "air")),
         Entry("1.87.0", listOf(
             "New: Spatial (in Senses). Your phone and watch sense what's around you, measured, never made up.",
             "Your watch's distance: with the watch's new Proximity beacon on (watch 1.5), the phone hears how close your watch is by Bluetooth and shows it in zones (right by the phone, within reach, away), calibrated for your own phone and watch, with how sure it is. No fake metres.",

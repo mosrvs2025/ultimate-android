@@ -84,6 +84,9 @@ class WristGestures(
             "x-" -> "flick_down"
             else -> null
         } ?: return null
+        // The wrist stopping swings back the other way: never count that as the opposite flick.
+        val opposite = mapOf("flick_left" to "flick_right", "flick_right" to "flick_left", "flick_up" to "flick_down", "flick_down" to "flick_up")
+        if (opposite[lastKind] == kind && now - lastFired < 900) return null
         return fire(now, kind)
     }
 
@@ -101,7 +104,8 @@ class WristGestures(
         return null
     }
 
-    private fun fire(now: Long, kind: String): String { lastFired = now; armed = false; return kind }
+    private var lastKind: String? = null
+    private fun fire(now: Long, kind: String): String { lastFired = now; lastKind = kind; armed = false; return kind }
 
     companion object {
         /** m/s² a shake's jolts must reach. */

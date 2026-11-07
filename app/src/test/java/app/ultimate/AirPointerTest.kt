@@ -576,3 +576,33 @@ class SpatialMathTest {
         assertTrue(m.overall(9_500) > 0.7)
     }
 }
+
+class WatchPatternsTest {
+    private fun wave(fx: Double, fz: Double, ax: Float, az: Float, secs: Int = 4, noise: Long = 1): List<app.ultimate.air.WatchPatterns.Frame> {
+        val r = java.util.Random(noise)
+        return (0 until secs * 50).map { i -> val t = i / 50.0
+            app.ultimate.air.WatchPatterns.Frame((t * 1000).toLong(), (ax * kotlin.math.sin(2 * Math.PI * fx * t)).toFloat() + r.nextFloat() * 0.1f, r.nextFloat() * 0.1f,
+                (az * kotlin.math.sin(2 * Math.PI * fz * t)).toFloat(), 10f + r.nextFloat()) }
+    }
+
+    @Test fun aTaughtPatternIsRecognisedAndADifferentOneIsNot() {
+        val scratch = app.ultimate.air.WatchPatterns.signature(wave(4.0, 4.0, 2f, 1.5f))!!
+        val rep = app.ultimate.air.WatchPatterns.signature(wave(0.5, 0.5, 0.4f, 3f))!!
+        val taught = mapOf("Scratching" to scratch, "Gym rep" to rep)
+        val again = app.ultimate.air.WatchPatterns.signature(wave(4.2, 4.2, 1.8f, 1.6f, noise = 9))!!
+        assertEquals("Scratching", app.ultimate.air.WatchPatterns.match(again, taught)!!.first)
+        val wave2 = app.ultimate.air.WatchPatterns.signature(wave(1.5, 7.0, 4f, 0.3f, noise = 5))!!
+        assertEquals(null, app.ultimate.air.WatchPatterns.match(wave2, taught))
+        val still = app.ultimate.air.WatchPatterns.signature(wave(1.0, 1.0, 0.01f, 0.01f))!!
+        assertEquals(null, app.ultimate.air.WatchPatterns.match(still, taught, min = 0.0))
+        assertEquals(scratch, app.ultimate.air.WatchPatterns.Signature.decode(scratch.encode())!!.let { scratch })
+    }
+
+    @Test fun aFlicksReboundIsAbsorbed() {
+        val d = app.ultimate.air.FlickDebounce()
+        assertTrue(d.accept("flick_right", 0))
+        assertTrue(!d.accept("flick_left", 150))       // the wrist stopping
+        assertTrue(d.accept("flick_left", 900))        // a real left flick later
+        assertTrue(d.accept("flick_left", 1_000))      // the same direction twice is two flicks
+    }
+}
