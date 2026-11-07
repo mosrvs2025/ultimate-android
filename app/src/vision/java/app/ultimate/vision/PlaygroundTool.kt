@@ -119,7 +119,9 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                     return@Column
                 }
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(4.dp)) {
-                    listOf("🎹 Piano", "✏️ Draw", "😎 Face", "📞 Call").forEachIndexed { i, label ->
+                    // Calling only on devices that can make calls (not on Wi-Fi tablets).
+                    val canCall = remember { context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEPHONY) }
+                    (if (canCall) listOf("🎹 Piano", "✏️ Draw", "😎 Face", "📞 Call") else listOf("🎹 Piano", "✏️ Draw", "😎 Face")).forEachIndexed { i, label ->
                         Text(label, Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(if (mode == i) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                             .clickable { mode = i; hand.value = null; face.value = null }.padding(vertical = 10.dp),
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = if (mode == i) FontWeight.SemiBold else null)
