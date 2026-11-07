@@ -30,7 +30,7 @@ class AiToolsTest {
 
     @Test fun theToolListIsValidJsonWithAnEntryPerAction() {
         val arr = org.json.JSONArray(AiTools.TOOLS)
-        assertEquals(10, arr.length())
+        assertEquals(11, arr.length())
         (0 until arr.length()).forEach { assertTrue(AiTools.describe(AiCall(arr.getJSONObject(it).getString("name"), emptyMap(), 1.0)) != arr.getJSONObject(it).getString("name")) }
         java.io.File("build/ai-tools.json").writeText(AiTools.TOOLS)
     }

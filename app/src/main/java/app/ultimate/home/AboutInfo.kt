@@ -62,8 +62,15 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.86.0", listOf(
+            "Brightness, volume and the flashlight just work from search and voice: \"brightness to 50\", \"make the screen dimmer\", \"max brightness\", \"volume up\", \"mute\", \"flashlight off\". They're read directly, instantly, even without Local AI, and never confused with each other. (Brightness asks once for \"Modify system settings\".)",
+            "Local AI's suggestions get a sanity check: it can no longer offer a volume change for a sentence about brightness.",
+            "You → Today now reads your notifications for what matters: your money this week (spent and received, bills due, and a warning when a payment didn't go through, like a declined PayPal purchase) and health alerts from your watch (like \"HR low (51 bpm)\"). Shop ads with prices don't count. Nothing leaves the phone.",
+            "Watch heart rate sharing is much lighter on battery: it measures for about 25 seconds every 5 minutes, and only follows closely while your heart rate is high (110 or more) until it settles.",
+            "Fixed \"up past midnight on 21 of the last 13 days\": late nights are now counted against the days they cover.",
+        )),
         Entry("1.85.0", listOf(
-            "Watch 1.4: with \"Share heart rate\" on, the watch keeps sending your heart rate when its app is closed and the screen is off, so body rules and the heart rate on Home work all day. It shows a notification on the watch with Stop, and uses more of the watch's battery. Update the watch from Watch in Ultimate+.",
+            "Watch 1.4: with \"Share heart rate\" on, the watch keeps sending your heart rate when its app is closed and the screen is off, so body rules and the heart rate on Home work all day. It shows a notification on the watch with Stop. Update the watch from Watch in Ultimate+.",
         ), tries = listOf("watch")),
         Entry("1.84.0", listOf(
             "Your body on Home: a pulse strip under the search bar shows your watch's heart rate right now and how you feel today, with a one-tap mood check-in when you haven't given one. Tap it for You → Today.",
