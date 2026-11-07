@@ -70,7 +70,9 @@ class PaletteSources(private val app: UltimateApp) {
         }
         val actions = Commands.available(Commands.search(q), ids, false).take(3).mapNotNull { a ->
             val t = app.tools.firstOrNull { it.id == a.toolId } ?: return@mapNotNull null
-            Hit(Kind.Action, a.label, a.detail, 45, "action:${a.id}") { app.shell.open(t) }
+            // "YouTube notifications" opens Notification history already searching for YouTube.
+            val rest = PaletteMath.leftover(q)
+            Hit(Kind.Action, a.label, if (rest != null) "${a.detail} · \"$rest\"" else a.detail, 45, "action:${a.id}") { app.shell.open(t, ToolLaunch(query = rest)) }
         }
         return found + actions
     }

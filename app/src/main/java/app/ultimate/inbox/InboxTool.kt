@@ -89,7 +89,7 @@ class InboxTool(private val app: UltimateApp) : Tool {
     override fun opensOwnScreen(item: LibraryItem) = false
     override suspend fun remove(id: String, deleteFile: Boolean) = true
     override suspend fun refresh() = Unit
-    @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = InboxScreen(app, onExit)
+    @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = InboxScreen(app, onExit, launch.query?.takeIf { !launch.consumed }.also { launch.consumed = true })
 }
 
 fun listenerEnabled(context: android.content.Context): Boolean {
@@ -108,14 +108,14 @@ fun dayLabel(at: Long, now: Long = System.currentTimeMillis()): String {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun InboxScreen(app: UltimateApp, onExit: () -> Unit) {
+private fun InboxScreen(app: UltimateApp, onExit: () -> Unit, initialQuery: String? = null) {
     BackHandler(onBack = onExit)
     val context = LocalContext.current
     val log = app.notificationLog
     var enabled by remember { mutableStateOf(listenerEnabled(context)) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { enabled = listenerEnabled(context) }
     val changed by log.changed.collectAsStateWithLifecycle()
-    var query by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf(initialQuery.orEmpty()) }
     var pkg by remember { mutableStateOf<String?>(null) }
     var onlyRemoved by remember { mutableStateOf(false) }
     var rows by remember { mutableStateOf<List<Logged>>(emptyList()) }

@@ -62,6 +62,13 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.83.0", listOf(
+            "Search hands on what you asked for: \"YouTube notifications\" opens Notification history already searching for YouTube. And it no longer flashes \"Nothing matches\" while it's still looking.",
+            "Camera calibration coaches you live, right on the picture: show your hand, turn it flat, and (the usual reason for \"0 matched readings\") bring it lower over the bottom of the phone where Echo's speaker is, tilting the phone back so the camera still sees it. You feel a tick as readings are matched.",
+            "Hand size is now Small, Medium or Large (with − and + to fine-tune) and says what it's for: the camera judges distance from how big your hand looks.",
+            "Echo ignores your voice: on phones whose microphone is always processed, talking could look like a hand moving. Echo now notices speech and pauses motion for a moment, and says so.",
+            "Wearing your watch? Air control shows your live heart rate right on your wrist in the camera view, while the watch is sending it.",
+        ), tries = listOf("echo", "echo-camera", "air")),
         Entry("1.82.1", listOf(
             "Fixes 1.82.0, which was built without its hand and face models (\"Gesture tracking couldn't start … gesture_recognizer.task\") and without Local AI's engine. Everything is back, and builds now refuse to ship without them.",
         ), tries = listOf("playground")),

@@ -65,12 +65,15 @@ fun PaletteResults(app: UltimateApp, query: String, onDone: () -> Unit) {
     var contactsOk by remember { mutableStateOf(sources.contactsAllowed) }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { contactsOk = it }
     val q = query.trim()
+    // Only say "nothing matches" once the search has actually finished, not while it's still looking.
+    var searched by remember { mutableStateOf("") }
     LaunchedEffect(q, contactsOk) {
         if (q.isEmpty()) { arranged = null to emptyList(); return@LaunchedEffect }
         kotlinx.coroutines.delay(120) // let typing settle
         // "Play YouTube" means YouTube: search without the verb too, so the app itself comes out on top.
         val bare = PaletteMath.withoutVerb(q)
         arranged = PaletteMath.arrange(if (bare != q) (sources.search(bare) + sources.search(q)).distinctBy { it.key } else sources.search(q))
+        searched = q
     }
     if (q.isEmpty()) return
     val (top, groups) = arranged
@@ -80,7 +83,7 @@ fun PaletteResults(app: UltimateApp, query: String, onDone: () -> Unit) {
             Text(kind.section, Modifier.padding(start = 6.dp, top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
             hits.forEach { h -> HitRow(h, big = false) { onDone(); h.run() } }
         }
-        if (top == null && groups.isEmpty() && q.length >= 2) Text("Nothing on this phone matches \"$q\" yet.", Modifier.padding(start = 12.dp, top = 6.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (top == null && groups.isEmpty() && q.length >= 2 && searched == q) Text("Nothing on this phone matches \"$q\" yet.", Modifier.padding(start = 12.dp, top = 6.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (!contactsOk && q.length >= 2) {
             Text(
                 "Search your contacts too",
