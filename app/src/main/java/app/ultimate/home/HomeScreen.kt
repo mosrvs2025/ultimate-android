@@ -79,6 +79,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.UltimateApp
 import app.ultimate.search.PaletteResults
 import app.ultimate.ai.AiCall
+import app.ultimate.ai.PhoneCommands
 import app.ultimate.ai.AiTools
 import app.ultimate.ai.AiActions
 import app.ultimate.ai.LocalAi
@@ -504,24 +505,28 @@ private fun SensesCard(app: UltimateApp, echo: EchoTool) {
  */
 @Composable
 private fun AiSuggestion(app: UltimateApp, query: String, spoken: Boolean, onRan: (AiCall) -> Unit, onDone: () -> Unit) {
-    val ai = app.localAi ?: return
-    val state by ai.state.collectAsStateWithLifecycle()
+    val ai = app.localAi
+    val state by (ai?.state ?: kotlinx.coroutines.flow.MutableStateFlow(LocalAi.State.Unsupported)).collectAsStateWithLifecycle()
     var calls by remember { mutableStateOf<List<AiCall>>(emptyList()) }
     val q = query.trim()
     val context = androidx.compose.ui.platform.LocalContext.current
     fun run(c: AiCall) { android.widget.Toast.makeText(context, AiActions.run(app, c), android.widget.Toast.LENGTH_SHORT).show(); onRan(c); onDone() }
     LaunchedEffect(q, state) {
         calls = emptyList()
-        if (q.length < 4 || state != LocalAi.State.Ready || AiTools.isRule(q)) return@LaunchedEffect
+        if (q.length < 4 || AiTools.isRule(q)) return@LaunchedEffect
+        // Plain phone controls (brightness, volume, flashlight) are read directly: instant, and never mixed up.
+        PhoneCommands.parse(q)?.let { calls = listOf(it); if (spoken) run(it); return@LaunchedEffect }
+        if (state != LocalAi.State.Ready) return@LaunchedEffect
         if (!spoken) kotlinx.coroutines.delay(600)
-        calls = ai.propose(q)
+        calls = (ai ?: return@LaunchedEffect).propose(q).filter { PhoneCommands.plausible(it, q) }
         calls.firstOrNull()?.takeIf { spoken && it.confidence >= 0.8 }?.let { run(it) }
+
     }
     if (q.length >= 4 && AiTools.isRule(q) && app.tools.any { it.id == "rules" }) {
         SuggestionRow("Make this a rule", q) { app.tools.firstOrNull { it.id == "rules" }?.let { app.shell.open(it, ToolLaunch(query = q)) }; onDone() }
     }
     calls.firstOrNull()?.let { c ->
-        SuggestionRow(AiTools.describe(c), "Local AI · %.0f%% sure · tap to do it".format(c.confidence * 100)) { run(c) }
+        SuggestionRow(AiTools.describe(c), if (c.confidence >= 1.0) "Phone control · tap to do it" else "Local AI · %.0f%% sure · tap to do it".format(c.confidence * 100)) { run(c) }
     }
 }
 

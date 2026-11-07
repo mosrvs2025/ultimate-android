@@ -29,6 +29,7 @@ object AiTools {
         })
         tool("flashlight", "Turn the flashlight on or off", Triple("on", "boolean", "true to turn it on"))
         tool("set_volume", "Set the media volume", Triple("percent", "integer", "0 to 100"))
+        tool("set_brightness", "Set the screen brightness", Triple("percent", "integer", "0 to 100"))
         tool("compress_video", "Make a video file smaller")
         tool("edit_video", "Edit, trim or add music or captions to a video")
         tool("record_audio", "Record a voice memo or audio")
@@ -61,7 +62,8 @@ object AiTools {
     /** What a call would do, in words for the confirm button. */
     fun describe(c: AiCall): String = when (c.name) {
         "flashlight" -> if (c.args["on"] == false) "Turn the flashlight off" else "Turn the flashlight on"
-        "set_volume" -> "Set the media volume to ${(c.args["percent"] as? Number)?.toInt()?.coerceIn(0, 100) ?: 50}%"
+        "set_volume" -> when (val p = (c.args["percent"] as? Number)?.toInt()) { -1 -> "Turn the volume up"; -2 -> "Turn the volume down"; 0 -> "Mute the media volume"; else -> "Set the media volume to ${p?.coerceIn(0, 100) ?: 50}%" }
+        "set_brightness" -> when (val p = (c.args["percent"] as? Number)?.toInt()) { -1 -> "Make the screen brighter"; -2 -> "Make the screen dimmer"; else -> "Set the screen brightness to ${p?.coerceIn(0, 100) ?: 50}%" }
         "compress_video" -> "Make a video smaller (Squeeze)"
         "edit_video" -> "Edit a video (Studio)"
         "record_audio" -> "Record audio (Recorder)"

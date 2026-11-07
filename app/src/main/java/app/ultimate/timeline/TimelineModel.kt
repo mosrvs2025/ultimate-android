@@ -124,7 +124,9 @@ object TimelineMath {
         if (late.size >= 3) {
             // Name only what you were doing (watching or listening): a photo's folder or a charger is not an activity.
             val whatKeepsYou = all.filter { hourOf(it.at, zone) in 0..3 && it.source == Source.Watched && it.app.isNotBlank() }.groupingBy { it.app }.eachCount().maxByOrNull { it.value }
-            add(late = true, text = "You were up past midnight on ${late.size} of the last ${days.size} days" + (whatKeepsYou?.let { ", most often with ${it.key}" } ?: "") + ".")
+            // Count against every day the records cover, so it can never read "21 of the last 13".
+            val covered = (all.map { dayOf(it.at, zone) }.toSet() + late).size
+            add(late = true, text = "You were up past midnight on ${late.size} of the last $covered days" + (whatKeepsYou?.let { ", most often with ${it.key}" } ?: "") + ".")
         }
 
         // Screenshots: how many, and when you take them.

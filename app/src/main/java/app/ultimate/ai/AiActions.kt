@@ -13,6 +13,7 @@ object AiActions {
     @Volatile var torchOn = false
     /** The media volume before the last change, so "Undo" can put it back. */
     @Volatile private var volumeBefore: Int? = null
+    @Volatile private var brightnessBefore: Int? = null
 
     /**
      * What to offer right after [c] ran: a button that undoes or flips it ("Turn off" after turning the flashlight on,
@@ -21,6 +22,7 @@ object AiActions {
     fun followUp(c: AiCall): Pair<String, AiCall>? = when (c.name) {
         "flashlight" -> if (c.args["on"] != false) "Turn off" to AiCall("flashlight", mapOf("on" to false), 1.0) else "Turn on" to AiCall("flashlight", mapOf("on" to true), 1.0)
         "set_volume" -> volumeBefore?.let { "Undo" to AiCall("set_volume", mapOf("percent" to it), 1.0) }
+        "set_brightness" -> brightnessBefore?.let { "Undo" to AiCall("set_brightness", mapOf("percent" to it), 1.0) }
         else -> null
     }
 
@@ -28,6 +30,7 @@ object AiActions {
     fun controlLabel(c: AiCall): String = when (c.name) {
         "flashlight" -> if (torchOn) "Flashlight: on" else "Flashlight: off"
         "set_volume" -> "Volume ${(c.args["percent"] as? Number)?.toInt() ?: 50}%"
+        "set_brightness" -> "Brightness ${(c.args["percent"] as? Number)?.toInt() ?: 50}%"
         else -> AiTools.describe(c)
     }
     fun controlCall(c: AiCall): AiCall = if (c.name == "flashlight") AiCall("flashlight", mapOf("on" to !torchOn), 1.0) else c
@@ -47,9 +50,26 @@ object AiActions {
             "set_volume" -> {
                 val am = app.getSystemService(AudioManager::class.java)
                 val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                val pct = (c.args["percent"] as? Number)?.toInt()?.coerceIn(0, 100) ?: 50
+                val cur = Math.round(am.getStreamVolume(AudioManager.STREAM_MUSIC) * 100f / max.coerceAtLeast(1))
+                // -1 and -2 mean "up" and "down" by a step.
+                val pct = when (val a = (c.args["percent"] as? Number)?.toInt()) { -1 -> (cur + 15).coerceAtMost(100); -2 -> (cur - 15).coerceAtLeast(0); null -> 50; else -> a.coerceIn(0, 100) }
                 volumeBefore = Math.round(am.getStreamVolume(AudioManager.STREAM_MUSIC) * 100f / max.coerceAtLeast(1))
                 am.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(max * pct / 100f), AudioManager.FLAG_SHOW_UI); "Volume $pct%"
+            }
+            "set_brightness" -> {
+                // Changing system brightness needs Android's "Modify system settings" for Ultimate, granted once.
+                if (!android.provider.Settings.System.canWrite(app)) {
+                    runCatching { app.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS, android.net.Uri.parse("package:" + app.packageName)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                    "Allow Ultimate to modify system settings, then try again"
+                } else runCatching {
+                    val cr = app.contentResolver
+                    val cur = Math.round(android.provider.Settings.System.getInt(cr, android.provider.Settings.System.SCREEN_BRIGHTNESS, 128) * 100f / 255)
+                    val pct = when (val a = (c.args["percent"] as? Number)?.toInt()) { -1 -> (cur + 20).coerceAtMost(100); -2 -> (cur - 20).coerceAtLeast(1); null -> 50; else -> a.coerceIn(1, 100) }
+                    brightnessBefore = cur
+                    android.provider.Settings.System.putInt(cr, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
+                    android.provider.Settings.System.putInt(cr, android.provider.Settings.System.SCREEN_BRIGHTNESS, Math.round(pct * 255 / 100f).coerceIn(1, 255))
+                    "Brightness $pct%"
+                }.getOrDefault("Couldn't change the brightness")
             }
             "compress_video" -> open("squeeze")
             "edit_video" -> open("studio")

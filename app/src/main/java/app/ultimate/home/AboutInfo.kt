@@ -62,6 +62,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.86.0", listOf(
+            "Brightness, volume and the flashlight just work from search and voice: \"brightness to 50\", \"make the screen dimmer\", \"max brightness\", \"volume up\", \"mute\", \"flashlight off\". They're read directly, instantly, even without Local AI, and never confused with each other. (Brightness asks once for \"Modify system settings\".)",
+            "Local AI's suggestions get a sanity check: it can no longer offer a volume change for a sentence about brightness.",
+            "Fixed \"up past midnight on 21 of the last 13 days\": late nights are now counted against the days they cover.",
+        )),
         Entry("1.85.0", listOf(
             "Watch 1.4: with \"Share heart rate\" on, the watch keeps sending your heart rate when its app is closed and the screen is off, so body rules and the heart rate on Home work all day. It shows a notification on the watch with Stop, and uses more of the watch's battery. Update the watch from Watch in Ultimate+.",
         ), tries = listOf("watch")),

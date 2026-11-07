@@ -496,3 +496,18 @@ class HeartWatchTest {
         assertEquals(listOf("heart_high", "heart_calm"), out)
     }
 }
+
+class PhoneCommandsTest {
+    private fun p(s: String) = app.ultimate.ai.PhoneCommands.parse(s)
+    @Test fun brightnessIsNeverVolume() {
+        assertEquals("set_brightness", p("Set the brightness to 50")!!.name)
+        assertEquals(50, p("Set the brightness to 50")!!.args["percent"])
+        assertEquals(100, p("max brightness")!!.args["percent"])
+        assertEquals(-2, p("make the screen dimmer")!!.args["percent"])
+        assertEquals("set_volume", p("volume to 30%")!!.name)
+        assertEquals(0, p("mute")!!.args["percent"])
+        assertEquals(false, p("turn the flashlight off")!!.args["on"])
+        assertEquals(null, p("open spotify"))
+        assertTrue(!app.ultimate.ai.PhoneCommands.plausible(app.ultimate.ai.AiCall("set_volume", emptyMap(), 0.8), "Set the brightness to 50"))
+    }
+}
