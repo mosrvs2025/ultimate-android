@@ -180,3 +180,12 @@ class ScheduleTest {
         assertEquals(at(2026, 10, 31, 7, 0), app.ultimate.rules.Schedule.next(fridayNight, 7 * 60, setOf(1, 7), utc)) // Saturday
     }
 }
+
+class BodyRulesTest {
+    @org.junit.Test fun heartAndMoodRulesParse() {
+        fun trig(s: String) = (app.ultimate.rules.RuleParser.parse(s) as app.ultimate.rules.RuleParser.Result.Ok).rule.trigger.contains
+        org.junit.Assert.assertEquals("body:heart_high", trig("when my heart rate is high, turn on do not disturb"))
+        org.junit.Assert.assertEquals("body:heart_high", trig("when I'm stressed, turn on do not disturb"))
+        org.junit.Assert.assertEquals("body:mood_low", trig("when I feel low, turn on do not disturb"))
+    }
+}

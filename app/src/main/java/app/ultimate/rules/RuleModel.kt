@@ -214,6 +214,10 @@ object RuleKinds {
 /** The signals people can pick as triggers, in words. New senses add their signals here. */
 object SenseNames {
     val choices = listOf(
+        "body:heart_high" to "my heart rate stays high (watch)",
+        "body:heart_calm" to "my heart rate calms down again (watch)",
+        "body:mood_low" to "I log that I feel low",
+        "body:mood_good" to "I log that I feel good",
         "echo:approach" to "something comes closer to the phone",
         "echo:recede" to "something moves away from the phone",
         "echo:push" to "I push my hand toward the phone",

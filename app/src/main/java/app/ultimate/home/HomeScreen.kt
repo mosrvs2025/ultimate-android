@@ -1,6 +1,7 @@
 package app.ultimate.home
 
 import app.ultimate.R
+import app.ultimate.health.BodyPulse
 import app.ultimate.BuildConfig
 import app.ultimate.insights.InsightsSheet
 import app.ultimate.core.appear
@@ -143,6 +144,7 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
             }
         }
         item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
+        item(key = "body-pulse", span = { GridItemSpan(maxLineSpan) }) { BodyPulse(app) }
         if (fresh.isNotEmpty()) item(key = "new-for-you", span = { GridItemSpan(maxLineSpan) }) {
             NewForYou(fresh, onTry = { shell.open(it) }, onHide = { NewFeatures.hide(app, fresh.map { it.id }); fresh = emptyList() })
         }

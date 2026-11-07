@@ -136,6 +136,14 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
         automations.watchScreenRecordings()
         // Everything sensed is offered to Automations: the modules never need to know who listens.
         if (BuildConfig.HAS_RULES) watch.launch { senses.signals.collect { s -> rules.fire(app.ultimate.rules.Event.Sensed(s.key, s.label)) } }
+        // The watch's heart rate becomes moments rules can use: staying high, then calming down.
+        watch.launch {
+            val hw = app.ultimate.health.HeartWatch()
+            app.ultimate.health.LiveHeart.bpm.collect { v ->
+                val (bpm, at) = v ?: return@collect
+                hw.feed(bpm, at)?.let { k -> senses.publish(app.ultimate.core.Signal("body", k, if (k == "heart_high") "Your heart rate has stayed high ($bpm)" else "Your heart rate has calmed down ($bpm)")) }
+            }
+        }
         // Long-press menu on the app icon, and the widget's line of what was last sensed.
         if (BuildConfig.HAS_SOUND) {
             app.ultimate.home.QuickActions.publishShortcuts(this, tools.map { it.id }.toSet())
