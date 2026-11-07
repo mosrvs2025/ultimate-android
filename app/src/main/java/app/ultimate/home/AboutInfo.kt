@@ -62,6 +62,15 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.87.0", listOf(
+            "New: Spatial (in Senses). Your phone and watch sense what's around you, measured, never made up.",
+            "Your watch's distance: with the watch's new Proximity beacon on (watch 1.5), the phone hears how close your watch is by Bluetooth and shows it in zones (right by the phone, within reach, away), calibrated for your own phone and watch, with how sure it is. No fake metres.",
+            "Bring the watch close to open the Orb, move it away to close it (turn it on in Spatial). It has to hold for a moment, so passing by doesn't trigger it.",
+            "Wi-Fi: the strength of the network you're on, every network you can hear, and a signal map you build by walking (placed by your steps and compass, coloured by strength), with dead zones marked.",
+            "Places: save where you spend time (\"Desk\", \"Kitchen\") and Ultimate recognises them by their Wi-Fi fingerprint, with a confidence.",
+            "Rules can use all of it: \"When I'm at my desk, …\", \"When my watch comes close, …\", \"When I walk away, …\". Turn on Keep sensing for rules with the screen off (it shows a notification with Stop).",
+            "It checks what your phone really supports (Bluetooth LE, UWB, Wi-Fi ranging, Bluetooth channel sounding) and says so. Everything stays on the phone.",
+        ), tries = listOf("spatial")),
         Entry("1.86.0", listOf(
             "Brightness, volume and the flashlight just work from search and voice: \"brightness to 50\", \"make the screen dimmer\", \"max brightness\", \"volume up\", \"mute\", \"flashlight off\". They're read directly, instantly, even without Local AI, and never confused with each other. (Brightness asks once for \"Modify system settings\".)",
             "Local AI's suggestions get a sanity check: it can no longer offer a volume change for a sentence about brightness.",

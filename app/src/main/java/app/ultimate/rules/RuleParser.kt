@@ -88,6 +88,13 @@ object RuleParser {
             val has = when (val what = m.groupValues[1]) { "link", "url" -> "http"; "something", "text", "some" -> ""; else -> what.trim() }
             add(m, Trigger(TriggerType.Copied, contains = has))
         }
+        // Spatial: "when my watch comes close", "when I walk away with my watch", "when I'm at my desk", "when I leave the kitchen".
+        hit("\\b(?:my )?watch (?:comes?|gets?|is|moves?) (?:close|closer|near|next to)(?: to)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "spatial:watch_near")) }
+        hit("\\b(?:my )?watch (?:goes|moves|gets) (?:away|far)(?: from)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)|\\bi walk away(?: from (?:the|my) phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "spatial:watch_far")) }
+        hit("\\bi(?:'m| am| get| arrive)(?: back)? (?:at|in|to) (?:the |my )?([a-z][a-z ]{1,30}?)(?=,| then | and |$)")?.let { m ->
+            add(m, Trigger(TriggerType.Sensed, contains = "spatial:place_" + m.groupValues[1].trim().replace(Regex("[^a-z0-9]+"), "_")))
+        }
+        hit("\\bi leave (?:the |my )?(?:[a-z][a-z ]{1,30}?)(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "spatial:left_place")) }
         // Body: "when my heart rate is high", "when I'm stressed", "when my heart calms down", "when I feel low".
         hit("\\b(?:my )?(?:heart ?rate|heart|pulse) (?:is |gets |goes |stays )?(?:high|up|racing|over \\d+)(?=,| then | and |$)|\\bi(?:'m| am| get| feel) (?:stressed|anxious)(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "body:heart_high")) }
         hit("\\b(?:my )?(?:heart ?rate|heart|pulse) (?:calms?|settles?|goes|comes) (?:down|back)(?:again)?(?=,| then | and |$)|\\bi calm down(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "body:heart_calm")) }

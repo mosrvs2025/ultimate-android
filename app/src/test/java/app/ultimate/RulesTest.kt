@@ -189,3 +189,14 @@ class BodyRulesTest {
         org.junit.Assert.assertEquals("body:mood_low", trig("when I feel low, turn on do not disturb"))
     }
 }
+
+class SpatialRulesTest {
+    @org.junit.Test fun placeAndWatchRulesParse() {
+        fun trig(s: String) = (app.ultimate.rules.RuleParser.parse(s) as app.ultimate.rules.RuleParser.Result.Ok).rule.trigger.contains
+        org.junit.Assert.assertEquals("spatial:place_desk", trig("when I'm at my desk, turn on do not disturb"))
+        org.junit.Assert.assertEquals("spatial:place_living_room", trig("when I get to the living room, turn on do not disturb"))
+        org.junit.Assert.assertEquals("spatial:watch_near", trig("when my watch comes close to the phone, turn on do not disturb"))
+        org.junit.Assert.assertEquals("spatial:watch_far", trig("when I walk away, turn on do not disturb"))
+        org.junit.Assert.assertEquals("spatial:place_" + app.ultimate.spatial.SpatialEngine.slug("Desk"), "spatial:place_desk")
+    }
+}

@@ -13,6 +13,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Proximity beacon (opt-in): a Bluetooth signal with only Ultimate's id, so the phone can tell how close the watch is. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
     <application
         android:allowBackup="false"
@@ -43,6 +48,7 @@
             </intent-filter>
         </service>
         <receiver android:name=".UpdateResult" android:exported="false" />
+        <service android:name=".BeaconService" android:exported="false" android:foregroundServiceType="connectedDevice" />
         <service android:name=".HeartService" android:exported="false" android:foregroundServiceType="health" />
     </application>
 </manifest>

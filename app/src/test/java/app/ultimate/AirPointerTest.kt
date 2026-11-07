@@ -525,3 +525,54 @@ class NotificationFactsTest {
         assertEquals(app.ultimate.health.NotificationFacts.Kind.Received, r("com.venmo", "Venmo", "Sam paid you \$20.00", "Pizza", 0)!!.kind)
     }
 }
+
+class SpatialMathTest {
+    @Test fun theFilterSmoothsNoiseAndLosesConfidenceWithAge() {
+        val f = app.ultimate.spatial.RssiFilter()
+        val r = java.util.Random(4); var t = 0L
+        repeat(40) { f.feed(-60.0 + (r.nextGaussian() * 6), t); t += 500 }
+        assertEquals(-60.0, f.estimate, 3.0)
+        val fresh = f.confidence(t); val old = f.confidence(t + 20_000)
+        assertTrue(fresh > old * 5)
+    }
+
+    @Test fun zonesNeedToHoldAndDontFlickerInTheBand() {
+        val z = app.ultimate.spatial.ProximityZones(touch = -45.0, arm = -70.0)
+        var t = 0L
+        fun run(rssi: Double?, ms: Long): List<app.ultimate.spatial.ProximityZones.Zone> { val o = ArrayList<app.ultimate.spatial.ProximityZones.Zone>(); val end = t + ms; while (t < end) { z.feed(rssi, t)?.let(o::add); t += 200 }; return o }
+        assertEquals(listOf(app.ultimate.spatial.ProximityZones.Zone.Far), run(-80.0, 2_000))
+        assertEquals(listOf(app.ultimate.spatial.ProximityZones.Zone.Near), run(-44.0, 2_000))
+        assertTrue(run(-55.0, 3_000).isEmpty())                       // inside the dead band: stays Near
+        assertTrue(run(-80.0, 800).isEmpty())                         // too brief to count
+        assertEquals(listOf(app.ultimate.spatial.ProximityZones.Zone.Gone), run(null, 2_000))
+    }
+
+    @Test fun calibrationNeedsAClearDifference() {
+        assertEquals(null, app.ultimate.spatial.ProximityZones.calibrate(List(6) { -50.0 }, List(6) { -54.0 }))
+        assertEquals(-48.0 to -68.0, app.ultimate.spatial.ProximityZones.calibrate(List(6) { -48.0 }, List(6) { -68.0 }))
+    }
+
+    @Test fun stepsWalkAPathAndTheHeatmapFindsDeadZones() {
+        val p = app.ultimate.spatial.StepPath(1.0); val h = app.ultimate.spatial.Heatmap(1.0)
+        repeat(3) { p.step(Math.PI / 2); h.add(p.x, p.y, -50.0) }      // three steps east, good signal
+        repeat(2) { p.step(Math.PI); h.add(p.x, p.y, -85.0) }          // two steps south, weak
+        assertEquals(3.0, p.x, 1e-6); assertEquals(2.0, p.y, 1e-6)
+        assertEquals(2, h.deadZones().size)
+    }
+
+    @Test fun placesAreRecognisedByFingerprint() {
+        val desk = mapOf("a" to -40, "b" to -60, "c" to -75); val kitchen = mapOf("a" to -70, "d" to -50, "e" to -55)
+        val places = mapOf("Desk" to listOf(desk), "Kitchen" to listOf(kitchen))
+        val m = app.ultimate.spatial.Fingerprints.recognise(mapOf("a" to -42, "b" to -63, "c" to -72), places)!!
+        assertEquals("Desk", m.place); assertTrue(m.confidence > 0.5)
+        assertEquals(null, app.ultimate.spatial.Fingerprints.recognise(mapOf("x" to -50), places))
+    }
+
+    @Test fun theModelFadesStaleSenses() {
+        val m = app.ultimate.spatial.SpatialModel(10_000)
+        m.put("watch", "Near", 0.9, 0); m.put("wifi", "-60", 0.8, 9_000)
+        assertEquals(setOf("watch", "wifi"), m.now(5_000).keys)
+        assertEquals(setOf("wifi"), m.now(12_000).keys)
+        assertTrue(m.overall(9_500) > 0.7)
+    }
+}
