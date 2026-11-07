@@ -317,3 +317,36 @@ class PlaygroundTest {
         assertEquals(0.4f, x, 1e-4f); assertEquals(0.6f, y, 1e-4f)
     }
 }
+
+class FaceNavigatorTest {
+    private fun run(n: app.ultimate.air.FaceNavigator, s: Map<String, Float>, ms: Long, t0: Long): Pair<List<app.ultimate.air.FaceNavigator.Move>, Long> {
+        val out = ArrayList<app.ultimate.air.FaceNavigator.Move>(); var t = t0
+        while (t < t0 + ms) { n.feed(s, t)?.let(out::add); t += 33 }
+        return out to t
+    }
+    private val rest = mapOf("browInnerUp" to 0.1f, "jawOpen" to 0.05f)
+    private val M = app.ultimate.air.FaceNavigator.Move.entries
+
+    @Test fun browsUpMovesUpOnceThenRepeatsSlowly() {
+        val n = app.ultimate.air.FaceNavigator()
+        var (_, t) = run(n, rest, 1_000, 0)
+        val (moves, _) = run(n, mapOf("browInnerUp" to 0.8f, "browOuterUpLeft" to 0.7f, "browOuterUpRight" to 0.7f, "jawOpen" to 0.05f), 1_600, t)
+        assertEquals(app.ultimate.air.FaceNavigator.Move.Up, moves.first())
+        assertTrue(moves.size in 2..3)
+        assertTrue(moves.all { it == M[0] })
+    }
+
+    @Test fun mouthOpenHeldChoosesButABriefOneDoesNot() {
+        val n = app.ultimate.air.FaceNavigator()
+        var (_, t) = run(n, rest, 1_000, 0)
+        val (brief, t2) = run(n, rest + ("jawOpen" to 0.7f), 400, t)
+        assertTrue(brief.isEmpty())
+        val (_, t3) = run(n, rest, 500, t2)
+        val (held, _) = run(n, rest + ("jawOpen" to 0.7f), 1_000, t3)
+        assertEquals(listOf(app.ultimate.air.FaceNavigator.Move.Select), held)
+    }
+
+    @Test fun aRestingFaceDoesNothing() {
+        assertTrue(run(app.ultimate.air.FaceNavigator(), rest + ("browDownLeft" to 0.2f) + ("browDownRight" to 0.2f), 5_000, 0).first.isEmpty())
+    }
+}

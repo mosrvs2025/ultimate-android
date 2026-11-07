@@ -88,3 +88,45 @@ object FaceFrame {
     fun toPicture(f: Frame, u: Float, v: Float): Pair<Float, Float> =
         (f.ox + (u * f.cos - v * f.sin) * f.scale) to (f.oy + (u * f.sin + v * f.cos) * f.scale)
 }
+
+/**
+ * Moving through a list with your face alone, for hands-free calling: raise your eyebrows (or look up) to go up,
+ * lower them (or look down) to go down, hold your mouth open to choose, and close both eyes for a moment to go back.
+ * Each move is measured against your own resting face, which it keeps learning while you're still, and holding a
+ * move repeats it slowly so long lists are quick. Pure, so it is tested.
+ */
+class FaceNavigator(private val margin: Float = 0.3f, private val selectMs: Long = 700, private val backMs: Long = 900,
+                    private val repeatMs: Long = 700, private val gapMs: Long = 350) {
+    enum class Move { Up, Down, Select, Back }
+    private val rest = HashMap<String, Float>()
+    private var active: String? = null
+    private var since = 0L
+    private var lastMove = Long.MIN_VALUE / 2
+    private var done = false
+    /** What's being held right now and how far along a hold-to-choose is (0..1), for the screen to show. */
+    var holding: Pair<String, Float>? = null; private set
+
+    fun feed(scores: Map<String, Float>, now: Long): Move? {
+        fun s(n: String) = scores[n] ?: 0f
+        val raw = mapOf(
+            "up" to maxOf((s("browInnerUp") + (s("browOuterUpLeft") + s("browOuterUpRight")) / 2) / 2, (s("eyeLookUpLeft") + s("eyeLookUpRight")) / 2),
+            "down" to maxOf((s("browDownLeft") + s("browDownRight")) / 2, (s("eyeLookDownLeft") + s("eyeLookDownRight")) / 2),
+            "select" to s("jawOpen"),
+            "back" to minOf(s("eyeBlinkLeft"), s("eyeBlinkRight")),
+        )
+        // Above your resting level by the margin counts; eyes closed is judged on the raw score (they rest open).
+        val on = raw.filter { (k, v) -> if (k == "back") v > 0.6f else v - (rest[k] ?: v) > margin }.maxByOrNull { (k, v) -> v - (rest[k] ?: 0f) }?.key
+        raw.forEach { (k, v) -> if (k != on) rest[k] = rest[k]?.let { it + 0.03f * (v - it) } ?: v }
+        if (on != active) { active = on; since = now; done = false }
+        val held = now - since
+        holding = when (on) { "select" -> on to (held.toFloat() / selectMs).coerceAtMost(1f); "back" -> on to (held.toFloat() / backMs).coerceAtMost(1f); null -> null; else -> on to 1f }
+        if (on == null || now - lastMove < gapMs) return null
+        val move = when (on) {
+            "up", "down" -> if (!done || held >= repeatMs && now - lastMove >= repeatMs) (if (on == "up") Move.Up else Move.Down) else null
+            "select" -> if (!done && held >= selectMs) Move.Select else null
+            else -> if (!done && held >= backMs) Move.Back else null
+        } ?: return null
+        done = true; lastMove = now
+        return move
+    }
+}

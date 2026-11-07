@@ -66,6 +66,7 @@ object Changelog {
             "New: Playground, the camera as a toy, kept apart from Air control so nothing fires by accident.",
             "🎹 Desk piano: point the back camera down at your desk, rest your fingertips and tap Set the desk. A keyboard (C to C) appears along it; lift a finger and bring it down to play the key under it. All five fingertips play on their own, with a piano sound made on the phone.",
             "✏️ Air draw: pinch thumb and index to put the pen down, move to draw glowing lines in the air, open to lift. Pick colours, undo, clear.",
+            "📞 Hands-free calling: make the call-me sign 🤙 in Air control (or open Playground's Call). Raise your eyebrows or look up to go up your contacts, lower them or look down to go down, hold your mouth open to call; a 3-second countdown follows, and closing your eyes cancels it. Made for fun, and for anyone who can't easily use their hands.",
             "😎 Face fun: stickers that sit on your face (crown, shades, dog, cat, butterfly…), and paint on your face with your finger on the screen; it stays on your cheek as you move, tilt or come closer.",
         ), tries = listOf("playground")),
         Entry("1.78.0", listOf(

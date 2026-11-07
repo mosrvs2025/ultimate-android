@@ -106,7 +106,8 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         val context = LocalContext.current
         var allowed by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) }
         val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed = it }
-        var mode by remember { mutableIntStateOf(0) }
+        // "call" opens straight into hands-free calling (from the call-me hand shape in Air control).
+        var mode by remember { mutableIntStateOf(if (launch.query == "call") 3 else 0) }
         val view = LocalView.current
         DisposableEffect(Unit) { view.keepScreenOn = true; onDispose { view.keepScreenOn = false } }
         Scaffold(topBar = { TopAppBar(title = { Text("Playground") }, navigationIcon = { ToolBackButton(onExit) }) }) { pad ->
@@ -117,13 +118,13 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                     return@Column
                 }
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(4.dp)) {
-                    listOf("🎹 Desk piano", "✏️ Air draw", "😎 Face fun").forEachIndexed { i, label ->
+                    listOf("🎹 Piano", "✏️ Draw", "😎 Face", "📞 Call").forEachIndexed { i, label ->
                         Text(label, Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(if (mode == i) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                             .clickable { mode = i; hand.value = null; face.value = null }.padding(vertical = 10.dp),
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = if (mode == i) FontWeight.SemiBold else null)
                     }
                 }
-                when (mode) { 0 -> Piano(); 1 -> Draw(); else -> FaceFun() }
+                when (mode) { 0 -> Piano(); 1 -> Draw(); 2 -> FaceFun(); else -> FaceCall() }
             }
         }
     }
@@ -208,6 +209,81 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         }
     }
 
+    /**
+     * Calling with your face alone: eyebrows up or down (or looking up or down) moves through your contacts, holding
+     * your mouth open picks one, and a three-second countdown follows that closing your eyes cancels.
+     */
+    @Composable
+    private fun ColumnScope.FaceCall() {
+        val context = LocalContext.current
+        val f by face.collectAsState()
+        var contactsOk by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED) }
+        val askContacts = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { contactsOk = it[Manifest.permission.READ_CONTACTS] == true }
+        if (!contactsOk) {
+            Text("Hands-free calling: move through your contacts with your eyebrows or eyes, and open your mouth to call. It needs your contacts, and to place the call without a tap, permission to make calls.", style = MaterialTheme.typography.bodyLarge)
+            Button({ askContacts.launch(arrayOf(Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE)) }) { Text("Allow contacts and calls") }
+            return
+        }
+        val people = remember { loadCallees(context) }
+        val nav = remember { app.ultimate.air.FaceNavigator() }
+        var at by remember { mutableIntStateOf(0) }
+        var calling by remember { mutableStateOf<Pair<Callee, Long>?>(null) }
+        var hold by remember { mutableStateOf<Pair<String, Float>?>(null) }
+        val list = androidx.compose.foundation.lazy.rememberLazyListState()
+        LaunchedEffect(f) {
+            val face = f ?: return@LaunchedEffect
+            val move = nav.feed(face.scores, face.at); hold = nav.holding
+            val c = calling
+            if (c != null) { if (move == app.ultimate.air.FaceNavigator.Move.Back || move == app.ultimate.air.FaceNavigator.Move.Up) calling = null; return@LaunchedEffect }
+            when (move) {
+                app.ultimate.air.FaceNavigator.Move.Up -> at = (at - 1).coerceAtLeast(0)
+                app.ultimate.air.FaceNavigator.Move.Down -> at = (at + 1).coerceAtMost((people.size - 1).coerceAtLeast(0))
+                app.ultimate.air.FaceNavigator.Move.Select -> people.getOrNull(at)?.let { calling = it to System.currentTimeMillis() }
+                else -> Unit
+            }
+            list.animateScrollToItem((at - 2).coerceAtLeast(0))
+        }
+        LaunchedEffect(calling) {
+            val (who, _) = calling ?: return@LaunchedEffect
+            kotlinx.coroutines.delay(3_000)
+            if (calling?.first != who) return@LaunchedEffect
+            calling = null
+            val direct = context.checkSelfPermission(Manifest.permission.CALL_PHONE) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            runCatching { context.startActivity(android.content.Intent(if (direct) android.content.Intent.ACTION_CALL else android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:" + android.net.Uri.encode(who.number))).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.size(width = 96.dp, height = 128.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black)) { FaceCamera(true, face) }
+            Column(Modifier.weight(1f)) {
+                Text("🤨 Eyebrows up or look up: up", style = MaterialTheme.typography.bodySmall)
+                Text("😠 Eyebrows down or look down: down", style = MaterialTheme.typography.bodySmall)
+                Text("😮 Hold your mouth open: call", style = MaterialTheme.typography.bodySmall)
+                Text("😌 Close your eyes a moment: cancel", style = MaterialTheme.typography.bodySmall)
+                hold?.let { (what, p) -> if (what == "select" || what == "back") androidx.compose.material3.LinearProgressIndicator({ p }, Modifier.fillMaxWidth().padding(top = 4.dp)) }
+                if (f == null) Text("Look at the camera", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+        calling?.let { (who, since) ->
+            var left by remember(since) { mutableIntStateOf(3) }
+            LaunchedEffect(since) { while (left > 0) { kotlinx.coroutines.delay(1_000); left-- } }
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Calling ${who.name} in $left…", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("Close your eyes or raise your eyebrows to cancel", style = MaterialTheme.typography.bodySmall)
+                OutlinedButton({ calling = null }) { Text("Cancel") }
+            }
+        }
+        if (people.isEmpty()) Text("No contacts with phone numbers yet.", style = MaterialTheme.typography.bodyMedium)
+        androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f), state = list, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(people.size) { i ->
+                val p = people[i]
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (i == at) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerLow)
+                    .clickable { at = i; calling = p to System.currentTimeMillis() }.padding(horizontal = 16.dp, vertical = if (i == at) 18.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text((if (p.starred) "⭐ " else "") + p.name, Modifier.weight(1f), color = if (i == at) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        style = if (i == at) MaterialTheme.typography.titleLarge else MaterialTheme.typography.bodyLarge, fontWeight = if (i == at) FontWeight.Bold else null)
+                }
+            }
+        }
+    }
+
     @Composable
     private fun ColumnScope.FaceFun() {
         val f by face.collectAsState()
@@ -252,6 +328,19 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         }
     }
 }
+
+/** A person to call: name and number, starred ones first. */
+private data class Callee(val name: String, val number: String, val starred: Boolean)
+
+private fun loadCallees(c: android.content.Context): List<Callee> = runCatching {
+    c.contentResolver.query(android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+        arrayOf(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER, android.provider.ContactsContract.CommonDataKinds.Phone.STARRED),
+        null, null, null)?.use { cur ->
+        val out = ArrayList<Callee>()
+        while (cur.moveToNext()) out += Callee(cur.getString(0) ?: continue, cur.getString(1) ?: continue, cur.getInt(2) == 1)
+        out.distinctBy { it.name }.sortedWith(compareByDescending<Callee> { it.starred }.thenBy { it.name.lowercase() })
+    }.orEmpty()
+}.getOrDefault(emptyList())
 
 /**
  * A little piano voice, made on the phone: each note is a few harmonics with a quick attack and a soft decay,

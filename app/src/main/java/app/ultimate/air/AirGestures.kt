@@ -106,10 +106,11 @@ object AirActions {
     val CHOICES = listOf(
         "none" to "Nothing", "next" to "Next track", "previous" to "Previous track", "playpause" to "Play / pause",
         "volume_up" to "Volume up", "volume_down" to "Volume down", "torch" to "Flashlight on / off", "home" to "Go to Ultimate",
+        "call" to "Hands-free call",
     )
     val DEFAULTS = mapOf(
         "swipe_left" to "previous", "swipe_right" to "next", "thumb_up" to "volume_up", "thumb_down" to "volume_down",
-        "open_palm" to "playpause", "pinch" to "torch",
+        "open_palm" to "playpause", "pinch" to "torch", "call_me" to "call",
     )
 }
 
