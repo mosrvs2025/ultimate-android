@@ -94,6 +94,7 @@ private fun PlayerScreen(uri: Uri, type: String, name: String, onClose: () -> Un
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 private fun Media(uri: Uri, audio: Boolean, name: String) {
     val c = LocalContext.current
