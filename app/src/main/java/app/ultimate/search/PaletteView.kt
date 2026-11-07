@@ -68,7 +68,9 @@ fun PaletteResults(app: UltimateApp, query: String, onDone: () -> Unit) {
     LaunchedEffect(q, contactsOk) {
         if (q.isEmpty()) { arranged = null to emptyList(); return@LaunchedEffect }
         kotlinx.coroutines.delay(120) // let typing settle
-        arranged = PaletteMath.arrange(sources.search(q))
+        // "Play YouTube" means YouTube: search without the verb too, so the app itself comes out on top.
+        val bare = PaletteMath.withoutVerb(q)
+        arranged = PaletteMath.arrange(if (bare != q) (sources.search(bare) + sources.search(q)).distinctBy { it.key } else sources.search(q))
     }
     if (q.isEmpty()) return
     val (top, groups) = arranged

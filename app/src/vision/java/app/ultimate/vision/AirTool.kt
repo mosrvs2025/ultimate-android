@@ -172,6 +172,8 @@ class AirTool(private val app: UltimateApp) : Tool {
         // Off on every visit: watching shows what would happen, and only this switch lets gestures act.
         var acting by remember { mutableStateOf(false) }
         var faceMode by remember { mutableStateOf(false) }
+        // Both: hand and face tracked together from the same camera.
+        var both by remember { mutableStateOf(false) }
         val seenFace by face.collectAsStateWithLifecycle()
         val expressions = remember { FaceExpressions() }
         var levels by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
@@ -246,6 +248,8 @@ class AirTool(private val app: UltimateApp) : Tool {
             reading.fired?.let { fire("face_${it.kind}", it.label, f.at) }
         }
 
+        var ring by remember { mutableStateOf(false) }
+        androidx.compose.foundation.layout.Box {
         Scaffold(topBar = { TopAppBar(title = { Text("Air control") }, navigationIcon = { IconButton(onExit) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { pad ->
             Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (!allowed) {
@@ -274,8 +278,10 @@ class AirTool(private val app: UltimateApp) : Tool {
                     Box(Modifier.weight(1f))
                     Text(if (acting) "Gestures act" else "Watching", style = MaterialTheme.typography.labelLarge, modifier = Modifier.clickable { acting = !acting })
                     Switch(acting, { acting = it }, Modifier.padding(horizontal = 6.dp).graphicsLayer { scaleX = 0.85f; scaleY = 0.85f })
+                    app.tools.firstOrNull { it.id == "playground" }?.let { pg -> androidx.compose.material3.TextButton({ app.shell.open(pg) }) { Text("✨ Playground") } }
                     IconButton({ info = true }) { Icon(androidx.compose.material.icons.Icons.Rounded.Info, "How Air control works") }
                 }
+                DarkHint(ring) { ring = !ring }
                 if (info) androidx.compose.material3.ModalBottomSheet({ info = false }) {
                     Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         AirModeCard(false, onStart = { info = false; tryStart() }, onPractice = { info = false; practicing = true }, onStop = { AirBridge.stop(context) })
@@ -290,32 +296,36 @@ class AirTool(private val app: UltimateApp) : Tool {
                 SplitIfWide(cfg.screenWidthDp >= 720, (cfg.screenHeightDp * 0.42f).dp, { camMod ->
                 // The camera stays at the top; everything below scrolls under it.
                 Box(camMod.clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
-                    key(front, faceMode) { if (faceMode) FaceCamera(front, face) else GestureCamera(front, pose) }
+                    key(front, faceMode, both) { if (both) HolisticCamera(front, pose, face) else if (faceMode) FaceCamera(front, face) else GestureCamera(front, pose) }
                     val now = System.currentTimeMillis()
-                    if (faceMode) seenFace?.takeIf { now - it.at < 400 }?.let { f ->
+                    if (faceMode || both) seenFace?.takeIf { now - it.at < 400 }?.let { f ->
                         Canvas(Modifier.fillMaxSize()) {
                             val c = Color(0xFF7FD3FF).copy(alpha = 0.75f)
                             f.points.forEach { p -> drawCircle(c, 1.2.dp.toPx(), Offset((if (front) 1 - p.first else p.first) * size.width, p.second * size.height)) }
                         }
                     }
-                    if (!faceMode) hand?.takeIf { now - it.at < 400 }?.let { h ->
+                    if (!faceMode || both) hand?.takeIf { now - it.at < 400 }?.let { h ->
                         Canvas(Modifier.fillMaxSize()) {
                             fun o(p: Pair<Float, Float>) = Offset((if (front) 1 - p.first else p.first) * size.width, p.second * size.height)
                             // The palm's trail, fading, then the hand's bones and joints, then the air pointer on the index tip.
                             trail.forEachIndexed { i, p -> drawCircle(Color(0xFF7FD3FF).copy(alpha = i / 24f), (3 + i * 0.4f).dp.toPx(), o(p)) }
                             BONES.forEach { (a, b) -> drawLine(Color.White.copy(alpha = 0.8f), o(h.points[a]), o(h.points[b]), strokeWidth = 3.dp.toPx()) }
                             h.points.forEach { drawCircle(Color(0xFF3DDC97), 4.dp.toPx(), o(it)) }
-                            drawCircle(Color(0xFFFF8A5C), 12.dp.toPx(), o(h.points[8]))
+                            // Every fingertip lights up: thumb and index (the pinch pair) warm, the others cool.
+                            listOf(4 to 0xFFFFC857, 8 to 0xFFFF8A5C, 12 to 0xFF3DDC97, 16 to 0xFF7FD3FF, 20 to 0xFFB98CFF).forEach { (tip, c) ->
+                                drawCircle(Color(c), (if (tip == 8) 12 else 9).dp.toPx(), o(h.points[tip]))
+                            }
                         }
                     }
                     TruthTag(Truth.Estimate, Modifier.align(Alignment.TopStart).padding(10.dp))
                     // Hand / Face and the camera flip float on the picture, so they never scroll away.
                     Row(Modifier.align(Alignment.TopEnd).padding(8.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(2.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        listOf(false to "Hand", true to "Face").forEach { (isFace, label) ->
-                            Text(label, Modifier.clip(RoundedCornerShape(14.dp)).background(if (faceMode == isFace) Color.White.copy(alpha = 0.9f) else Color.Transparent)
-                                .clickable { faceMode = isFace; if (isFace) { pose.value = null; expressions.reset() } else face.value = null }.padding(horizontal = 12.dp, vertical = 6.dp),
-                                color = if (faceMode == isFace) Color.Black else Color.White, style = MaterialTheme.typography.labelLarge)
+                        listOf(0 to "Hand", 1 to "Face", 2 to "Both").forEach { (m, label) ->
+                            val sel = if (both) m == 2 else if (faceMode) m == 1 else m == 0
+                            Text(label, Modifier.clip(RoundedCornerShape(14.dp)).background(if (sel) Color.White.copy(alpha = 0.9f) else Color.Transparent)
+                                .clickable { both = m == 2; faceMode = m == 1; pose.value = null; face.value = null; expressions.reset() }.padding(horizontal = 12.dp, vertical = 6.dp),
+                                color = if (sel) Color.Black else Color.White, style = MaterialTheme.typography.labelLarge)
                         }
                         IconButton({ front = !front }, Modifier.size(36.dp))  { Icon(androidx.compose.material.icons.Icons.Rounded.Cameraswitch, if (front) "Use the back camera" else "Use the front camera", tint = Color.White) }
                     }
@@ -334,7 +344,7 @@ class AirTool(private val app: UltimateApp) : Tool {
                 }
                 }, { restMod ->
                 Column(restMod.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (faceMode) {
+                if (faceMode || both) {
                     // Live levels against your own resting face, so you can see what the camera reads as you move.
                     Text("Your expressions, live", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     FaceExpressions.LABELS.forEach { (kind, label) ->
@@ -361,12 +371,14 @@ class AirTool(private val app: UltimateApp) : Tool {
                 if (!faceMode) app.tools.firstOrNull { it.id == "echo-teach" }?.let { teach ->
                     androidx.compose.material3.OutlinedButton({ app.shell.open(teach) }, Modifier.fillMaxWidth()) { Text("Teach Echo these gestures, to use them with the camera off") }
                 }
-                GestureMappings(if (faceMode) listOf("Expressions" to FaceExpressions.ALL) else HAND_GROUPS, chosen) { kind, next ->
+                GestureMappings(if (both) HAND_GROUPS + ("Face expressions" to FaceExpressions.ALL) else if (faceMode) listOf("Expressions" to FaceExpressions.ALL) else HAND_GROUPS, chosen) { kind, next ->
                     chosen[kind] = next; actionsPrefs(context).edit().putString(kind, next).apply()
                 }
                 }
                 })
             }
+        }
+        RingLight(ring)
         }
     }
 
@@ -497,15 +509,22 @@ internal fun GestureCamera(front: Boolean, out: MutableStateFlow<HandPose?>) {
 internal fun FaceCamera(front: Boolean, out: MutableStateFlow<AirTool.FacePose?>) {
     val context = LocalContext.current
     var problem by remember { mutableStateOf<String?>(null) }
+    val tongue = remember { app.ultimate.air.TongueDetector() }
     val landmarker = remember {
         runCatching {
             FaceLandmarker.createFromOptions(context, FaceLandmarker.FaceLandmarkerOptions.builder()
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath("face_landmarker.task").build())
                 .setRunningMode(RunningMode.LIVE_STREAM).setNumFaces(1).setOutputFaceBlendshapes(true)
-                .setResultListener { result, _ ->
+                .setResultListener { result, image ->
                     val lm = result.faceLandmarks().firstOrNull()
                     if (lm == null) { out.value = null; return@setResultListener }
-                    val scores = result.faceBlendshapes().orElse(null)?.firstOrNull()?.associate { it.categoryName() to it.score() }.orEmpty()
+                    var scores = result.faceBlendshapes().orElse(null)?.firstOrNull()?.associate { it.categoryName() to it.score() }.orEmpty()
+                    // The tracker has no tongue, so look at the picture for one.
+                    runCatching {
+                        val bmp = com.google.mediapipe.framework.image.BitmapExtractor.extract(image)
+                        val level = tongue.feed(lm.map { it.x() to it.y() }) { x, y -> bmp.getPixel((x * bmp.width).toInt().coerceIn(0, bmp.width - 1), (y * bmp.height).toInt().coerceIn(0, bmp.height - 1)) }
+                        scores = scores + ("tongueOut" to level)
+                    }
                     out.value = AirTool.FacePose(lm.map { it.x() to it.y() }, scores, System.currentTimeMillis())
                 }
                 .setErrorListener { e -> out.value = null; problem = e.message }.build())
@@ -521,7 +540,7 @@ internal fun FaceCamera(front: Boolean, out: MutableStateFlow<AirTool.FacePose?>
 
 /** A camera preview whose frames, upright, go to [analyse] on a background thread; the newest frame wins. */
 @Composable
-private fun AnalysedCamera(front: Boolean, analyse: (Bitmap, Long) -> Unit) {
+internal fun AnalysedCamera(front: Boolean, analyse: (Bitmap, Long) -> Unit) {
     val owner = LocalLifecycleOwner.current
     val executor = remember { Executors.newSingleThreadExecutor() }
     DisposableEffect(Unit) { onDispose { executor.shutdown() } }
@@ -538,6 +557,7 @@ private fun AnalysedCamera(front: Boolean, analyse: (Bitmap, Long) -> Unit) {
                     runCatching {
                         val rot = proxy.imageInfo.rotationDegrees
                         val bmp = proxy.toBitmap().let { b -> if (rot == 0) b else Bitmap.createBitmap(b, 0, 0, b.width, b.height, Matrix().apply { postRotate(rot.toFloat()) }, true) }
+                        if (CameraLight.tick++ % 15 == 0) CameraLight.check(bmp)
                         analyse(bmp, System.currentTimeMillis())
                     }
                     proxy.close()

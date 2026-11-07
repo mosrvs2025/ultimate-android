@@ -62,6 +62,22 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.82.1", listOf(
+            "Fixes 1.82.0, which was built without its hand and face models (\"Gesture tracking couldn't start … gesture_recognizer.task\") and without Local AI's engine. Everything is back, and builds now refuse to ship without them.",
+        ), tries = listOf("playground")),
+        Entry("1.82.0", listOf(
+            "Search understands what you mean: \"Play YouTube\" or \"open the YouTube app\" puts YouTube itself on top, instead of searching for the words.",
+            "Air control: all five fingertips light up, and a new Both mode tracks your hand and face together from one camera. A ✨ Playground button sits in the top bar.",
+            "Desk piano: Finger pads (new default) puts a note right under where each finger rests, so different finger lengths don't matter: thumb C, index D, middle E, ring F, little G. A note now needs a real tap (lift, then down moving), with a buzz; resting or drifting doesn't play. Keyboard mode is still there.",
+            "Draw sticks to your face: with 📌 On my face (the default), what you draw near your face moves, tilts and scales with your head. Switch to 🌐 On the screen to draw on the glass.",
+            "Face: paint on your face by pinching in the air as well as with a finger on the screen.",
+            "Hands-free calling is easier to drive: a bigger live view of your face with its mesh, and a live meter for each move (up, down, call, cancel) so you see how close you are. Nodding or tilting your head also scrolls, and the eyebrow moves count sooner.",
+            "In the dark, the camera screens offer 🌙 Light my face: a warm ring light around the screen edges at full brightness.",
+            "Echo's tabs no longer wrap (\"Echogra-m\").",
+        ), tries = listOf("playground", "air")),
+        Entry("1.81.0", listOf(
+            "😛 Tongue out, seen by the camera: the face tracker has no tongue, so Ultimate looks at the picture just below your lower lip for it, against your own skin in the same light. It's a new face gesture you can give an action in Air control, and in hands-free calling sticking your tongue out (held) calls, just like holding your mouth open.",
+        ), tries = listOf("playground", "air")),
         Entry("1.80.0", listOf(
             "Record for training (Air mode ⓘ): when you turn it on, Air mode keeps your hand points, pinches, watch motion and what you did (never pictures) so a model can be trained just for you. Export sends it all as one zip; it's capped at 50 MB and deletable any time.",
             "Made for tablets too: on a big screen (like a Galaxy Tab) Home shows your tools three to five to a row instead of stretching two, Air control puts the camera and its controls side by side, and Files lays its categories out in three columns.",

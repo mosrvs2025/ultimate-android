@@ -17,6 +17,15 @@ class Hit(val kind: Kind, val title: String, val subtitle: String, val score: In
  * Pure, so it is tested; the searching of each source happens in [PaletteSources].
  */
 object PaletteMath {
+    /**
+     * What a spoken or typed request is about, without its leading verb: "Play YouTube" and "open the YouTube app"
+     * both search for "YouTube". Returns the request unchanged when it doesn't start with one.
+     */
+    fun withoutVerb(query: String): String {
+        val m = Regex("^\\s*(play|open|launch|start|run|go to|show( me)?|find|search( for)?|call|text|message)\\s+(the\\s+|my\\s+)?(.+?)(\\s+app)?\\s*$", RegexOption.IGNORE_CASE).find(query)
+        return m?.groupValues?.get(5)?.takeIf { it.isNotBlank() } ?: query
+    }
+
     /** 0 when it doesn't match. Exact beats prefix beats a word starting with it beats anywhere; every typed word must appear. */
     fun score(text: String, query: String): Int {
         val t = text.lowercase(Locale.ROOT).trim(); val q = query.lowercase(Locale.ROOT).trim()

@@ -286,10 +286,32 @@ class PlaygroundTest {
         fun tips(y: Float) = listOf<Pair<Float, Float>?>(null, 0.5f to y, null, null, null)
         assertTrue(p.feed(tips(0.70f)).isEmpty())         // resting: nothing
         assertTrue(p.feed(tips(0.62f)).isEmpty())         // lift
-        assertEquals(listOf(p.keyAt(0.5f)), p.feed(tips(0.70f)))  // down: plays
+        assertEquals(listOf(p.keyAt(0.5f)), p.feed(tips(0.70f)))  // down, moving: plays
         assertTrue(p.feed(tips(0.71f)).isEmpty())         // staying down doesn't repeat
         assertTrue(p.feed(tips(0.675f)).isEmpty())        // a small wobble isn't a new press
         assertTrue(p.feed(tips(0.70f)).isEmpty())
+    }
+
+    @Test fun padModeGivesEachFingerItsOwnNoteWhereItRests() {
+        val p = app.ultimate.air.DeskPiano()
+        // Fingers of different lengths rest at different heights; each has its own pad.
+        p.setDesk(listOf(0.2f to 0.8f, 0.35f to 0.6f, 0.5f to 0.55f, 0.65f to 0.6f, 0.8f to 0.7f), padMode = true)
+        fun only(i: Int, y: Float) = List<Pair<Float, Float>?>(5) { j -> if (j == i) (0.2f + 0.15f * j) to y else null }
+        assertTrue(p.feed(only(2, 0.55f)).isEmpty())       // the middle finger resting doesn't play
+        p.feed(only(2, 0.48f))
+        assertEquals(listOf(2), p.feed(only(2, 0.55f)))     // its tap plays its note (E)
+        p.feed(only(0, 0.72f))
+        assertEquals(listOf(0), p.feed(only(0, 0.8f)))      // the thumb plays C at its own lower rest
+    }
+
+    @Test fun aSlowDriftDownIsNotAStrike() {
+        val p = app.ultimate.air.DeskPiano()
+        p.setDesk(List(5) { 0.5f to 0.7f })
+        fun one(y: Float) = listOf<Pair<Float, Float>?>(null, 0.5f to y, null, null, null)
+        p.feed(one(0.6f))
+        var y = 0.6f; var played = 0
+        while (y < 0.72f) { y += 0.002f; played += p.feed(one(y)).size }
+        assertEquals(0, played)
     }
 
     @Test fun fingersPlayIndependently() {
@@ -370,5 +392,56 @@ class SenseRecorderTest {
         assertTrue(zip.length() > 0)
         r.trim(); assertEquals(1, r.sessions().size)   // over the cap: the oldest goes, the newest stays
         zip.delete(); dir.deleteRecursively()
+    }
+}
+
+class TongueDetectorTest {
+    private fun face(): List<Pair<Float, Float>> = MutableList(468) { 0.5f to 0.5f }.also {
+        it[17] = 0.5f to 0.6f; it[152] = 0.5f to 0.8f; it[61] = 0.42f to 0.55f; it[291] = 0.58f to 0.55f
+        it[50] = 0.35f to 0.45f; it[280] = 0.65f to 0.45f
+    }
+    private val skin = (220 shl 16) or (170 shl 8) or 140
+    private val tongue = (225 shl 16) or (90 shl 8) or 110
+
+    @Test fun aPinkStripBelowTheLipIsATongue() {
+        val d = app.ultimate.air.TongueDetector()
+        repeat(20) { assertTrue(d.feed(face()) { _, _ -> skin } < 0.1f) }
+        val out = d.feed(face()) { _, y -> if (y in 0.62f..0.7f) tongue else skin }
+        assertTrue("level $out", out > 0.8f)
+    }
+
+    @Test fun evenLightingChangesDontLookLikeATongue() {
+        val d = app.ultimate.air.TongueDetector()
+        repeat(20) { d.feed(face()) { _, _ -> skin } }
+        val warm = (240 shl 16) or (160 shl 8) or 120
+        assertTrue(d.feed(face()) { _, _ -> warm } < 0.2f)
+    }
+}
+
+class SearchVerbTest {
+    @Test fun dropsTheLeadingVerb() {
+        val w = app.ultimate.search.PaletteMath::withoutVerb
+        assertEquals("YouTube", w("Play YouTube"))
+        assertEquals("YouTube", w("open the YouTube app"))
+        assertEquals("lofi beats", w("play lofi beats"))
+        assertEquals("Mom", w("call Mom"))
+        assertEquals("YouTube", w("YouTube"))
+        assertEquals("play", w("play"))
+    }
+}
+
+class FaceNavigatorNodTest {
+    @Test fun noddingScrollsAndMetersShowHowClose() {
+        val n = app.ultimate.air.FaceNavigator()
+        var t = 0L
+        repeat(30) { n.feed(emptyMap(), t, 0.45f); t += 33 }
+        assertEquals(0f, n.levels["down"]!!, 0.01f)
+        var moves = 0
+        repeat(10) { if (n.feed(emptyMap(), t, 0.53f) == app.ultimate.air.FaceNavigator.Move.Down) moves++; t += 33 }
+        assertTrue(moves >= 1)
+        // A small nod shows on the meter without moving.
+        val m = app.ultimate.air.FaceNavigator(); t = 0
+        repeat(30) { m.feed(emptyMap(), t, 0.45f); t += 33 }
+        assertTrue(m.feed(emptyMap(), t, 0.48f) == null); assertTrue(m.levels["down"]!! in 0.3f..0.7f)
     }
 }
