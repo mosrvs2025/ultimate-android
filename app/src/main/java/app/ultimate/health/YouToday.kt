@@ -52,6 +52,8 @@ fun YouToday(app: UltimateApp) {
     var mood by remember { mutableStateOf(MoodLog.get(c, today)) }
     val live by LiveHeart.bpm.collectAsStateWithLifecycle()
     val notes = remember { runCatching { app.notificationLog.today() }.getOrNull() }
+    // Money and health alerts read out of the last week's notifications.
+    var facts by remember { mutableStateOf<List<NotificationFacts.Fact>>(emptyList()) }
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             val avail = HealthReader.available(c)
@@ -59,6 +61,9 @@ fun YouToday(app: UltimateApp) {
             healthOk = granted.isNotEmpty()
             if (granted.isNotEmpty()) days = runCatching { HealthReader.days(c, granted, 30) }.getOrDefault(emptyList())
             phone = phoneDays(c, 30)
+            val weekAgo = System.currentTimeMillis() - 7 * 86_400_000L
+            facts = runCatching { app.notificationLog.search("", null, false, limit = 2000) }.getOrDefault(emptyList())
+                .filter { it.at >= weekAgo }.mapNotNull { NotificationFacts.read(it.pkg, it.app, it.title, it.text, it.at) }
         }
     }
     val t = days.firstOrNull { it.day == today }
@@ -102,10 +107,26 @@ fun YouToday(app: UltimateApp) {
                 Stat(sleep?.let { HealthInsights.hm(it.toInt()) } ?: "—", "sleep last night")
                 Stat((t?.hrvMs ?: y?.hrvMs)?.let { "%.0f ms".format(it) } ?: "—", "heart rate variability")
             }
+            facts.filter { it.kind == NotificationFacts.Kind.Heart }.take(2).forEach { f ->
+                Text("⌚ ${f.text}", style = MaterialTheme.typography.bodySmall)
+            }
             if (healthOk == false) {
                 Text("Connect Health Connect (from your Galaxy Watch through Samsung Health) to see steps, sleep, heart rate and more here.", style = MaterialTheme.typography.bodySmall)
                 app.tools.firstOrNull { it.id == "health" }?.let { h -> FilledTonalButton({ app.shell.open(h) }) { Text("Connect health data") } }
             } else app.tools.firstOrNull { it.id == "health" }?.let { h -> TextButton({ app.shell.open(h) }) { Text("All your health →") } }
+        }
+        val money = remember(facts) { NotificationFacts.money(facts) }
+        if (money.recent.isNotEmpty()) Card("Your money this week") {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Stat("$%,.2f".format(money.spent), "spent (from notifications)")
+                Stat("$%,.2f".format(money.received), "received")
+            }
+            money.declined.firstOrNull()?.let { Text("⚠️ A payment didn't go through: ${it.text}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            money.bills.firstOrNull()?.let { Text("🧾 ${it.text}", style = MaterialTheme.typography.bodySmall) }
+            money.recent.filter { it.kind == NotificationFacts.Kind.Spent || it.kind == NotificationFacts.Kind.Received }.take(3).forEach {
+                Text("${if (it.kind == NotificationFacts.Kind.Received) "＋" else "－"} ${it.amount?.let { a -> "$%,.2f".format(a) } ?: ""} · ${it.app}", style = MaterialTheme.typography.bodySmall)
+            }
+            Text("Only what your banking and payment apps already told you in notifications. Nothing is sent anywhere.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Card("Your phone life") {
             val p = phone.firstOrNull { it.day == today }

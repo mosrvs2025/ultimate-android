@@ -511,3 +511,17 @@ class PhoneCommandsTest {
         assertTrue(!app.ultimate.ai.PhoneCommands.plausible(app.ultimate.ai.AiCall("set_volume", emptyMap(), 0.8), "Set the brightness to 50"))
     }
 }
+
+class NotificationFactsTest {
+    private val r = app.ultimate.health.NotificationFacts::read
+    private val K = app.ultimate.health.NotificationFacts.Kind.entries
+    @Test fun readsMoneyAndHealthButNotAds() {
+        val d = r("com.paypal.android.p2pmobile", "PayPal", "Let's give it another go", "Add money to your balance and retry your PayPal Debit purchase of \$21.48 USD at …", 0)!!
+        assertEquals(app.ultimate.health.NotificationFacts.Kind.Declined, d.kind); assertEquals(21.48, d.amount!!, 0.001)
+        val h = r("com.sec.android.app.shealth", "Samsung Health", "HR low (51 bpm)", "While at rest, heart rate under 60 bpm for 10 minutes starting at 5:25 AM.", 0)!!
+        assertEquals(app.ultimate.health.NotificationFacts.Kind.Heart, h.kind); assertEquals(51.0, h.amount!!, 0.1)
+        assertEquals(null, r("com.amazon.mShop.android.shopping", "Amazon", "Your deal on HP Laptop", "Add to cart to save today, now \$499.99", 0))
+        assertEquals(app.ultimate.health.NotificationFacts.Kind.Spent, r("com.chase.sig.android", "Chase", "Card transaction", "You made a \$1,240.50 purchase at Best Buy", 0)!!.kind)
+        assertEquals(app.ultimate.health.NotificationFacts.Kind.Received, r("com.venmo", "Venmo", "Sam paid you \$20.00", "Pizza", 0)!!.kind)
+    }
+}
