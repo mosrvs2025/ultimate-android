@@ -62,6 +62,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.78.0", listOf(
+            "Home, rearranged: search sits right under the title, then today's live picture (photos, screen time, what's running, your senses), then your tools in more compact tiles, so the live stuff is the first thing you see.",
+            "Air control, tidied: one compact bar (Start Air mode, gestures on or off, and ⓘ for how it works) instead of three stacked cards; the camera stays pinned at the top with Hand / Face and the camera flip floating on it; what each gesture does is a clean list in groups (Navigation, Media, System), each a tap to change.",
+            "Pinch to tap lands where you aimed: closing your fingers pulls the fingertip toward your thumb, so the tap now goes where the cursor was just before the pinch started.",
+        ), tries = listOf("air")),
         Entry("1.77.0", listOf(
             "Talk to Air mode: an Ask pill sits at the top of the screen. Point at it, pinch, and say what you want: \"open Spotify\", \"go back\", \"scroll down\", or anything Local AI understands (\"turn on the flashlight\"). The pill shows what it heard and did.",
             "Air mode knows when you pick the phone up: while it's in your hand the cursor steps aside so touch works normally, and it comes back by itself a moment after you set the phone down.",

@@ -68,7 +68,12 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.Cameraswitch
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -233,7 +238,7 @@ class AirTool(private val app: UltimateApp) : Tool {
         }
 
         Scaffold(topBar = { TopAppBar(title = { Text("Air control") }, navigationIcon = { IconButton(onExit) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { pad ->
-            Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (!allowed) {
                     Text("Prop the phone up facing you. The camera watches your hand and turns gestures into actions, from up to about 2-3 metres. Everything runs on the phone; frames are looked at and dropped, never saved.", style = MaterialTheme.typography.bodyLarge)
                     Button({ ask.launch(Manifest.permission.CAMERA) }) { Text("Allow the camera") }
@@ -247,27 +252,32 @@ class AirTool(private val app: UltimateApp) : Tool {
                     AirPractice(pose, onDone = { AirBridge.setPracticed(context); practicing = false; startAir() }, onCancel = { practicing = false })
                     return@Column
                 }
-                AirModeCard(airRunning, onStart = { if (AirBridge.practiced(context)) startAir() else practicing = true },
-                    onPractice = { practicing = true }, onStop = { AirBridge.stop(context) })
-                if (airRunning) return@Column
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                    .background(if (acting) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .clickable { acting = !acting }.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Gestures do things", fontWeight = FontWeight.SemiBold)
-                        Text(if (acting) "On: gestures control the phone and trigger Rules until you leave." else "Off: watching only. You'll see what each gesture would do; nothing happens.",
-                            style = MaterialTheme.typography.bodySmall)
-                    }
-                    Switch(acting, { acting = it })
+                var info by remember { mutableStateOf(false) }
+                val tryStart = { if (!AirBridge.accessibilityOn(context)) info = true else if (AirBridge.practiced(context)) startAir() else practicing = true }
+                if (airRunning) {
+                    AirModeCard(true, onStart = tryStart, onPractice = { practicing = true }, onStop = { AirBridge.stop(context) })
+                    return@Column
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(!faceMode, { faceMode = false; face.value = null }, { Text("Hand") })
-                    FilterChip(faceMode, { faceMode = true; pose.value = null; expressions.reset() }, { Text("Face") })
+                // One compact bar instead of stacked cards: start Air mode, let gestures act, and (i) for the how-to.
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(start = 6.dp, end = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.FilledTonalButton(tryStart) { Text(if (AirBridge.practiced(context)) "Start Air mode" else "Learn Air mode") }
                     Box(Modifier.weight(1f))
-                    FilterChip(front, { front = true }, { Text("Front") })
-                    FilterChip(!front, { front = false }, { Text("Back") })
+                    Text(if (acting) "Gestures act" else "Watching", style = MaterialTheme.typography.labelLarge, modifier = Modifier.clickable { acting = !acting })
+                    Switch(acting, { acting = it }, Modifier.padding(horizontal = 6.dp).graphicsLayer { scaleX = 0.85f; scaleY = 0.85f })
+                    IconButton({ info = true }) { Icon(androidx.compose.material.icons.Icons.Rounded.Info, "How Air control works") }
                 }
-                Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
+                if (info) androidx.compose.material3.ModalBottomSheet({ info = false }) {
+                    Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AirModeCard(false, onStart = { info = false; tryStart() }, onPractice = { info = false; practicing = true }, onStop = { AirBridge.stop(context) })
+                        Text("Gestures act: off, this screen only shows what each gesture would do. On, gestures control the phone and trigger Rules (\"When I give a thumbs up, …\") until you leave.",
+                            style = MaterialTheme.typography.bodyMedium)
+                        Text("Works best in good light with your whole hand in view, up to about 2-3 m. Frames are looked at and dropped, never saved.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                // The camera stays at the top; everything below scrolls under it.
+                val camH = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.42f).dp
+                Box(Modifier.fillMaxWidth().height(camH).clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
                     key(front, faceMode) { if (faceMode) FaceCamera(front, face) else GestureCamera(front, pose) }
                     val now = System.currentTimeMillis()
                     if (faceMode) seenFace?.takeIf { now - it.at < 400 }?.let { f ->
@@ -287,6 +297,16 @@ class AirTool(private val app: UltimateApp) : Tool {
                         }
                     }
                     TruthTag(Truth.Estimate, Modifier.align(Alignment.TopStart).padding(10.dp))
+                    // Hand / Face and the camera flip float on the picture, so they never scroll away.
+                    Row(Modifier.align(Alignment.TopEnd).padding(8.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(2.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        listOf(false to "Hand", true to "Face").forEach { (isFace, label) ->
+                            Text(label, Modifier.clip(RoundedCornerShape(14.dp)).background(if (faceMode == isFace) Color.White.copy(alpha = 0.9f) else Color.Transparent)
+                                .clickable { faceMode = isFace; if (isFace) { pose.value = null; expressions.reset() } else face.value = null }.padding(horizontal = 12.dp, vertical = 6.dp),
+                                color = if (faceMode == isFace) Color.Black else Color.White, style = MaterialTheme.typography.labelLarge)
+                        }
+                        IconButton({ front = !front }, Modifier.size(36.dp))  { Icon(androidx.compose.material.icons.Icons.Rounded.Cameraswitch, if (front) "Use the back camera" else "Use the front camera", tint = Color.White) }
+                    }
                     val pop = last?.takeIf { now - it.second < 1_200 }
                     val scale by animateFloatAsState(if (pop != null) 1f else 0.6f, spring(0.45f, 300f), label = "pop")
                     pop?.let { (g, _) ->
@@ -300,6 +320,7 @@ class AirTool(private val app: UltimateApp) : Tool {
                     Text(if (faceMode) (if (seenFace == null) "Look at the camera" else "Tracking your face") else if (hand == null) "Show the camera your hand" else hand?.sign?.takeIf { it != "None" }?.let { AirGestures.signLabel(it) } ?: "Tracking your hand",
                         Modifier.align(Alignment.BottomCenter).padding(10.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 10.dp, vertical = 4.dp), color = Color.White)
                 }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (faceMode) {
                     // Live levels against your own resting face, so you can see what the camera reads as you move.
                     Text("Your expressions, live", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -327,19 +348,10 @@ class AirTool(private val app: UltimateApp) : Tool {
                 if (!faceMode) app.tools.firstOrNull { it.id == "echo-teach" }?.let { teach ->
                     androidx.compose.material3.OutlinedButton({ app.shell.open(teach) }, Modifier.fillMaxWidth()) { Text("Teach Echo these gestures, to use them with the camera off") }
                 }
-                Text("What each gesture does (tap to change)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    (if (faceMode) FaceExpressions.ALL else AirGestures.ALL).forEach { (kind, label) ->
-                        val act = chosen[kind] ?: "none"
-                        val name = AirActions.CHOICES.firstOrNull { it.first == act }?.second ?: "Nothing"
-                        Text("$label → $name", Modifier.clip(RoundedCornerShape(12.dp)).background(if (act == "none") MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.primaryContainer)
-                            .clickable {
-                                val next = AirActions.CHOICES[(AirActions.CHOICES.indexOfFirst { it.first == act } + 1) % AirActions.CHOICES.size].first
-                                chosen[kind] = next; actionsPrefs(context).edit().putString(kind, next).apply()
-                            }.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge)
-                    }
+                GestureMappings(if (faceMode) listOf("Expressions" to FaceExpressions.ALL) else HAND_GROUPS, chosen) { kind, next ->
+                    chosen[kind] = next; actionsPrefs(context).edit().putString(kind, next).apply()
                 }
-                Text("With \"Gestures do things\" on, every gesture is also a signal for Rules, like \"When I give a thumbs up, …\". Works best with good light and your whole hand in view, up to about 2-3 m. The screen stays on while Air control watches; it stops when you leave.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }
@@ -347,6 +359,50 @@ class AirTool(private val app: UltimateApp) : Tool {
     companion object {
         /** The hand's bones, as pairs of MediaPipe landmark numbers. */
         val BONES = listOf(0 to 1, 1 to 2, 2 to 3, 3 to 4, 0 to 5, 5 to 6, 6 to 7, 7 to 8, 5 to 9, 9 to 10, 10 to 11, 11 to 12, 9 to 13, 13 to 14, 14 to 15, 15 to 16, 13 to 17, 0 to 17, 17 to 18, 18 to 19, 19 to 20)
+    }
+}
+
+/** The hand gestures in groups, so the list reads at a glance: moves, hand shapes that are media keys, and the rest. */
+private val HAND_GROUPS: List<Pair<String, List<Pair<String, String>>>> = run {
+    val all = AirGestures.ALL.toMap()
+    fun g(vararg k: String) = k.mapNotNull { id -> all[id]?.let { id to it } }
+    listOf(
+        "Navigation · swipes and moves" to g("swipe_left", "swipe_right", "swipe_up", "swipe_down", "push", "pull"),
+        "Media · thumbs and palm" to g("thumb_up", "thumb_down", "open_palm", "hold"),
+        "System · pinch, fist and signs" to g("pinch", "fist", "victory", "pointing_up", "i_love_you"),
+    )
+}
+
+/**
+ * What each gesture does, as tidy rows in collapsible groups: the gesture on the left, its action on the right; tap a
+ * row to pick a different action from a menu.
+ */
+@Composable
+private fun GestureMappings(groups: List<Pair<String, List<Pair<String, String>>>>, chosen: Map<String, String>, onChange: (String, String) -> Unit) {
+    val open = remember { mutableStateMapOf<String, Boolean>() }
+    groups.forEach { (title, items) ->
+        val isOpen = open[title] ?: (groups.size == 1)
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow)) {
+            Row(Modifier.fillMaxWidth().clickable { open[title] = !isOpen }.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                Text("${items.count { (chosen[it.first] ?: "none") != "none" }} of ${items.size} set", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(if (isOpen) androidx.compose.material.icons.Icons.Rounded.ExpandLess else androidx.compose.material.icons.Icons.Rounded.ExpandMore, null)
+            }
+            if (isOpen) items.forEach { (kind, label) ->
+                var menu by remember { mutableStateOf(false) }
+                val act = chosen[kind] ?: "none"
+                Box {
+                    Row(Modifier.fillMaxWidth().clickable { menu = true }.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(label, Modifier.weight(1f))
+                        Text(AirActions.CHOICES.firstOrNull { it.first == act }?.second ?: "Nothing", style = MaterialTheme.typography.labelLarge,
+                            color = if (act == "none") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
+                    }
+                    androidx.compose.material3.DropdownMenu(menu, { menu = false }) {
+                        AirActions.CHOICES.forEach { (id, name) -> androidx.compose.material3.DropdownMenuItem({ Text(name + if (id == act) "  ✓" else "") }, { menu = false; onChange(kind, id) }) }
+                    }
+                }
+            }
+        }
     }
 }
 

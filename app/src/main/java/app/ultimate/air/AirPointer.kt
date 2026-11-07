@@ -37,6 +37,10 @@ class AirPointer(
     private var pinchX = 0f
     private var pinchY = 0f
     private var longFired = false
+    private var closeX = 0f
+    private var closeY = 0f
+    /** Where the cursor was over the last fraction of a second, to undo the drift a pinch itself causes. */
+    private val trail = ArrayDeque<Triple<Long, Float, Float>>()
 
     /**
      * Feeds one hand: [tipX], [tipY] the index fingertip in the camera picture (0..1, already mirrored for the front
@@ -50,11 +54,18 @@ class AirPointer(
         val ey = fy ?: OneEuro(minCutoff, beta).also { fy = it }
         // While pinched, the cursor holds steadier so the pinch itself doesn't nudge it off target.
         x = ex.filter(tx, now, if (pinched) 0.5f else 1f); y = ey.filter(ty, now, if (pinched) 0.5f else 1f)
+        trail.addLast(Triple(now, x, y)); while (trail.size > 2 && now - trail.first().first > 400) trail.removeFirst()
 
         // Hysteresis: closing past 0.25 pinches, opening past 0.4 releases, so a pinch held near the edge doesn't flicker.
-        if (!pinched && pinch < 0.25f) { pinched = true; pinchAt = now; pinchX = x; pinchY = y; longFired = false; return null }
+        if (!pinched && pinch < 0.25f) {
+            // Closing a pinch pulls the fingertip toward the thumb, so by the time the pinch counts the cursor has
+            // slid off what you aimed at. The tap lands where the cursor was just before the fingers started closing.
+            val aim = trail.lastOrNull { now - it.first >= REWIND_MS } ?: trail.first()
+            pinched = true; pinchAt = now; pinchX = aim.second; pinchY = aim.third; closeX = x; closeY = y; longFired = false; return null
+        }
         if (pinched) {
-            val moved = hypot(x - pinchX, y - pinchY)
+            // Movement counts from where the cursor was when the pinch closed, so the closing drift isn't a drag.
+            val moved = hypot(x - closeX, y - closeY)
             if (pinch > 0.4f) {
                 pinched = false
                 val held = now - pinchAt
@@ -71,12 +82,14 @@ class AirPointer(
     }
 
     /** The hand left the picture: forget smoothing (so it doesn't glide from the old place) and any pinch in progress. */
-    fun lost() { fx = null; fy = null; pinched = false }
+    fun lost() { fx = null; fy = null; pinched = false; trail.clear() }
 
     companion object {
         const val TAP_MS = 450L
         const val LONG_MS = 650L
         const val DRAG_PX = 60f
+        /** How far back a pinch looks for where you were aiming. */
+        const val REWIND_MS = 150L
     }
 }
 

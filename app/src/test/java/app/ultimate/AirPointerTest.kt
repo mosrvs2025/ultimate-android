@@ -224,3 +224,20 @@ class PhoneContextTest {
         assertTrue(!c.held)
     }
 }
+
+class PinchDriftTest {
+    @Test fun aTapLandsWhereYouAimedNotWhereThePinchPulledTheFinger() {
+        val p = app.ultimate.air.AirPointer(1000f, 1000f)
+        var t = 0L
+        repeat(60) { p.feed(0.5f, 0.5f, 0.8f, t); t += 33 }        // aiming still at the middle
+        val aimX = p.x
+        // Fingers close over ~200 ms; the tip drifts 4% of the picture (about 70 px on screen) toward the thumb.
+        for (i in 1..6) { p.feed(0.5f - 0.007f * i, 0.5f + 0.007f * i, 0.8f - 0.1f * i, t); t += 33 }
+        p.feed(0.458f, 0.542f, 0.1f, t); t += 33
+        var tap: app.ultimate.air.AirPointer.Action? = null
+        repeat(3) { p.feed(0.458f, 0.542f, 0.1f, t)?.let { tap = it }; t += 33 }
+        p.feed(0.458f, 0.542f, 0.6f, t)?.let { tap = it }
+        val a = tap as app.ultimate.air.AirPointer.Action.Tap
+        assertTrue("tap ${a.x} vs aim $aimX", kotlin.math.abs(a.x - aimX) < 25f)
+    }
+}
