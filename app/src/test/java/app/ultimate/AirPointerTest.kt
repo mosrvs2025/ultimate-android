@@ -224,3 +224,57 @@ class PhoneContextTest {
         assertTrue(!c.held)
     }
 }
+
+class PinchDriftTest {
+    @Test fun aTapLandsWhereYouAimedNotWhereThePinchPulledTheFinger() {
+        val p = app.ultimate.air.AirPointer(1000f, 1000f)
+        var t = 0L
+        repeat(60) { p.feed(0.5f, 0.5f, 0.8f, t); t += 33 }        // aiming still at the middle
+        val aimX = p.x
+        // Fingers close over ~200 ms; the tip drifts 4% of the picture (about 70 px on screen) toward the thumb.
+        for (i in 1..6) { p.feed(0.5f - 0.007f * i, 0.5f + 0.007f * i, 0.8f - 0.1f * i, t); t += 33 }
+        p.feed(0.458f, 0.542f, 0.1f, t); t += 33
+        var tap: app.ultimate.air.AirPointer.Action? = null
+        repeat(3) { p.feed(0.458f, 0.542f, 0.1f, t)?.let { tap = it }; t += 33 }
+        p.feed(0.458f, 0.542f, 0.6f, t)?.let { tap = it }
+        val a = tap as app.ultimate.air.AirPointer.Action.Tap
+        assertTrue("tap ${a.x} vs aim $aimX", kotlin.math.abs(a.x - aimX) < 25f)
+    }
+}
+
+class FingerShapesTest {
+    /** A rough right hand, palm to the camera, wrist at the bottom; [out] says which fingers are straight. */
+    private fun hand(out: List<Boolean>): List<Pair<Float, Float>> {
+        val p = MutableList(21) { 0.5f to 0.8f }
+        p[0] = 0.5f to 0.8f
+        // Thumb: base, joints and tip going left; curled tips fold back across the palm.
+        p[1] = 0.42f to 0.75f; p[2] = 0.37f to 0.7f; p[3] = 0.33f to 0.66f; p[4] = if (out[0]) 0.27f to 0.6f else 0.45f to 0.62f
+        val xs = listOf(0.43f, 0.49f, 0.55f, 0.61f)
+        for (f in 0 until 4) {
+            val base = 5 + f * 4; val x = xs[f]
+            p[base] = x to 0.6f; p[base + 1] = x to 0.5f; p[base + 2] = x to 0.43f
+            p[base + 3] = if (out[f + 1]) x to 0.36f else x to 0.58f
+        }
+        return p
+    }
+
+    @Test fun readsTheMiddleFingerRockOnAndCallMe() {
+        assertEquals(listOf(false, false, true, false, false), app.ultimate.air.FingerShapes.mask(hand(listOf(false, false, true, false, false))))
+        val s = app.ultimate.air.FingerShapes()
+        assertEquals(null, s.feed(hand(listOf(false, false, true, false, false)), 0))
+        assertEquals("middle_finger", s.feed(hand(listOf(false, false, true, false, false)), 600))
+        assertEquals(null, s.feed(hand(listOf(false, false, true, false, false)), 900)) // once per hold
+        val r = app.ultimate.air.FingerShapes()
+        r.feed(hand(listOf(true, true, false, false, true)), 0)
+        assertEquals("rock_on", r.feed(hand(listOf(true, true, false, false, true)), 600))
+        val c = app.ultimate.air.FingerShapes()
+        c.feed(hand(listOf(true, false, false, false, true)), 0)
+        assertEquals("call_me", c.feed(hand(listOf(true, false, false, false, true)), 600))
+    }
+
+    @Test fun anOpenHandOrFistIsNotACustomShape() {
+        val s = app.ultimate.air.FingerShapes()
+        s.feed(hand(listOf(true, true, true, true, true)), 0)
+        assertEquals(null, s.feed(hand(listOf(true, true, true, true, true)), 900))
+    }
+}

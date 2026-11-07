@@ -1,5 +1,6 @@
 package app.ultimate.home
 
+import app.ultimate.R
 import app.ultimate.BuildConfig
 import app.ultimate.insights.InsightsSheet
 import app.ultimate.core.appear
@@ -134,11 +135,17 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(Modifier.padding(start = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Ultimate", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(androidx.compose.ui.res.stringResource(R.string.app_name), Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Hero(saved, all.size) { app.insights.count("home.savings"); app.tools.firstOrNull { it.id == "storage" }?.let { app.shell.open(it) } ?: run { showSavings = true } }
                 androidx.compose.material3.IconButton({ app.insights.count("home.about"); shell.showAbout() }) { Icon(Icons.Rounded.Settings, "About and settings") }
             }
         }
+        item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
+        if (fresh.isNotEmpty()) item(key = "new-for-you", span = { GridItemSpan(maxLineSpan) }) {
+            NewForYou(fresh, onTry = { shell.open(it) }, onHide = { NewFeatures.hide(app, fresh.map { it.id }); fresh = emptyList() })
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) { TodayDashboard(app) }
+        item(key = "live-senses", span = { GridItemSpan(maxLineSpan) }) { LiveSenses(app) }
         // Your tools: pins first, then what you open around this time and what is running. Compact tiles, two to a row.
         item(key = "favorites-header", span = { GridItemSpan(maxLineSpan) }) {
             Text("Your tools", Modifier.padding(start = 4.dp, top = 2.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
@@ -150,12 +157,6 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
                 onLibrary = { shell.showLibraryOf(tool.id) }, onClick = { shell.open(tool) },
             )
         }
-        item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
-        if (fresh.isNotEmpty()) item(key = "new-for-you", span = { GridItemSpan(maxLineSpan) }) {
-            NewForYou(fresh, onTry = { shell.open(it) }, onHide = { NewFeatures.hide(app, fresh.map { it.id }); fresh = emptyList() })
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) { TodayDashboard(app) }
-        item(key = "live-senses", span = { GridItemSpan(maxLineSpan) }) { LiveSenses(app) }
         app.tools.firstOrNull { it.id == "echo" }?.let { echo -> item(key = "senses", span = { GridItemSpan(maxLineSpan) }) { SensesCard(app, echo as app.ultimate.echo.EchoTool) } }
         if (pending.isNotEmpty()) item(key = "unfinished", span = { GridItemSpan(maxLineSpan) }) {
             Column {
@@ -291,9 +292,9 @@ private fun ToolTile(modifier: Modifier = Modifier, tool: Tool, wide: Boolean, a
         ) {
             val icon = @Composable {
                 Box(
-                    Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+                    Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center,
-                ) { Icon(tool.icon, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
+                ) { Icon(tool.icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
             }
             val text = @Composable { mod: Modifier ->
                 Column(mod) {
@@ -302,13 +303,13 @@ private fun ToolTile(modifier: Modifier = Modifier, tool: Tool, wide: Boolean, a
                 }
             }
             if (wide) {
-                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    icon(); Spacer(Modifier.width(14.dp)); text(Modifier.weight(1f))
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    icon(); Spacer(Modifier.width(12.dp)); text(Modifier.weight(1f))
                     Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.outline)
                 }
             } else {
-                Column(Modifier.padding(14.dp).heightIn(min = 92.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                    icon(); Spacer(Modifier.height(10.dp)); text(Modifier)
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 11.dp).heightIn(min = 74.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                    icon(); Spacer(Modifier.height(6.dp)); text(Modifier)
                 }
             }
         }
