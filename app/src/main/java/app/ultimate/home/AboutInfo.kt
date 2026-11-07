@@ -62,6 +62,13 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.85.0", listOf(
+            "Watch 1.4: with \"Share heart rate\" on, the watch keeps sending your heart rate when its app is closed and the screen is off, so body rules and the heart rate on Home work all day. It shows a notification on the watch with Stop, and uses more of the watch's battery. Update the watch from Watch in Ultimate+.",
+        ), tries = listOf("watch")),
+        Entry("1.84.0", listOf(
+            "Your body on Home: a pulse strip under the search bar shows your watch's heart rate right now and how you feel today, with a one-tap mood check-in when you haven't given one. Tap it for You → Today.",
+            "Body rules: Rules can now react to you. \"When my heart rate stays high, turn on Do Not Disturb\", \"When I'm stressed, …\", \"When my heart rate calms down, …\", \"When I feel low, …\". A high heart rate counts once it has lasted a minute, so standing up or a sneeze doesn't trigger anything.",
+        ), tries = listOf("rules", "timeline")),
         Entry("1.83.0", listOf(
             "You has a new Today page: how you're doing (a one-tap mood, and a read on your day from sleep, heart rate variability, resting heart rate, late-night phone use and notifications, with every reason listed), your body (live heart rate from the watch, steps, sleep, HRV), your phone life, and what it's learning about you. Everything stays on the phone.",
             "Search hands on what you asked for: \"YouTube notifications\" opens Notification history already searching for YouTube. And it no longer flashes \"Nothing matches\" while it's still looking.",

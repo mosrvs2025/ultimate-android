@@ -480,3 +480,19 @@ class MindCheckTest {
         assertEquals(null, app.ultimate.health.MindCheck.read(null, null, null, null, null, null, null, null, null))
     }
 }
+
+class HeartWatchTest {
+    @Test fun aSustainedHighHeartRateCountsOnceAndCalmingDownToo() {
+        val w = app.ultimate.health.HeartWatch()
+        val out = ArrayList<String>(); var t = 0L
+        fun run(bpm: Int, secs: Int) { repeat(secs / 5) { w.feed(bpm, t)?.let(out::add); t += 5_000 } }
+        run(75, 120); run(125, 20); run(75, 60)        // a brief spike: nothing
+        assertTrue(out.isEmpty())
+        run(120, 120)                                  // two minutes high
+        assertEquals(listOf("heart_high"), out)
+        run(105, 120)                                  // still near the line: not calm yet
+        assertEquals(1, out.size)
+        run(80, 90)
+        assertEquals(listOf("heart_high", "heart_calm"), out)
+    }
+}

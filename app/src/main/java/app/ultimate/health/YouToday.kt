@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.UltimateApp
+import app.ultimate.core.Signal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
@@ -75,7 +76,11 @@ fun YouToday(app: UltimateApp) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MindCheck.MOODS.forEachIndexed { i, (e, name) ->
                     Column(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(if (mood == i) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .clickable { mood = i; MoodLog.set(c, today, i) }.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        .clickable {
+                            mood = i; MoodLog.set(c, today, i)
+                            // Rules can react to how you feel ("when I feel low, …").
+                            app.senses.publish(Signal("body", if (i <= 0) "mood_low" else if (i >= 2) "mood_good" else "mood_meh", "You feel ${name.lowercase()}"))
+                        }.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(e, fontSize = 26.sp); Text(name, style = MaterialTheme.typography.labelSmall)
                     }
                 }
@@ -134,5 +139,35 @@ private fun androidx.compose.foundation.layout.RowScope.Stat(value: String, labe
     Column(Modifier.weight(1f)) {
         Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/**
+ * The body pulse at the top of Home: your watch's heart rate right now and how you said you feel, with a one-tap mood
+ * check-in when you haven't given one today. Tap it for You → Today.
+ */
+@Composable
+fun BodyPulse(app: UltimateApp) {
+    val c = LocalContext.current
+    val today = remember { LocalDate.now().toEpochDay() }
+    var mood by remember { mutableStateOf(MoodLog.get(c, today)) }
+    val live by LiveHeart.bpm.collectAsStateWithLifecycle()
+    val beat = live?.takeIf { System.currentTimeMillis() - it.second < 60_000 }
+    val you = app.tools.firstOrNull { it.id == "timeline" }
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow)
+        .clickable { you?.let { app.shell.open(it) } }.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (beat != null) { Text("❤️ ${beat.first}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); Text(" bpm  ", style = MaterialTheme.typography.labelSmall) }
+        val m = mood
+        if (m != null) Text("${MindCheck.MOODS[m].first} ${MindCheck.MOODS[m].second} today", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        else {
+            Text("How do you feel?", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            MindCheck.MOODS.forEachIndexed { i, (e, name) ->
+                Text(e, Modifier.clip(RoundedCornerShape(12.dp)).clickable {
+                    mood = i; MoodLog.set(c, today, i)
+                    app.senses.publish(Signal("body", if (i <= 0) "mood_low" else if (i >= 2) "mood_good" else "mood_meh", "You feel ${name.lowercase()}"))
+                }.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 24.sp)
+            }
+        }
+        if (m != null) Text("You →", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
 }

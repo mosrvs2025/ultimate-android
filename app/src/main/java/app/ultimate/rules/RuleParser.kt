@@ -88,6 +88,10 @@ object RuleParser {
             val has = when (val what = m.groupValues[1]) { "link", "url" -> "http"; "something", "text", "some" -> ""; else -> what.trim() }
             add(m, Trigger(TriggerType.Copied, contains = has))
         }
+        // Body: "when my heart rate is high", "when I'm stressed", "when my heart calms down", "when I feel low".
+        hit("\\b(?:my )?(?:heart ?rate|heart|pulse) (?:is |gets |goes |stays )?(?:high|up|racing|over \\d+)(?=,| then | and |$)|\\bi(?:'m| am| get| feel) (?:stressed|anxious)(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "body:heart_high")) }
+        hit("\\b(?:my )?(?:heart ?rate|heart|pulse) (?:calms?|settles?|goes|comes) (?:down|back)(?:again)?(?=,| then | and |$)|\\bi calm down(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "body:heart_calm")) }
+        hit("\\bi (?:feel|am|'m) (?:low|down|sad|bad)(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "body:mood_low")) }
         // Senses: "when something comes closer to the phone", "when I wave at the phone", "when someone walks away".
         hit("\\b(?:something|someone|anyone|a hand|my hand|i) (?:comes?|gets?|moves?|walks?|reach(?:es)?) (?:closer|near|toward|towards|up to)(?: to)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "echo:approach")) }
         hit("\\b(?:something|someone|anyone|a hand|my hand|i) (?:moves?|walks?|goes?|steps?) (?:away|off)(?: from)?(?: the| my)? ?(?:phone)?(?=,| then | and |$)")?.let { add(it, Trigger(TriggerType.Sensed, contains = "echo:recede")) }

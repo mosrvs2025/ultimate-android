@@ -9,6 +9,10 @@
     <!-- Heart rate, only after "Share heart rate" is turned on; it goes to Ultimate+ on the phone and nowhere else. -->
     <uses-permission android:name="android.permission.BODY_SENSORS" android:maxSdkVersion="35" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <!-- Keeps heart rate sharing going with the app closed, shown as a notification with Stop. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="false"
@@ -39,5 +43,6 @@
             </intent-filter>
         </service>
         <receiver android:name=".UpdateResult" android:exported="false" />
+        <service android:name=".HeartService" android:exported="false" android:foregroundServiceType="health" />
     </application>
 </manifest>
