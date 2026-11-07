@@ -34,7 +34,8 @@ class HomeAndOrbTest {
         org.junit.Assume.assumeTrue(app.tools.size > 1)
         compose.setContent { UltimateTheme { UltimateRoot(app) } }
         // Home is a scrolling list (and a first-run dialog can sit on top), so check its tools and the bar are composed.
-        compose.onNodeWithText("Your tools").assertExists()
+        // Search sits at the very top of Home (tools come below the live cards and may be scrolled out of view).
+        compose.onNodeWithText("Search apps, people, messages, files…").assertExists()
         compose.onNodeWithText("Home").assertExists()
         saveFrame("living-home.png")
     }

@@ -41,6 +41,8 @@ class EchoEngine(private val context: Context, private val senses: Senses) {
     @Volatile private var liveRec: AudioRecord? = null
     private val _state = MutableStateFlow<EchoState>(EchoState.Off)
     val state: StateFlow<EchoState> = _state
+    /** True while Echo ignores motion because someone is talking (on phones whose microphone is always processed). */
+    val voicePaused = MutableStateFlow(false)
 
     /** Whether this phone says its speaker and microphone work near ultrasound. Many that say nothing still work. */
     fun support(): String? {
@@ -86,18 +88,21 @@ class EchoEngine(private val context: Context, private val senses: Senses) {
                 rec.startRecording()
                 val pcm = ShortArray(EchoMath.FRAME); val frame = FloatArray(EchoMath.FRAME); val win = EchoMath.window()
                 val det = EchoDetector()
+                val gate = VoiceGate(); val rawFrame = FloatArray(EchoMath.FRAME)
                 var deaf = 0
                 while (isActive) {
                     var got = 0
                     while (got < pcm.size && isActive) { val n = rec.read(pcm, got, pcm.size - got); if (n <= 0) break; got += n }
                     if (got < pcm.size) break
-                    for (i in pcm.indices) frame[i] = pcm[i] / 32768f * win[i]
+                    for (i in pcm.indices) { rawFrame[i] = pcm[i] / 32768f; frame[i] = rawFrame[i] * win[i] }
+                    val talking = gate.feed(rawFrame, System.currentTimeMillis())
+                    if (voicePaused.value != talking) voicePaused.value = talking
                     val (reading, event) = det.feed(EchoMath.bands(frame), System.currentTimeMillis())
                     // If the tone never shows up, the volume is off or this phone filters it out: say so instead of sensing nothing.
                     deaf = if (reading.heard) 0 else deaf + 1
                     if (deaf > 60) { _state.value = EchoState.Failed("The microphone can't hear Echo's tone. Turn the media volume up, or this phone may filter out high sounds."); break }
                     _state.value = if (det.calibrating) EchoState.Calibrating else EchoState.Sensing(reading)
-                    event?.let { kind ->
+                    event?.takeIf { !talking }?.let { kind ->
                         senses.publish(Signal("echo", kind, if (kind == "approach") "Something came closer to the phone" else "Something moved away from the phone", mapOf("strength" to "%.2f".format(reading.motion))))
                     }
                 }

@@ -445,3 +445,38 @@ class FaceNavigatorNodTest {
         assertTrue(m.feed(emptyMap(), t, 0.48f) == null); assertTrue(m.levels["down"]!! in 0.3f..0.7f)
     }
 }
+
+class VoiceGateTest {
+    private fun tone(n: Int, f: Double, amp: Float, rate: Int = 48_000) = FloatArray(n) { (amp * kotlin.math.sin(2 * Math.PI * f * it / rate)).toFloat() }
+
+    @Test fun echosToneAloneIsNotSpeechButAVoiceIs() {
+        val g = app.ultimate.echo.VoiceGate()
+        var t = 0L
+        repeat(30) { assertTrue(!g.feed(tone(2048, 19_000.0, 0.3f), t)); t += 43 }
+        val speech = tone(2048, 19_000.0, 0.3f).also { v -> val s = tone(2048, 220.0, 0.1f); for (i in v.indices) v[i] += s[i] }
+        assertTrue(g.feed(speech, t)); t += 43
+        assertTrue(g.feed(tone(2048, 19_000.0, 0.3f), t))   // still paused right after
+        t += 400
+        assertTrue(!g.feed(tone(2048, 19_000.0, 0.3f), t))
+    }
+}
+
+class SearchLeftoverTest {
+    @Test fun keepsWhatTheRequestIsAbout() {
+        assertEquals("YouTube", app.ultimate.search.PaletteMath.leftover("YouTube notifications"))
+        assertEquals("Sam", app.ultimate.search.PaletteMath.leftover("old messages from Sam"))
+        assertEquals(null, app.ultimate.search.PaletteMath.leftover("notification history"))
+    }
+}
+
+class MindCheckTest {
+    @Test fun aRoughNightReadsHeavierThanAGoodOne() {
+        val rough = app.ultimate.health.MindCheck.read(300, 30.0, 50.0, 66, 58.0, 90, 120, 60.0, 0)!!
+        val good = app.ultimate.health.MindCheck.read(480, 60.0, 50.0, 56, 58.0, 0, 40, 60.0, 3)!!
+        assertTrue(rough.load > 75); assertTrue(good.load < 30)
+        assertTrue(rough.factors.none { it.good }); assertTrue(good.factors.all { it.good })
+    }
+    @Test fun nothingKnownSaysNothing() {
+        assertEquals(null, app.ultimate.health.MindCheck.read(null, null, null, null, null, null, null, null, null))
+    }
+}

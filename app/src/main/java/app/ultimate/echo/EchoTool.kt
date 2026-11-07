@@ -238,6 +238,9 @@ private fun MotionView(engine: EchoEngine) {
             FieldView(state, Modifier.fillMaxWidth().height(260.dp).clip(RoundedCornerShape(28.dp)))
             TruthTag(Truth.Illustration, Modifier.padding(10.dp))
         }
+        // Talking can look like movement; say when Echo is ignoring it.
+        val talking by engine.voicePaused.collectAsStateWithLifecycle()
+        if (talking) Text("🎤 You're talking: movement paused for a moment", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         Text(
             when (val s = state) {
                 EchoState.Off -> "Motion mode plays one steady tone and feels movement through the Doppler shift of its echo: which way, not how far."

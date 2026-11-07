@@ -60,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -89,6 +90,7 @@ import app.ultimate.air.AirGestures
 import app.ultimate.air.FaceExpressions
 import app.ultimate.air.PhoneActions
 import app.ultimate.air.HandPose
+import app.ultimate.health.LiveHeart
 import app.ultimate.air.FingerShapes
 import app.ultimate.core.LibraryItem
 import app.ultimate.core.Signal
@@ -311,6 +313,12 @@ class AirTool(private val app: UltimateApp) : Tool {
                             trail.forEachIndexed { i, p -> drawCircle(Color(0xFF7FD3FF).copy(alpha = i / 24f), (3 + i * 0.4f).dp.toPx(), o(p)) }
                             BONES.forEach { (a, b) -> drawLine(Color.White.copy(alpha = 0.8f), o(h.points[a]), o(h.points[b]), strokeWidth = 3.dp.toPx()) }
                             h.points.forEach { drawCircle(Color(0xFF3DDC97), 4.dp.toPx(), o(it)) }
+                            // Your watch's heart rate, on your wrist, while the watch is sending it.
+                            LiveHeart.bpm.value?.takeIf { System.currentTimeMillis() - it.second < 15_000 }?.let { (bpm, _) ->
+                                val w = o(h.points[0])
+                                drawRoundRect(Color.Black.copy(alpha = 0.6f), Offset(w.x - 34.dp.toPx(), w.y + 8.dp.toPx()), androidx.compose.ui.geometry.Size(68.dp.toPx(), 26.dp.toPx()), androidx.compose.ui.geometry.CornerRadius(13.dp.toPx()))
+                                drawContext.canvas.nativeCanvas.drawText("❤️ $bpm", w.x, w.y + 27.dp.toPx(), android.graphics.Paint().apply { color = android.graphics.Color.WHITE; textSize = 14.sp.toPx(); textAlign = android.graphics.Paint.Align.CENTER; isAntiAlias = true })
+                            }
                             // Every fingertip lights up: thumb and index (the pinch pair) warm, the others cool.
                             listOf(4 to 0xFFFFC857, 8 to 0xFFFF8A5C, 12 to 0xFF3DDC97, 16 to 0xFF7FD3FF, 20 to 0xFFB98CFF).forEach { (tip, c) ->
                                 drawCircle(Color(c), (if (tip == 8) 12 else 9).dp.toPx(), o(h.points[tip]))

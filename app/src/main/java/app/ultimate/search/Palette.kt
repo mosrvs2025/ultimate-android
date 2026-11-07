@@ -21,6 +21,17 @@ object PaletteMath {
      * What a spoken or typed request is about, without its leading verb: "Play YouTube" and "open the YouTube app"
      * both search for "YouTube". Returns the request unchanged when it doesn't start with one.
      */
+    /**
+     * What's left of a request once the words that only name the kind of thing are gone: "YouTube notifications" ->
+     * "YouTube", "old messages from Sam" -> "Sam". Null when nothing specific is left.
+     */
+    fun leftover(query: String): String? {
+        val filler = setOf("notification", "notifications", "notif", "notifs", "message", "messages", "history", "old", "my", "the", "from", "find", "show",
+            "me", "search", "copied", "clipboard", "clip", "clips", "deleted", "missed", "unsent", "who", "messaged", "of", "for", "in", "all")
+        val rest = withoutVerb(query).split(Regex("\\s+")).filter { it.isNotBlank() && it.lowercase(Locale.ROOT) !in filler }.joinToString(" ")
+        return rest.takeIf { it.isNotBlank() && it.length >= 2 }
+    }
+
     fun withoutVerb(query: String): String {
         val m = Regex("^\\s*(play|open|launch|start|run|go to|show( me)?|find|search( for)?|call|text|message)\\s+(the\\s+|my\\s+)?(.+?)(\\s+app)?\\s*$", RegexOption.IGNORE_CASE).find(query)
         return m?.groupValues?.get(5)?.takeIf { it.isNotBlank() } ?: query

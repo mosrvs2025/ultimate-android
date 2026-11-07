@@ -120,13 +120,18 @@ class HandCalibrationTool(private val app: UltimateApp) : Tool {
         var secondsLeft by remember { mutableIntStateOf(0) }
         var fit by remember { mutableStateOf<EchoCalibration?>(null) }
         var tried by remember { mutableStateOf(false) }
+        val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
 
         DisposableEffect(Unit) { onDispose { echo?.sonar?.stop() } }
         // While a session runs: every time the camera and Echo both see the hand (palm flat), keep the pair.
         LaunchedEffect(frame, sonarState, recording) {
             val f = frame ?: return@LaunchedEffect
             val raw = (sonarState as? SonarState.Running)?.frame?.rawRangeM ?: return@LaunchedEffect
-            if (recording && f.flat && !f.distanceCm.isNaN() && !raw.isNaN() && System.currentTimeMillis() - f.at < 200) pairs += (raw * 100) to f.distanceCm
+            if (recording && f.flat && !f.distanceCm.isNaN() && !raw.isNaN() && System.currentTimeMillis() - f.at < 200) {
+                pairs += (raw * 100) to f.distanceCm
+                // A tick every few matched readings, so you can feel it working without watching the number.
+                if (pairs.size % 5 == 1) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+            }
         }
         LaunchedEffect(recording) {
             if (!recording) return@LaunchedEffect
@@ -154,6 +159,18 @@ class HandCalibrationTool(private val app: UltimateApp) : Tool {
                         }
                     }
                     TruthTag(Truth.Estimate, Modifier.align(Alignment.TopStart).padding(10.dp))
+                    // A live coach on the picture: the one thing to change right now, big enough to read at arm's length.
+                    val rawNow = (sonarState as? SonarState.Running)?.frame?.rawRangeM ?: Double.NaN
+                    val camNow = frame?.takeIf { System.currentTimeMillis() - it.at < 400 }
+                    val tip = when {
+                        camNow == null -> "Show the camera your open hand"
+                        !camNow.flat -> "Turn your palm flat toward the screen"
+                        rawNow.isNaN() -> "Echo can't hear your hand yet: bring it lower, over the bottom of the phone (where the speaker is). Tilt the phone back a little so the camera still sees it."
+                        else -> if (recording) "✓ Both see your hand. Now move slowly closer and farther" else "✓ Both see your hand. Start the calibration"
+                    }
+                    Text(tip, Modifier.align(Alignment.BottomCenter).padding(10.dp).clip(RoundedCornerShape(14.dp))
+                        .background(if (tip.startsWith("✓")) Color(0xCC1E7D4F) else Color(0xCC000000)).padding(horizontal = 12.dp, vertical = 8.dp),
+                        color = Color.White, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 }
                 val raw = (sonarState as? SonarState.Running)?.frame?.rawRangeM ?: Double.NaN
                 val cam = frame?.takeIf { System.currentTimeMillis() - it.at < 400 }
@@ -161,12 +178,21 @@ class HandCalibrationTool(private val app: UltimateApp) : Tool {
                     Readout("camera", cam?.distanceCm?.takeIf { !it.isNaN() }?.let { "%.0f cm".format(it) } ?: "no hand", if (cam?.flat == false) "tilted: hold flat" else "from palm size", Truth.Estimate)
                     Readout("Echo (raw)", if (raw.isNaN()) "—" else "%.0f cm".format(raw * 100), "by sound", Truth.Measured)
                 }
-                Text("Your palm across the knuckles (index to little finger): %.1f cm".format(palmCm), style = MaterialTheme.typography.labelLarge)
-                Slider(palmCm, { palmCm = it; prefs.edit().putFloat("palm_cm", it).apply() }, valueRange = 6f..10.5f)
-                Text("Measure it once with the Ruler for exact distances. Every 1 mm off makes the camera about 1% off.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // The camera works out distance from how big your hand looks, so it needs to know how big your hand really is.
+                Text("Your hand size (the camera judges distance from it)", style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    listOf("Small" to 7.4f, "Medium" to 8.2f, "Large" to 9.0f).forEach { (name, cm) ->
+                        androidx.compose.material3.FilterChip(kotlin.math.abs(palmCm - cm) < 0.05f, { palmCm = cm; prefs.edit().putFloat("palm_cm", cm).apply() }, { Text(name) })
+                    }
+                    androidx.compose.material3.TextButton({ palmCm = (palmCm - 0.1f).coerceAtLeast(6f); prefs.edit().putFloat("palm_cm", palmCm).apply() }) { Text("−") }
+                    Text("%.1f cm".format(palmCm), style = MaterialTheme.typography.labelLarge)
+                    androidx.compose.material3.TextButton({ palmCm = (palmCm + 0.1f).coerceAtMost(10.5f); prefs.edit().putFloat("palm_cm", palmCm).apply() }) { Text("+") }
+                }
+                Text("Across the knuckles, index to little finger. Most adults are Medium; if the camera's distance looks too far, pick a smaller size.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (recording) {
                     Text("Recording… $secondsLeft s · ${pairs.size} matched readings", style = MaterialTheme.typography.titleMedium)
-                    Text("Palm flat, facing the screen, over the bottom half of the phone. Move it slowly from close to about 40 cm and back.", style = MaterialTheme.typography.bodyMedium)
+                    Text("Palm flat, facing the screen, over the bottom half of the phone (Echo's speaker is there). Move it slowly from close to about 40 cm and back.", style = MaterialTheme.typography.bodyMedium)
+                    if (pairs.isEmpty() && secondsLeft <= 16) Text("Nothing matched yet: follow the tip on the picture.", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                 } else {
                     Button({ pairs.clear(); fit = null; tried = false; recording = true }, Modifier.fillMaxWidth().height(52.dp)) { Text("Start a 20-second calibration") }
                 }
