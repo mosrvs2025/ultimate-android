@@ -67,6 +67,7 @@ import app.ultimate.UltimateApp
 import app.ultimate.air.AirCanvas
 import app.ultimate.air.DeskPiano
 import app.ultimate.air.FaceFrame
+import app.ultimate.air.FaceNavigator
 import app.ultimate.air.HandPose
 import app.ultimate.core.LibraryItem
 import app.ultimate.core.Tool
@@ -225,7 +226,7 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
             return
         }
         val people = remember { loadCallees(context) }
-        val nav = remember { app.ultimate.air.FaceNavigator() }
+        val nav = remember { FaceNavigator() }
         var at by remember { mutableIntStateOf(0) }
         var calling by remember { mutableStateOf<Pair<Callee, Long>?>(null) }
         var hold by remember { mutableStateOf<Pair<String, Float>?>(null) }
@@ -234,11 +235,11 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
             val face = f ?: return@LaunchedEffect
             val move = nav.feed(face.scores, face.at); hold = nav.holding
             val c = calling
-            if (c != null) { if (move == app.ultimate.air.FaceNavigator.Move.Back || move == app.ultimate.air.FaceNavigator.Move.Up) calling = null; return@LaunchedEffect }
+            if (c != null) { if (move == FaceNavigator.Move.Back || move == FaceNavigator.Move.Up) calling = null; return@LaunchedEffect }
             when (move) {
-                app.ultimate.air.FaceNavigator.Move.Up -> at = (at - 1).coerceAtLeast(0)
-                app.ultimate.air.FaceNavigator.Move.Down -> at = (at + 1).coerceAtMost((people.size - 1).coerceAtLeast(0))
-                app.ultimate.air.FaceNavigator.Move.Select -> people.getOrNull(at)?.let { calling = it to System.currentTimeMillis() }
+                FaceNavigator.Move.Up -> at = (at - 1).coerceAtLeast(0)
+                FaceNavigator.Move.Down -> at = (at + 1).coerceAtMost((people.size - 1).coerceAtLeast(0))
+                FaceNavigator.Move.Select -> people.getOrNull(at)?.let { calling = it to System.currentTimeMillis() }
                 else -> Unit
             }
             list.animateScrollToItem((at - 2).coerceAtLeast(0))
