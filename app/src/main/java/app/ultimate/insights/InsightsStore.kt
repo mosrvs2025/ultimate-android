@@ -40,8 +40,12 @@ class InsightsStore(context: Context, private val version: String) {
         _revision.value++
     }
 
+    /** Told about every tool open (the habit memory listens, when you have turned it on). */
+    var onEntered: ((String) -> Unit)? = null
+
     fun entered(toolId: String) {
         left()
+        onEntered?.invoke(toolId)
         rememberOpen(toolId, System.currentTimeMillis())
         current = toolId
         startedAt = SystemClock.elapsedRealtime()

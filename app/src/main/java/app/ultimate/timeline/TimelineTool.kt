@@ -182,7 +182,9 @@ internal fun TimelineScreen(app: UltimateApp, initialQuery: String, onExit: () -
             val shown = hours?.let { r -> todays.filter { hourOf(it.at) in r } } ?: todays
             hours?.let { r -> item { TextButton({ hours = null }) { Text("Showing ${clock(r.first)}–${clock(r.last + 1)} · show the whole day") } } }
             if (shown.isEmpty()) item { Text("Nothing kept for this day.", Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            items(shown.reversed().take(400), key = { "m-" + it.uid }) { m -> MomentRow(m, open == m, actions) { open = if (open == m) null else m } }
+            // Two records can share an id (a notification that was updated); a repeated key crashes a lazy list, so repeats get a suffix.
+            val rows = run { val seen = HashMap<String, Int>(); shown.reversed().take(400).map { m -> val n = seen.merge(m.uid, 1, Int::plus)!!; (if (n == 1) "m-" + m.uid else "m-" + m.uid + "#" + n) to m } }
+            items(rows, key = { it.first }) { (_, m) -> MomentRow(m, open == m, actions) { open = if (open == m) null else m } }
         }
     }
 }

@@ -147,6 +147,7 @@ internal fun AboutContent(app: UltimateApp, onClose: () -> Unit) {
                 }
             }
             app.localAi?.let { ai -> item { LocalAiCard(ai) } }
+            item { HabitsCard(app.habits) }
             item { Section("What's new") }
             items(Changelog.recent(BuildConfig.VERSION_NAME)) { e ->
                 Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
@@ -229,6 +230,27 @@ private fun setupList(c: Context): List<Setup> = buildList {
         c.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(pkg), Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$pkg"))))
 }
 
+
+/** Opt-in habit learning for Home: what it keeps, how to turn it off, and how to wipe it. Off by default. */
+@Composable
+private fun HabitsCard(habits: app.ultimate.context.HabitStore) {
+    val on by habits.enabled.collectAsStateWithLifecycle()
+    val count by habits.count.collectAsStateWithLifecycle()
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Learn my habits", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            androidx.compose.material3.Switch(on, habits::setEnabled)
+        }
+        Text(
+            "When on, Ultimate notes which tool you open and a few plain facts at that moment (time of day, charging, headphones, the tool before). From that it puts the one tool you most likely want first on Home, and says why. It stays on this phone, never guesses without enough evidence, and turning it off deletes what it learned.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (on) Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Learned from $count opens", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+            androidx.compose.material3.TextButton({ habits.forget() }, enabled = count > 0) { Text("Forget") }
+        }
+    }
+}
 
 /** Local AI: what it is, whether it is ready, and how to get the model. Nothing it does leaves the phone. */
 @Composable

@@ -22,6 +22,8 @@ class StudioTool(private val manager: StudioManager) : Tool {
     } }.stateIn(scope, SharingStarted.Eagerly, emptyList())
     override fun opensOwnScreen(item: LibraryItem) = false
     override suspend fun remove(id: String, deleteFile: Boolean) = manager.removeExport(id, deleteFile)
+    override fun canRename(item: LibraryItem) = item.uri != null
+    override suspend fun rename(id: String, typed: String) = manager.renameExport(id, typed)
     override suspend fun refresh() = Unit
     @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) {
         androidx.compose.runtime.LaunchedEffect(launch) {

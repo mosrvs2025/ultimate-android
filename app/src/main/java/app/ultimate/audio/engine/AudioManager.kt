@@ -1,5 +1,7 @@
 package app.ultimate.audio.engine
 
+import app.ultimate.core.MediaName
+import app.ultimate.core.renameMedia
 import app.ultimate.R
 import android.content.Context
 import android.net.Uri
@@ -108,6 +110,18 @@ class AudioManager(private val app: Context, private val store: AudioStore, priv
 
     fun cancel() {
         runner?.cancel()
+    }
+
+    /** Renames a finished file and everything that remembers its name. Returns the name used, or why it failed. */
+    suspend fun rename(entry: AudioEntry, typed: String): Result<String> {
+        val wanted = MediaName.clean(typed, entry.displayName) ?: return Result.failure(IllegalArgumentException("Type a name"))
+        val result = renameMedia(app, Uri.parse(entry.uri), wanted)
+        result.onSuccess { final ->
+            store.rename(entry.id, final)
+            _state.update { s -> s.copy(jobs = s.jobs.map { j -> (j.status as? AudioStatus.Done)?.takeIf { it.entry.id == entry.id }?.let { j.copy(status = AudioStatus.Done(it.entry.copy(displayName = final))) } ?: j }) }
+            log.ok("  renamed ${entry.displayName} to $final")
+        }
+        return result
     }
 
     /** Leaves the results screen. No-op while work is running. */

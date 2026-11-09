@@ -156,6 +156,14 @@ class RecorderManager(private val context: Context) {
         persist()
     }
 
+    /** Renames the recording's file and shows the new name in the list. */
+    suspend fun rename(id: String, typed: String): Result<String> {
+        val r = _recordings.value.firstOrNull { it.id == id } ?: return Result.failure(IllegalStateException("That recording is gone"))
+        return app.ultimate.core.renameTyped(context, android.net.Uri.parse(r.uri), typed).onSuccess { final ->
+            _recordings.value = _recordings.value.map { if (it.id == id) it.copy(name = final) else it }; persist()
+        }
+    }
+
     suspend fun remove(id: String, deleteFile: Boolean): Boolean = withContext(Dispatchers.IO) {
         val r = _recordings.value.firstOrNull { it.id == id } ?: return@withContext true
         val ok = !deleteFile || runCatching { context.contentResolver.delete(android.net.Uri.parse(r.uri), null, null) >= 0 }.getOrDefault(false)

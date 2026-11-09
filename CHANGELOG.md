@@ -3,6 +3,12 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 1.90.0
+- Rename what a tool just made: a Rename button on the finished screen of Video to audio, Squeeze, Studio (Your videos) and Photos, and on every result in the Library for those tools and Recorder. The file itself is renamed, its ending (.mp3, .mp4…) is kept, and the name shows everywhere straight away.
+- Adaptive Home (off until you turn it on): About and settings has a new "Learn my habits" switch. When on, Ultimate remembers which tool you open at what time of day, whether you were charging, had headphones on, and which tool came before, only on this phone. Home then puts the one tool it is sure about after your pinned tools and says why. It says nothing when it is not sure, and turning the switch off or choosing Forget deletes what it learned.
+- Walking makes the tools you tap bigger: for two seconds each time Home appears the phone feels whether you are walking, and if so your favourite tiles grow taller. Nothing moves or disappears.
+- Fixed a crash in the Timeline when two records had the same id (for example a notification that updated).
+
 ## 1.89.0
 - A real media player for anything you open with Ultimate+: album art (or a colour drawn from the track), title and artist, a big play button, a seek bar with times, skip back and forward 10 seconds, the other songs in the same folder as previous and next, repeat one or all, speed, and a sleep timer.
 - Music keeps playing when you leave the player or lock the phone, with controls in the notification, on the lock screen and from headphones; it pauses when headphones come out.

@@ -57,6 +57,8 @@ class SqueezeTool(private val app: UltimateApp) : Tool {
 
     override fun opensOwnScreen(item: LibraryItem) = true
     override suspend fun remove(id: String, deleteFile: Boolean) = store.remove(id, deleteFile)
+    override fun canRename(item: LibraryItem) = item.uri != null
+    override suspend fun rename(id: String, typed: String) = store.rename(id, typed)
     override suspend fun refresh() = store.refresh()
 
     @Composable

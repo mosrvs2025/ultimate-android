@@ -38,6 +38,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Button
@@ -65,6 +66,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -129,7 +132,7 @@ fun AudioScreen(c: AudioController, onExit: () -> Unit, launch: ToolLaunch, tool
     }
 
     when {
-        queue.jobs.isNotEmpty() -> RunScreen(queue, c.log, onCancel = c::cancel, onDone = c::dismissResults)
+        queue.jobs.isNotEmpty() -> RunScreen(queue, c.log, onCancel = c::cancel, onDone = c::dismissResults, onRename = c::rename)
         picked.isNotEmpty() || probing > 0 -> ConfigureScreen(
             picked, probing > 0, settings, onChange = c::update, onAdd = onPick, onAddAudio = onPickAudio, onRemove = c::remove, onMoveUp = c::moveUp,
             preview = preview, onPreview = c::renderPreview, onBack = c::clear, onStart = { withConsent { c.start() } },
@@ -487,8 +490,15 @@ private fun sourceSummary(s: AudioSource): String {
 // ───────────────────────────── Run ──────────────────────────────
 
 @Composable
-private fun RunScreen(queue: AudioQueue, log: JobLog, onCancel: () -> Unit, onDone: () -> Unit) {
+private fun RunScreen(queue: AudioQueue, log: JobLog, onCancel: () -> Unit, onDone: () -> Unit, onRename: (app.ultimate.audio.engine.AudioEntry, String, (Result<String>) -> Unit) -> Unit) {
     val context = LocalContext.current
+    var renaming by remember { mutableStateOf<app.ultimate.audio.engine.AudioEntry?>(null) }
+    var renameError by remember { mutableStateOf<String?>(null) }
+    renaming?.let { entry ->
+        app.ultimate.core.RenameDialog(entry.displayName, renameError, onDismiss = { renaming = null; renameError = null }) { typed ->
+            onRename(entry, typed) { r -> r.onSuccess { renaming = null; renameError = null }.onFailure { renameError = it.message } }
+        }
+    }
     val view = LocalView.current
     BackHandler(enabled = !queue.active, onBack = onDone)
     val done = queue.done
@@ -517,18 +527,18 @@ private fun RunScreen(queue: AudioQueue, log: JobLog, onCancel: () -> Unit, onDo
         },
     ) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item { RunHero(queue) }
+            item { RunHero(queue) { renaming = it } }
             item {
                 val lines by log.lines.collectAsStateWithLifecycle()
                 Terminal(lines, live = queue.active)
             }
-            items(queue.jobs, key = { it.id }) { RunRow(it) }
+            items(queue.jobs, key = { it.id }) { RunRow(it) { e -> renaming = e } }
         }
     }
 }
 
 @Composable
-private fun RunHero(queue: AudioQueue) {
+private fun RunHero(queue: AudioQueue, onRename: (app.ultimate.audio.engine.AudioEntry) -> Unit) {
     val onContainer = MaterialTheme.colorScheme.onPrimaryContainer
     val total = queue.jobs.size.coerceAtLeast(1)
     val finished = queue.jobs.count { it.status !is AudioStatus.Queued && it.status !is AudioStatus.Running }
@@ -566,6 +576,12 @@ private fun RunHero(queue: AudioQueue) {
                         style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = onContainer, textAlign = TextAlign.Center,
                     )
                     Text("${formatBytes(queue.done.sumOf { it.bytes })} in Music/Ultimate", style = MaterialTheme.typography.titleSmall, color = onContainer)
+                    if (queue.done.size == 1) {
+                        Spacer(Modifier.height(10.dp))
+                        androidx.compose.material3.FilledTonalButton({ onRename(queue.done.first()) }, shape = RoundedCornerShape(14.dp)) {
+                            Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Rename")
+                        }
+                    }
                 }
             }
         }
@@ -573,13 +589,13 @@ private fun RunHero(queue: AudioQueue) {
 }
 
 @Composable
-private fun RunRow(job: AudioJob) {
+private fun RunRow(job: AudioJob, onRename: (app.ultimate.audio.engine.AudioEntry) -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             VideoThumb(job.uri, Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)), job.source.durationMs)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(job.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                Text((job.status as? AudioStatus.Done)?.entry?.displayName ?: job.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
                 when (val s = job.status) {
                     AudioStatus.Queued -> Sub("Waiting")
                     is AudioStatus.Running -> {
@@ -597,6 +613,7 @@ private fun RunRow(job: AudioJob) {
                     AudioStatus.Cancelled -> Sub("Cancelled")
                 }
             }
+            (job.status as? AudioStatus.Done)?.let { d -> androidx.compose.material3.IconButton({ onRename(d.entry) }) { Icon(Icons.Rounded.Edit, "Rename ${d.entry.displayName}") } }
         }
         (job.status as? AudioStatus.Done)?.let { AudioPlayerBar(Uri.parse(it.entry.uri), it.entry.peaks, Modifier.padding(top = 6.dp)) }
     }

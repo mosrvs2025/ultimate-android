@@ -1,5 +1,9 @@
 package app.ultimate.home
 
+import app.ultimate.context.Motion
+import app.ultimate.context.MotionSampler
+import app.ultimate.context.UiMorph
+import androidx.compose.foundation.layout.fillMaxHeight
 import app.ultimate.R
 import app.ultimate.health.BodyPulse
 import app.ultimate.BuildConfig
@@ -118,11 +122,20 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
     // Pinned tools come first; the rest from the shared local memory (recency, time of day, running jobs) that the orb uses too.
     val pins by HomePins.ids(app).collectAsState()
     val revision by app.insights.revision.collectAsStateWithLifecycle()
-    val favorites = remember(runningIds, pins, revision) {
+    // With habit learning on (About and settings), the one tool the model is sure you want now goes first; otherwise nothing changes.
+    val learning by app.habits.enabled.collectAsStateWithLifecycle()
+    val suggestion = remember(revision, learning) { if (learning) app.habits.suggest(app.tools.map { it.id }.filter { it != "orb" }) else null }
+    val favorites = remember(runningIds, pins, revision, suggestion) {
         val ids = app.tools.map { it.id }.filter { it != "orb" }
-        HomeLayout.withPins(pins, HomeLayout.constellation(ids, app.insights.recentOpens(), runningIds, System.currentTimeMillis()), ids, count = 6)
+        val base = HomeLayout.withSuggestion(HomeLayout.constellation(ids, app.insights.recentOpens(), runningIds, System.currentTimeMillis()), emptyList(), suggestion?.tool, ids)
+        HomeLayout.withPins(pins, base, ids, count = 6)
             .mapNotNull { id -> app.tools.firstOrNull { it.id == id } }
     }
+    // How the phone is being carried decides how big the tiles are; sampled for a moment each time Home appears.
+    var motion by remember { mutableStateOf(Motion.Still) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { motion = MotionSampler.sample(app) }
+    val morph = UiMorph.forMotion(motion)
+    val tileMin by androidx.compose.animation.core.animateDpAsState(morph.tileMinDp.dp, label = "tile-min")
     val pending = remember(revision) { app.insights.pendingTools() }
     // New tools you haven't opened yet: a card near the top and a badge on their tiles, until you try them or hide it.
     var fresh by remember(revision) { mutableStateOf(NewFeatures.pending(app, BuildConfig.VERSION_NAME)) }
@@ -155,9 +168,20 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
         item(key = "favorites-header", span = { GridItemSpan(maxLineSpan) }) {
             Text("Your tools", Modifier.padding(start = 4.dp, top = 2.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
         }
+        if (suggestion != null || morph.note != null) item(key = "why-now", span = { GridItemSpan(maxLineSpan) }) {
+            val t = suggestion?.let { s -> app.tools.firstOrNull { it.id == s.tool } }
+            Text(
+                listOfNotNull(
+                    t?.let { "Suggested now: ${it.title}" + suggestion?.because?.takeIf { b -> b.isNotEmpty() }?.let { b -> " (" + b.joinToString(", ") + ")" }.orEmpty() },
+                    morph.note,
+                ).joinToString(" · "),
+                Modifier.padding(start = 4.dp).then(if (t != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable { shell.open(t) } else Modifier),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         itemsIndexed(favorites, key = { _, t -> "fav-${t.id}" }, span = { _, _ -> GridItemSpan(2) }) { i, tool ->
             ToolTile(
-                Modifier.animateItem().appear("fav-${tool.id}", seen, i), tool, wide = false,
+                Modifier.animateItem().appear("fav-${tool.id}", seen, i).heightIn(min = tileMin), tool, wide = false,
                 active = tool.id in runningIds, stop = app.work.sources.firstOrNull { it.workId == tool.id }?.takeIf { src -> running.any { it.first === src } },
                 onLibrary = { shell.showLibraryOf(tool.id) }, onClick = { shell.open(tool) },
             )
@@ -290,7 +314,7 @@ private fun ToolTile(modifier: Modifier = Modifier, tool: Tool, wide: Boolean, a
         Card(
             colors = CardDefaults.cardColors(containerColor = container),
             shape = RoundedCornerShape(24.dp),
-            modifier = Modifier.fillMaxWidth().pressScale().clip(RoundedCornerShape(24.dp)).combinedClickable(
+            modifier = Modifier.fillMaxWidth().fillMaxHeight().pressScale().clip(RoundedCornerShape(24.dp)).combinedClickable(
                 onClick = onClick,
                 onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); menu = true },
             ),

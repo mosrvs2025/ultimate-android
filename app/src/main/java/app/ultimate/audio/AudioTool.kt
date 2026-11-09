@@ -56,6 +56,9 @@ class AudioTool(private val app: UltimateApp) : Tool {
 
     override fun opensOwnScreen(item: LibraryItem) = false
     override suspend fun remove(id: String, deleteFile: Boolean) = store.remove(id, deleteFile)
+    override fun canRename(item: LibraryItem) = item.uri != null
+    override suspend fun rename(id: String, typed: String): Result<String> =
+        store.entries.value.firstOrNull { it.id == id }?.let { app.audioManager.rename(it, typed) } ?: Result.failure(IllegalStateException("That result is gone"))
     override suspend fun refresh() = store.refresh()
 
     @Composable

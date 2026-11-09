@@ -32,6 +32,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.material.icons.rounded.Edit
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -939,6 +941,9 @@ private fun ExportSheet(project: StudioProject, manager: StudioManager, onDismis
     val exports by manager.exports.collectAsStateWithLifecycle()
     val log by manager.log.lines.collectAsStateWithLifecycle()
     var details by remember { mutableStateOf(false) }
+    val renameScope = androidx.compose.runtime.rememberCoroutineScope()
+    var renaming by remember { mutableStateOf<String?>(null) }
+    app.ultimate.core.RenameHost(exports.firstOrNull { it.id == renaming }, { it.name }, { e, typed, cb -> renameScope.launch { cb(manager.renameExport(e.id, typed)) } }) { renaming = null }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surface) {
         LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
@@ -991,11 +996,14 @@ private fun ExportSheet(project: StudioProject, manager: StudioManager, onDismis
                     headlineContent = { Text(e.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     supportingContent = { Text("${formatBytes(e.bytes)} · ${e.width}×${e.height} · ${clock(e.durationMs)}") },
                     trailingContent = {
+                      Row {
+                        IconButton({ renaming = e.id }) { Icon(Icons.Rounded.Edit, "Rename ${e.name}") }
                         IconButton({
                             runCatching {
                                 context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("video/mp4").putExtra(Intent.EXTRA_STREAM, Uri.parse(e.uri)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share video"))
                             }.onFailure { manager.error.value = it.message }
                         }) { Icon(Icons.Rounded.Share, "Share") }
+                      }
                     },
                 )
             }

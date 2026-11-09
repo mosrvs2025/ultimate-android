@@ -141,6 +141,15 @@ class PhotoManager(private val context: Context, private val hub: WorkHub) : Wor
         return PhotoResult(UUID.randomUUID().toString(), name, uri.toString(), System.currentTimeMillis(), bytes, p.bytes, w, h)
     }
 
+    /** Renames the saved picture's file and shows the new name. */
+    suspend fun rename(id: String, typed: String): Result<String> {
+        val r = _results.value.firstOrNull { it.id == id } ?: return Result.failure(IllegalStateException("That picture is gone"))
+        return app.ultimate.core.renameTyped(context, Uri.parse(r.uri), typed).onSuccess { final ->
+            _results.value = _results.value.map { if (it.id == id) it.copy(name = final) else it }; persist()
+            _run.value = _run.value.copy(results = _run.value.results.map { if (it.id == id) it.copy(name = final) else it })
+        }
+    }
+
     suspend fun remove(id: String, deleteFile: Boolean): Boolean = withContext(Dispatchers.IO) {
         val r = _results.value.firstOrNull { it.id == id } ?: return@withContext true
         val ok = !deleteFile || runCatching { context.contentResolver.delete(Uri.parse(r.uri), null, null) >= 0 }.getOrDefault(false)
