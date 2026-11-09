@@ -96,6 +96,8 @@ class SqueezeController(private val app: UltimateApp) {
 
     suspend fun refreshLibrary() = store.refresh()
 
+    suspend fun renameResult(id: String, typed: String) = store.rename(id, typed)
+
     suspend fun removeFromLibrary(id: String, deleteFile: Boolean) = store.remove(id, deleteFile)
 
     val log get() = manager.log

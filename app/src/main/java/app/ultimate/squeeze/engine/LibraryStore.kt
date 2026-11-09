@@ -43,6 +43,15 @@ class LibraryStore(private val context: Context) {
         persist()
     }
 
+    /** Renames the video itself and shows the new name in the history. */
+    suspend fun rename(id: String, typed: String): Result<String> {
+        val entry = _entries.value.firstOrNull { it.id == id } ?: return Result.failure(IllegalStateException("That result is gone"))
+        return app.ultimate.core.renameTyped(context, Uri.parse(entry.outputUri), typed).onSuccess { final ->
+            _entries.update { list -> list.map { if (it.id == id) it.copy(name = final) else it } }
+            persist()
+        }
+    }
+
     /** Removes the entry; with [deleteFile] also deletes the video. Returns false if the video could not be deleted. */
     suspend fun remove(id: String, deleteFile: Boolean): Boolean {
         val entry = _entries.value.firstOrNull { it.id == id } ?: return true

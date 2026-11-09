@@ -42,6 +42,8 @@ class PhotosTool(val manager: PhotoManager) : Tool {
     }.stateIn(scope, SharingStarted.Eagerly, "Smaller photos, no location")
     override fun opensOwnScreen(item: LibraryItem) = false
     override suspend fun remove(id: String, deleteFile: Boolean) = manager.remove(id, deleteFile)
+    override fun canRename(item: LibraryItem) = item.uri != null
+    override suspend fun rename(id: String, typed: String) = manager.rename(id, typed)
     override suspend fun refresh() = Unit
     @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = PhotosScreen(this, onExit, launch)
 }

@@ -28,6 +28,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.AlertDialog
@@ -113,10 +114,18 @@ fun LibraryDetailSheet(item: LibraryItem, tool: Tool, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var confirm by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
+    var shownTitle by remember(item.id) { mutableStateOf(item.title) }
+    RenameHost(item.takeIf { renaming }, { shownTitle }, { it, typed, done -> scope.launch { done(tool.rename(it.id, typed).onSuccess { n -> shownTitle = n }) } }) { renaming = false }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(item.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(shownTitle, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                if (tool.canRename(item)) androidx.compose.material3.FilledTonalButton({ renaming = true }, shape = RoundedCornerShape(14.dp)) {
+                    Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Rename")
+                }
+            }
             item.uri?.let { SendTo(Uri.parse(it), item.mimeType, tool.id, onSent = onDismiss) }
             if (item.mimeType.startsWith("text/") && item.uri != null) TextPreview(item.uri)
             if ((item.mimeType.startsWith("audio/") || item.mimeType.startsWith("video/")) && item.uri != null) TranscriptSection(item.uri)

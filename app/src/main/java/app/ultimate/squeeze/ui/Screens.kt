@@ -1,5 +1,7 @@
 package app.ultimate.squeeze.ui
 
+import androidx.compose.material.icons.rounded.Edit
+import kotlinx.coroutines.launch
 import android.content.Intent
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
@@ -509,6 +511,9 @@ private fun RunScreen(queue: QueueState, library: List<LibraryEntry>, vm: Squeez
     BackHandler(enabled = !queue.active, onBack = onDone)
     val firstDone = queue.jobs.firstNotNullOfOrNull { job -> (job.status as? Status.Done)?.libraryId?.let { id -> library.firstOrNull { it.id == id } } }
     val celebrate = !queue.active && queue.jobs.any { it.status is Status.Done }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var renaming by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<LibraryEntry?>(null) }
+    app.ultimate.core.RenameHost(renaming, { it.name }, { e, typed, cb -> scope.launch { cb(vm.renameResult(e.id, typed)) } }) { renaming = null }
 
     Scaffold(
         bottomBar = {
@@ -541,7 +546,7 @@ private fun RunScreen(queue: QueueState, library: List<LibraryEntry>, vm: Squeez
                     }
                     item { FunFacts(queue) }
                 }
-                items(queue.jobs, key = { it.id }) { ResultRow(it, context, onOpen) }
+                items(queue.jobs, key = { it.id }) { ResultRow(it, context, onOpen, library) { e -> renaming = e } }
             }
             if (celebrate) Confetti(Modifier.fillMaxSize())
         }
@@ -549,8 +554,9 @@ private fun RunScreen(queue: QueueState, library: List<LibraryEntry>, vm: Squeez
 }
 
 @Composable
-private fun ResultRow(job: Item, context: android.content.Context, onOpen: (String) -> Unit) {
+private fun ResultRow(job: Item, context: android.content.Context, onOpen: (String) -> Unit, library: List<LibraryEntry>, onRename: (LibraryEntry) -> Unit) {
     val libraryId = (job.status as? Status.Done)?.libraryId
+    val entry = libraryId?.let { id -> library.firstOrNull { it.id == id } }
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).then(if (libraryId != null) Modifier.clickable { onOpen(libraryId) } else Modifier),
         verticalAlignment = Alignment.CenterVertically,
@@ -558,7 +564,7 @@ private fun ResultRow(job: Item, context: android.content.Context, onOpen: (Stri
         VideoThumb(job.uri, Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)), job.source.durationMs)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(job.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+            Text(entry?.name ?: job.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
             when (val s = job.status) {
                 Status.Queued -> Sub("Waiting")
                 is Status.Running -> {
@@ -580,6 +586,7 @@ private fun ResultRow(job: Item, context: android.content.Context, onOpen: (Stri
         }
         when (val s = job.status) {
             is Status.Done -> {
+                if (entry != null) IconButton({ onRename(entry) }) { Icon(Icons.Rounded.Edit, "Rename ${entry.name}") }
                 IconButton({ context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(s.output, "video/mp4").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }) { Icon(Icons.Rounded.PlayArrow, "Play") }
                 IconButton({
                     val send = Intent(Intent.ACTION_SEND).setType("video/mp4").putExtra(Intent.EXTRA_STREAM, s.output).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

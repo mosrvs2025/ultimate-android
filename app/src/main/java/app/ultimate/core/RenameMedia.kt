@@ -81,3 +81,30 @@ fun RenameDialog(current: String, error: String? = null, onDismiss: () -> Unit, 
         dismissButton = { TextButton(onDismiss) { Text("Cancel") } },
     )
 }
+
+/** The name a stored media file has right now, or null when it can't be read. */
+fun currentMediaName(context: Context, uri: Uri): String? = runCatching {
+    context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+}.getOrNull()
+
+/** Renames the file at [uri] to what was [typed] (extension kept). The name it ended up with, or why not. */
+suspend fun renameTyped(context: Context, uri: Uri, typed: String): Result<String> {
+    val current = withContext(Dispatchers.IO) { currentMediaName(context, uri) } ?: return Result.failure(IllegalStateException("Android didn't find that file any more"))
+    val wanted = MediaName.clean(typed, current) ?: return Result.failure(IllegalArgumentException("Type a name"))
+    if (wanted == current) return Result.success(current)
+    return renameMedia(context, uri, wanted)
+}
+
+/**
+ * Shows the rename box for [target] while it is not null, and keeps it open with the reason if the rename fails.
+ * [rename] does the work and reports through its callback; [onClose] is called on success or cancel.
+ */
+@Composable
+fun <T : Any> RenameHost(target: T?, nameOf: (T) -> String, rename: (T, String, (Result<String>) -> Unit) -> Unit, onClose: () -> Unit) {
+    var error by remember(target) { mutableStateOf<String?>(null) }
+    target?.let { t ->
+        RenameDialog(nameOf(t), error, onDismiss = onClose) { typed ->
+            rename(t, typed) { r -> r.onSuccess { onClose() }.onFailure { error = it.message } }
+        }
+    }
+}

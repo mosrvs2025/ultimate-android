@@ -62,6 +62,12 @@ interface Tool {
     /** Removes a result; with [deleteFile] also the file. Returns false if the file could not be deleted. */
     suspend fun remove(id: String, deleteFile: Boolean): Boolean
 
+    /** True when this result's file can be renamed from the Library. */
+    fun canRename(item: LibraryItem): Boolean = false
+
+    /** Renames the file behind result [id] to what was [typed] (extension kept); the name it ended up with, or why not. */
+    suspend fun rename(id: String, typed: String): Result<String> = Result.failure(UnsupportedOperationException("This result can't be renamed"))
+
     /** Called when the Library is shown so stale entries (files deleted elsewhere) can be dropped. */
     suspend fun refresh()
 

@@ -178,6 +178,14 @@ class StudioManager(private val context: Context, private val hub: WorkHub) : Wo
         }
     }
     override fun cancelWork() { exportJob?.cancel() }
+    /** Renames the exported video and shows the new name in "Your videos". */
+    suspend fun renameExport(id: String, typed: String): Result<String> {
+        val item = exports.value.firstOrNull { it.id == id } ?: return Result.failure(IllegalStateException("That video is gone"))
+        return app.ultimate.core.renameTyped(context, Uri.parse(item.uri), typed).onSuccess { final ->
+            val updated = exports.value.map { if (it.id == id) it.copy(name = final) else it }; store.exports(updated); exports.value = updated
+        }
+    }
+
     suspend fun removeExport(id: String, deleteFile: Boolean): Boolean {
         val item = exports.value.firstOrNull { it.id == id } ?: return true
         if (deleteFile) {

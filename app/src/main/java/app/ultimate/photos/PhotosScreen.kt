@@ -1,5 +1,6 @@
 package app.ultimate.photos
 
+import androidx.compose.material.icons.rounded.Edit
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -116,7 +117,7 @@ fun PhotosScreen(tool: PhotosTool, onExit: () -> Unit, launch: ToolLaunch) {
             when { run.total > 0 -> 2; picked.isNotEmpty() || reading -> 1; else -> 0 }, Modifier.padding(pad), label = "photos",
         ) { stage ->
             when (stage) {
-                2 -> Done(run, onAgain = m::dismiss)
+                2 -> Done(run, onAgain = m::dismiss, onRename = { r, typed, cb -> scope.launch { cb(m.rename(r.id, typed)) } })
                 1 -> Configure(picked, settings, { settings = it }, onRemove = { u -> picked = picked.filterNot { it.uri == u } }, onAdd = pick)
                 else -> Landing(tool, pick)
             }
@@ -220,7 +221,9 @@ private fun Thumb(uri: Uri, ratio: Float) {
 }
 
 @Composable
-private fun Done(run: PhotoManager.Run, onAgain: () -> Unit) {
+private fun Done(run: PhotoManager.Run, onAgain: () -> Unit, onRename: (PhotoResult, String, (Result<String>) -> Unit) -> Unit) {
+    var renaming by remember { mutableStateOf<String?>(null) }
+    app.ultimate.core.RenameHost(run.results.firstOrNull { it.id == renaming }, { it.name }, onRename) { renaming = null }
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (run.active) {
             Text("Saving ${minOf(run.done + 1, run.total)} of ${run.total}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -233,6 +236,9 @@ private fun Done(run: PhotoManager.Run, onAgain: () -> Unit) {
             Text(if (run.results.isEmpty()) "Nothing was saved" else "${run.results.size} saved", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             if (saved > 0) Text("${formatBytes(saved)} smaller, in Pictures/Ultimate", color = MaterialTheme.colorScheme.primary)
             if (run.failed > 0) Text("${run.failed} couldn't be read", color = MaterialTheme.colorScheme.error)
+            if (run.results.size == 1) androidx.compose.material3.FilledTonalButton({ renaming = run.results.first().id }, shape = RoundedCornerShape(14.dp)) {
+                Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Rename")
+            }
             run.results.firstOrNull()?.let { app.ultimate.core.SendTo(Uri.parse(it.uri), if (it.name.endsWith(".webp")) "image/webp" else "image/jpeg", "photos") }
             Button(onAgain, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Done") }
         }
