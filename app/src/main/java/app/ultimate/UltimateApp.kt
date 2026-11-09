@@ -71,6 +71,8 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
     val rules by lazy { app.ultimate.rules.RuleEngine(this) }
     /** The shared senses bus and the list of live sessions, each with Stop. */
     val senses = app.ultimate.core.Senses()
+    /** Spatial sensing (Wi-Fi, the watch's beacon, steps and heading), only while it's been started. */
+    val spatial by lazy { app.ultimate.spatial.SpatialEngine(this, senses) }
     /** Local AI (Cactus Needle) in the editions that include it; null elsewhere. */
     val localAi: app.ultimate.ai.LocalAi? by lazy { if (BuildConfig.HAS_LOCAL_AI) app.ultimate.ai.LocalAi(this) else null }
     val terminal by lazy { app.ultimate.terminal.TerminalManager(this) }
@@ -98,6 +100,7 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
             if (BuildConfig.HAS_SOUND) add(app.ultimate.ruler.RulerTool())
             // Camera-assisted Echo calibration ships only in the full editions (src/vision, with MediaPipe).
             if (BuildConfig.HAS_SOUND) runCatching { add(Class.forName("app.ultimate.vision.AirTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
+            if (BuildConfig.HAS_SOUND) add(app.ultimate.spatial.SpatialTool(this@UltimateApp))
             if (BuildConfig.HAS_SOUND) runCatching { add(Class.forName("app.ultimate.vision.PlaygroundTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
             if (BuildConfig.HAS_SOUND) runCatching { add(Class.forName("app.ultimate.vision.HandCalibrationTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
             if (BuildConfig.HAS_SOUND) runCatching { add(Class.forName("app.ultimate.vision.TeachEchoTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
@@ -136,6 +139,16 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
         automations.watchScreenRecordings()
         // Everything sensed is offered to Automations: the modules never need to know who listens.
         if (BuildConfig.HAS_RULES) watch.launch { senses.signals.collect { s -> rules.fire(app.ultimate.rules.Event.Sensed(s.key, s.label)) } }
+        // Spatial gestures: bring the watch close to open the Orb, move it away to close it (when turned on in Spatial).
+        watch.launch {
+            senses.signals.collect { s ->
+                if (s.source != "spatial" || !getSharedPreferences("spatial", MODE_PRIVATE).getBoolean("watch_orb", false)) return@collect
+                when (s.kind) {
+                    "watch_near" -> runCatching { startService(android.content.Intent(this@UltimateApp, app.ultimate.orb.OrbService::class.java).setAction(app.ultimate.orb.OrbService.BLOOM)) }
+                    "watch_far", "watch_gone" -> runCatching { startService(android.content.Intent(this@UltimateApp, app.ultimate.orb.OrbService::class.java).setAction(app.ultimate.orb.OrbService.CLOSE)) }
+                }
+            }
+        }
         // The watch's heart rate becomes moments rules can use: staying high, then calming down.
         watch.launch {
             val hw = app.ultimate.health.HeartWatch()

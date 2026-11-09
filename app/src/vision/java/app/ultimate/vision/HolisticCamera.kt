@@ -5,6 +5,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.background
 import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxSize
@@ -107,4 +109,29 @@ private fun brightness(b: Bitmap): Float {
         sum += (0.299f * ((c shr 16) and 255) + 0.587f * ((c shr 8) and 255) + 0.114f * (c and 255)) / 255f; n++
     }
     return sum / n
+}
+
+/**
+ * Your watch's motion as a thin live strip along the bottom of a camera view: turn about x, y, z, so what your hand does
+ * on camera and what your wrist feels can be seen together. Asks the watch to stream while it's on screen; shows
+ * nothing when no watch is linked.
+ */
+@Composable
+internal fun WatchRibbon(modifier: androidx.compose.ui.Modifier) {
+    val samples by app.ultimate.air.WatchFeed.samples.collectAsState()
+    DisposableEffect(Unit) { onDispose { app.ultimate.air.WatchFeed.request(false) } }
+    androidx.compose.runtime.LaunchedEffect(Unit) { while (true) { app.ultimate.air.WatchFeed.request(true); kotlinx.coroutines.delay(4_000) } }
+    var now by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { while (true) { androidx.compose.runtime.withFrameMillis { now = System.currentTimeMillis() } } }
+    val recent = samples.filter { now - it.t <= 3_000 }
+    if (recent.size < 2) return
+    androidx.compose.foundation.Canvas(modifier.background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.45f))) {
+        val mid = size.height / 2
+        fun line(c: androidx.compose.ui.graphics.Color, v: (app.ultimate.air.WristCalibration.Sample) -> Float) {
+            val p = androidx.compose.ui.graphics.Path()
+            recent.forEachIndexed { i, s -> val x = size.width * (1f - (now - s.t) / 3_000f); val y = mid - v(s) / 12f * mid; if (i == 0) p.moveTo(x, y) else p.lineTo(x, y) }
+            drawPath(p, c, style = androidx.compose.ui.graphics.drawscope.Stroke(2f))
+        }
+        line(androidx.compose.ui.graphics.Color(0xFFFF6B6B)) { it.gx }; line(androidx.compose.ui.graphics.Color(0xFF3DDC97)) { it.gy }; line(androidx.compose.ui.graphics.Color(0xFF7FD3FF)) { it.gz }
+    }
 }

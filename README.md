@@ -1,5 +1,7 @@
 # Ultimate
 
+> **Current version: Ultimate+ 1.89.0 (build 103), 38 tools.** For the exact state of the code, every subsystem, known limits, branches and test results, read **[docs/CURRENT_STATE.md](docs/CURRENT_STATE.md)**. Every version's notes are in **[CHANGELOG.md](CHANGELOG.md)**.
+
 One Android app that holds a growing set of tools for your own phone: edit and shrink video, see what fills your storage, keep your notification and clipboard history, run rules like "silence at night", open a terminal, and connect to your servers over SSH. No ads, no analytics, no accounts.
 
 <p align="center">
@@ -41,6 +43,7 @@ APKs are release assets only; they are never committed to git.
 - **Create:** Studio (video editor), Squeeze (shrink video), Video to audio, Recorder, Photos, Teleprompter.
 - **Phone:** You, Patterns and Privacy (what your phone already knows about you: when you unlock, what you open, which apps can see your location or microphone, how much data they send, steps, sleep and heart rate from Health Connect, what you watch and listen to (searchable, with a dashboard by app, day and artist), where your photos were taken, and facts any app can read), Storage (what fills your phone, by kind, folder, file and app), Clean up (duplicates, similar shots, swipe through photos), Files (browser, bin, APK installer), Notifications (a history that keeps deleted messages, and Insights: which apps are signal and which are noise by how often you actually open them, who reaches you and how fast you open them, adverts dressed up as notifications, bursts, repeats, night-time pings and sign-in codes), Clipboard history, Checkup, Pluck (extract and inspect apps), Sensors.
 - **Network and remote:** SSH hosts (saved servers, keys, snippets, terminal tabs), SSH and SFTP server, send files to a computer from a browser, LAN scan, Traffic inspector.
+- **Senses and control:** Air control (your hand or face as a cursor in any app, from the camera), Echo (sonar: motion and distance from the phone's own speaker and microphone), Spatial (Wi-Fi, watch Bluetooth beacon and steps into zones and a walked signal map), the Galaxy Watch / Wear OS app (wrist gestures, heart rate, proximity; installed from the phone), Gesture Studio, Playground (desk piano, air draw, face fun, hands-free calling), Local AI (a small on-phone model for commands), a media player for Open with, and Today (mood check-in and an explainable day read).
 - **Smart:** You, Days (search everything the app keeps (notifications, copies, what you played, focus sessions) in one place, look at any day hour by hour, and read findings that only show across them, like which app interrupts your focus most or how busy days change what you watch; plus an "About me" summary you can give to any AI), Focus (a blueberry companion that keeps you on task: say what you are working on, it checks which app is in front every 30 seconds on the phone, nudges you gently if you drift, and shows the session as a coloured timeline; ideas borrowed from Bluey by Riley Brown), Rules (when something happens, do something, and undo it afterwards, also from a plain sentence), Recipes, Screen time, Terminal with phone commands (`battery`, `storage`, `squeeze`, `clip`, ...), a floating orb that opens your tools over any app.
 
 ## Privacy
@@ -53,7 +56,9 @@ Maintainers: a release is built and published by the **Release APKs** workflow (
 
 1. In **Settings, Secrets and variables, Actions** add `ULTIMATE_KEYSTORE_BASE64` (the keystore, base64-encoded: `base64 -w0 ultimate-release.jks`) and `ULTIMATE_KEYSTORE_PASSWORD`. The key alias is `ultimate`. Keep this key forever: a phone only accepts updates signed by the same key.
 2. Bump `versionName` and `versionCode` in `app/build.gradle.kts` and add the notes to `Changelog` in `home/AboutInfo.kt`.
-3. Run the workflow from the **Actions** tab. It runs the unit tests, builds, signs and publishes. Running it again for the same version replaces the assets.
+3. Run the workflow from the **Actions** tab. It runs the unit tests, builds, signs and publishes. Running it again for the same commit replaces the assets.
+
+Safety checks built into the workflow: it refuses to publish if a newer release already exists or if the version tag was already released from a different commit; and it refuses unless every APK carries the project's signing certificate, the right versionName/versionCode, the MediaPipe models and the real Local AI engine, and the offline edition has no `INTERNET` permission. The watch app is built and attached too. `CHANGELOG.md` is generated from the in-app changelog with `python3 scripts/changelog-md.py`; edit `AboutInfo.kt`, not the markdown.
 
 The workflow uses `gh` with the built-in `GITHUB_TOKEN`; no third-party actions publish anything.
 

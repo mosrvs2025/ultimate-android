@@ -26,6 +26,7 @@ object WatchLink {
     val sensors = MutableStateFlow<List<WristCalibration.Sample>>(emptyList())
     /** Gestures the watch recognised, with when, for marking them on the live graph. */
     val marks = MutableStateFlow<List<Pair<Long, String>>>(emptyList())
+    private val debounce = app.ultimate.air.FlickDebounce()
 
     /** Path the phone talks to the watch on (stream on/off, calibration); must match the watch's PhoneLink.FROM_PHONE. */
     const val TO_WATCH = "/ultimate/phone"
@@ -57,13 +58,16 @@ object WatchLink {
         if (text.startsWith("hr:")) { text.removePrefix("hr:").toIntOrNull()?.takeIf { it in 25..240 }?.let { LiveHeart.bpm.value = it to now }; return }
         if (text.startsWith("sensors:")) {
             val fresh = WristCalibration.parseSensors(text, now)
-            sensors.value = (sensors.value + fresh).filter { now - it.t <= 6_000 }
+            // Kept for 30 seconds, so the graph can be paused and scrubbed back.
+            sensors.value = (sensors.value + fresh).filter { now - it.t <= 30_000 }
             WatchFeed.samples.value = sensors.value
             return
         }
         val m = WatchMessages.parse(text) ?: return
+        // A flick's rebound (the wrist stopping) is part of the same flick.
+        if (!m.isButton && !debounce.accept(m.kind, now)) return
         last.value = m to now
-        if (!m.isButton) marks.value = (marks.value + (now to m.kind)).filter { now - it.first <= 6_000 }
+        if (!m.isButton) marks.value = (marks.value + (now to m.kind)).filter { now - it.first <= 30_000 }
         if (!enabled(app)) return
         val label = WatchMessages.label(m)
         // Wrist gestures are signals for Rules too ("When I flick my wrist left…"); buttons just do their job.

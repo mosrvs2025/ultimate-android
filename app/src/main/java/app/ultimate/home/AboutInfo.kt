@@ -62,6 +62,27 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.89.0", listOf(
+            "A real media player for anything you open with Ultimate+: album art (or a colour drawn from the track), title and artist, a big play button, a seek bar with times, skip back and forward 10 seconds, the other songs in the same folder as previous and next, repeat one or all, speed, and a sleep timer.",
+            "Music keeps playing when you leave the player or lock the phone, with controls in the notification, on the lock screen and from headphones; it pauses when headphones come out.",
+            "Video plays full screen with tap-to-show controls, and pictures zoom. \"Do more with it\" hands any of them to Ultimate's tools.",
+        ), tries = listOf("files")),
+        Entry("1.88.0", listOf(
+            "Open with Ultimate+: Ultimate now shows up when you open any audio, video or picture from another app (a downloaded WAV, a video in Files…). It plays right away with seek, speed and loop, shows pictures with pinch to zoom, and \"Do more with it\" hands the file to Ultimate's tools.",
+            "One flick is one flick: the smaller swing back as your wrist stops no longer counts as the opposite flick (fixed on the watch, 1.6, and on the phone), so rules fire once.",
+            "Pattern Studio on the Watch screen: do a motion for a few seconds (scratching, fidgeting, a gym rep, brushing teeth), tap 🏷 Teach this and name it. From then on the live graph says when it sees it (\"🔍 Scratching (91% match)\") and counts it for the day.",
+            "The live watch graph can be paused and scrubbed back through the last 30 seconds, and Record keeps every reading on the phone (exportable from Air mode's ⓘ) to look for patterns later.",
+            "Air control shows your watch's motion as a live strip along the bottom of the camera, so hand and wrist can be read together.",
+        ), tries = listOf("watch", "air")),
+        Entry("1.87.0", listOf(
+            "New: Spatial (in Senses). Your phone and watch sense what's around you, measured, never made up.",
+            "Your watch's distance: with the watch's new Proximity beacon on (watch 1.5), the phone hears how close your watch is by Bluetooth and shows it in zones (right by the phone, within reach, away), calibrated for your own phone and watch, with how sure it is. No fake metres.",
+            "Bring the watch close to open the Orb, move it away to close it (turn it on in Spatial). It has to hold for a moment, so passing by doesn't trigger it.",
+            "Wi-Fi: the strength of the network you're on, every network you can hear, and a signal map you build by walking (placed by your steps and compass, coloured by strength), with dead zones marked.",
+            "Places: save where you spend time (\"Desk\", \"Kitchen\") and Ultimate recognises them by their Wi-Fi fingerprint, with a confidence.",
+            "Rules can use all of it: \"When I'm at my desk, …\", \"When my watch comes close, …\", \"When my watch moves away, …\". Turn on Keep sensing for rules with the screen off (it shows a notification with Stop).",
+            "It checks what your phone really supports (Bluetooth LE, UWB, Wi-Fi ranging, Bluetooth channel sounding) and says so. Everything stays on the phone.",
+        ), tries = listOf("spatial")),
         Entry("1.86.0", listOf(
             "Brightness, volume and the flashlight just work from search and voice: \"brightness to 50\", \"make the screen dimmer\", \"max brightness\", \"volume up\", \"mute\", \"flashlight off\". They're read directly, instantly, even without Local AI, and never confused with each other. (Brightness asks once for \"Modify system settings\".)",
             "Local AI's suggestions get a sanity check: it can no longer offer a volume change for a sentence about brightness.",

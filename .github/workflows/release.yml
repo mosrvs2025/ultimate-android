@@ -38,6 +38,22 @@ jobs:
           code=$(sed -n 's/.*COMPANION_VERSION_CODE")?.toIntOrNull() ?: \([0-9]*\).*/\1/p' app/build.gradle.kts | head -1)
           test -n "$name" && test -n "$code" || { echo 'Could not read versionName and versionCode'; exit 1; }
           echo "name=$name" >> "$GITHUB_OUTPUT"; echo "code=$code" >> "$GITHUB_OUTPUT"; echo "tag=v$name" >> "$GITHUB_OUTPUT"
+      - name: Refuse to publish an older build or replace a released version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          existing=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName -q '.[].tagName' | grep -E '^v[0-9]' || true)
+          if [ -n "$existing" ]; then
+            newest=$(printf '%s\n%s\n' "$existing" "$TAG" | sort -V | tail -1)
+            if [ "$newest" != "$TAG" ]; then echo "A newer release ($newest) already exists; refusing to publish the older $TAG."; exit 1; fi
+          fi
+          # A version that is already released may only be re-published from the very same commit (to fix its notes or
+          # re-attach assets). Different source means a new version number: bump versionName and versionCode.
+          released=$(git ls-remote --tags origin "refs/tags/$TAG^{}" "refs/tags/$TAG" | awk 'END{print $1}')
+          if [ -n "$released" ] && [ "$released" != "$GITHUB_SHA" ]; then
+            echo "$TAG was already released from commit $released, not $GITHUB_SHA. Bump the version instead of replacing it."; exit 1
+          fi
       - name: Restore the signing key
         env:
           KEYSTORE: ${{ secrets.ULTIMATE_KEYSTORE_BASE64 }}
@@ -54,6 +70,38 @@ jobs:
           ULTIMATE_KEY_ALIAS: ultimate
           ULTIMATE_KEY_PASSWORD: ${{ secrets.ULTIMATE_KEYSTORE_PASSWORD }}
         run: gradle --no-daemon :app:testUltimateplusDebugUnitTest :app:testUltimateDebugUnitTest :app:testSqueezeDebugUnitTest :app:assembleRelease :wear:testReleaseUnitTest :wear:assembleRelease
+      - name: Verify what was built (version, signer, models, AI engine)
+        env:
+          # The permanent Ultimate signing certificate (public). A different key would build fine but phones would refuse
+          # to update, so any other certificate stops the release. Change it only for a deliberate key rotation.
+          EXPECTED_CERT: d2143ab20357ef4678fe3e4f87197860b3e6121fc1342591993bf7b8086bfd7d
+          NAME: ${{ steps.v.outputs.name }}
+          CODE: ${{ steps.v.outputs.code }}
+        run: |
+          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          fail=0
+          cert_of() { "$tools/apksigner" verify --print-certs "$1" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1 | tr 'A-F' 'a-f'; }
+          for apk in app/build/outputs/apk/*/release/*.apk wear/build/outputs/apk/release/wear-release.apk; do
+            [ "$(cert_of "$apk")" = "$EXPECTED_CERT" ] || { echo "WRONG SIGNER: $apk"; fail=1; }
+          done
+          for flavor in ultimateplus ultimate studio squeeze audio pluck traffic; do
+            apk="app/build/outputs/apk/$flavor/release/app-$flavor-release.apk"
+            badge=$("$tools/aapt2" dump badging "$apk" | head -1)
+            echo "$badge" | grep -q "versionName='$NAME'" && echo "$badge" | grep -q "versionCode='$CODE'" || { echo "VERSION MISMATCH in $apk: $badge"; fail=1; }
+          done
+          # The two full editions carry the hand/face models and the Local AI engine. The build quietly produces a working
+          # app without them (the engine falls back to a stub), so check the finished files rather than trusting the build.
+          for flavor in ultimateplus ultimate; do
+            apk="app/build/outputs/apk/$flavor/release/app-$flavor-release.apk"
+            for need in assets/gesture_recognizer.task assets/face_landmarker.task assets/hand_landmarker.task; do
+              unzip -l "$apk" | grep -q "$need" || { echo "MISSING $need in $apk"; fail=1; }
+            done
+            size=$(unzip -l "$apk" | awk '/lib\/arm64-v8a\/libultimate_needle.so/ {print $1}')
+            [ "${size:-0}" -gt 500000 ] || { echo "Local AI engine missing (stub library, ${size:-0} bytes) in $apk"; fail=1; }
+          done
+          # The offline edition must have no internet permission; the networked one must.
+          "$tools/aapt2" dump permissions app/build/outputs/apk/ultimate/release/app-ultimate-release.apk | grep -q 'android.permission.INTERNET' && { echo "Ultimate (offline) declares INTERNET"; fail=1; }
+          exit $fail
       - name: Name the files and write checksums
         id: pack
         run: |
