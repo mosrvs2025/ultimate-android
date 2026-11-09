@@ -105,4 +105,9 @@ class AudioController(private val app: UltimateApp) {
 
     fun cancel() = manager.cancel()
     fun dismissResults() = manager.dismiss()
+
+    /** Renames a finished file; [onResult] gets the name used, or the reason it failed. */
+    fun rename(entry: app.ultimate.audio.engine.AudioEntry, typed: String, onResult: (Result<String>) -> Unit) {
+        scope.launch { onResult(manager.rename(entry, typed)) }
+    }
 }

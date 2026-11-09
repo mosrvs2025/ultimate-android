@@ -41,6 +41,12 @@ class AudioStore(private val context: Context) {
         persist()
     }
 
+    /** Keeps the history in step with a rename of the file itself. */
+    suspend fun rename(id: String, displayName: String) {
+        _entries.update { list -> list.map { if (it.id == id) it.copy(displayName = displayName) else it } }
+        persist()
+    }
+
     /** Removes the entry; with [deleteFile] also the audio file. Returns false if the file could not be deleted. */
     suspend fun remove(id: String, deleteFile: Boolean): Boolean {
         val entry = _entries.value.firstOrNull { it.id == id } ?: return true
