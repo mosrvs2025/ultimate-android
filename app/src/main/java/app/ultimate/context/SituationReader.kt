@@ -32,9 +32,9 @@ object SituationReader {
     }.getOrDefault(false)
 
     /** [prev] is the tool opened just before, if it was recent. Wi-Fi is left out: offline editions don't ask to see the network. */
-    fun now(c: Context, prev: String?, at: Long = System.currentTimeMillis()): Situation {
+    fun now(c: Context, prev: String?, at: Long = System.currentTimeMillis(), motion: String? = null): Situation {
         val cal = Calendar.getInstance().apply { timeInMillis = at }
-        return Situation.of(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.DAY_OF_WEEK), charging(c), headphones(c), wifi = null, prev = prev)
+        return Situation.of(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.DAY_OF_WEEK), charging(c), headphones(c), wifi = null, prev = prev, motion = motion)
     }
 }
 

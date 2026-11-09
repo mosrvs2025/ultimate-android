@@ -224,6 +224,7 @@ fun TodayDashboard(app: UltimateApp) {
             ) {
                 Icon(Icons.Rounded.AutoGraph, null, tint = MaterialTheme.colorScheme.onPrimaryContainer); Spacer(Modifier.width(12.dp))
                 Text(found, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("See ›", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
         }
         // One suggestion at a time keeps Home calm; the rest are a tap away.

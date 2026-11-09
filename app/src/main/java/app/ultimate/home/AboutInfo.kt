@@ -62,6 +62,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.91.0", listOf(
+            "Suggestions you can turn down: with \"Learn my habits\" on, the suggested tool on Home is now a clear card that says why (\"Because: charging, evening\") with a Not now button. Not now is remembered: the same tool isn't offered again at that time of day for two weeks, and three refusals in a month silence it.",
+            "Habits now also notice how the phone is carried (on a table, in your hand, walking), felt for two seconds when Home opens, so a suggestion can depend on it.",
+            "The insight card on Home shows \"See ›\" so it is clear it opens the records behind it.",
+        )),
         Entry("1.90.2", listOf(
             "Your money is read more carefully: a purchase that \"didn't go through\", was declined, blocked, cancelled or reversed no longer counts as spending, offers, balance notices and security alerts are ignored, and the same payment announced twice counts once. A failed payment shows as failed, not as money spent.",
             "Your body says why a number is missing instead of a bare dash: resting heart rate, sleep and heart rate variability now show the latest from the last few days with how old it is, and when there is none it says whether Health Connect needs your permission or simply has no data. Tap it to fix it. Allowing only some kinds of health data now works too (before, one missing permission hid the whole group).",

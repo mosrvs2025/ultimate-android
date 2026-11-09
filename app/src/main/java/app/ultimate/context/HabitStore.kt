@@ -33,10 +33,14 @@ class HabitStore(private val context: Context) {
         prefs.edit().remove("model").remove("last").remove("lastAt").apply()
     }
 
+    /** How the phone was last felt being carried (still, held, walking), from Home's two-second sample; used for a few minutes. */
+    @Volatile private var motion: Pair<String, Long>? = null
+    fun felt(m: Motion, now: Long = System.currentTimeMillis()) { motion = m.name.lowercase() to now }
+
     private fun prev(now: Long) = lastTool?.takeIf { now - lastAt < PREV_WINDOW_MS }
 
     /** The situation right now, for asking the model. */
-    fun situation(now: Long = System.currentTimeMillis()): Situation = SituationReader.now(context, synchronized(this) { prev(now) }, now)
+    fun situation(now: Long = System.currentTimeMillis()): Situation = SituationReader.now(context, synchronized(this) { prev(now) }, now, motion?.takeIf { now - it.second < 5 * 60_000L }?.first)
 
     /** Called when a tool is opened. Does nothing unless learning is on. */
     fun record(tool: String, now: Long = System.currentTimeMillis()) {
@@ -44,6 +48,14 @@ class HabitStore(private val context: Context) {
         val s = situation(now)
         synchronized(this) { model.observe(tool, s, now); lastTool = tool; lastAt = now; _count.value = model.size }
         io.execute { synchronized(this) { prefs.edit().putString("model", model.toJson()).putString("last", lastTool).putLong("lastAt", lastAt).apply() } }
+    }
+
+    /** "Not now" on a suggestion: remembered, so the same offer isn't made again in the same kind of moment. */
+    fun veto(tool: String, now: Long = System.currentTimeMillis()) {
+        if (!_enabled.value) return
+        val s = situation(now)
+        synchronized(this) { model.veto(tool, s, now) }
+        io.execute { synchronized(this) { prefs.edit().putString("model", model.toJson()).apply() } }
     }
 
     /** The one tool worth putting first right now, or null. Silent unless the evidence is real. */
