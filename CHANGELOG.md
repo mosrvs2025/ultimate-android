@@ -3,6 +3,9 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 1.90.1
+- Fixed "Couldn't start the update: Too many active sessions": every install you cancelled or that failed used to leave an unfinished install session behind, and after enough of them Android refused new ones. Ultimate now clears its own leftover sessions before each install and when one is cancelled or fails.
+
 ## 1.90.0
 - Rename what a tool just made: a Rename button on the finished screen of Video to audio, Squeeze, Studio (Your videos) and Photos, and on every result in the Library for those tools and Recorder. The file itself is renamed, its ending (.mp3, .mp4…) is kept, and the name shows everywhere straight away.
 - Adaptive Home (off until you turn it on): About and settings has a new "Learn my habits" switch. When on, Ultimate remembers which tool you open at what time of day, whether you were charging, had headphones on, and which tool came before, only on this phone. Home then puts the one tool it is sure about after your pinned tools and says why. It says nothing when it is not sure, and turning the switch off or choosing Forget deletes what it learned.
