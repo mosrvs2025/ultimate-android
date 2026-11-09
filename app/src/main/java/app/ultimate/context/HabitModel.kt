@@ -15,12 +15,12 @@ data class Situation(val features: Map<String, String>) {
         fun part(hour: Int) = when (hour) { in 5..8 -> "early"; in 9..11 -> "morning"; in 12..16 -> "afternoon"; in 17..21 -> "evening"; else -> "night" }
 
         /** Builds a situation from plain facts. [prev] is the tool opened just before (null: none lately). */
-        fun of(hour: Int, weekday: Int, charging: Boolean, headphones: Boolean, wifi: Boolean, watch: String? = null, prev: String? = null) = Situation(buildMap {
+        fun of(hour: Int, weekday: Int, charging: Boolean, headphones: Boolean, wifi: Boolean?, watch: String? = null, prev: String? = null) = Situation(buildMap {
             put("part", part(hour))
             put("days", if (weekday == 1 || weekday == 7) "weekend" else "weekday")
             put("charging", if (charging) "yes" else "no")
             put("headphones", if (headphones) "yes" else "no")
-            put("wifi", if (wifi) "yes" else "no")
+            if (wifi != null) put("wifi", if (wifi) "yes" else "no")
             if (watch != null) put("watch", watch)
             put("prev", prev ?: "none")
         })

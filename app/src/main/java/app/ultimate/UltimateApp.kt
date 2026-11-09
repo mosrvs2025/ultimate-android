@@ -33,6 +33,7 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
     override val workManagerConfiguration: androidx.work.Configuration get() = androidx.work.Configuration.Builder().build()
 
     val work: WorkHub by lazy { WorkHub(this) }
+    val habits: app.ultimate.context.HabitStore by lazy { app.ultimate.context.HabitStore(this) }
     val insights: app.ultimate.insights.InsightsStore by lazy { app.ultimate.insights.InsightsStore(this, BuildConfig.VERSION_NAME) }
     val shell: Shell by lazy { Shell(tools, insights) }
 
@@ -128,6 +129,7 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         insights.installCrashCatcher()
+        insights.onEntered = { habits.record(it) }
         insights.since
         // Errors the tools show on screen go into the usage report too, so "it didn't work" comes with a reason.
         val watch = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)

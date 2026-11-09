@@ -18,6 +18,13 @@ object HomeLayout {
         return (pinned + favourites.filter { it !in pinned }).take(maxOf(count, pinned.size).coerceAtMost(8))
     }
 
+    /** Puts the habit suggestion straight after the pins (once, and only if it is a tool this edition has), keeping the rest as they were. */
+    fun withSuggestion(list: List<String>, pins: List<String>, suggestion: String?, available: List<String>): List<String> {
+        if (suggestion == null || suggestion !in available || suggestion in pins) return list
+        val at = list.count { it in pins }
+        return (list.take(at) + suggestion + list.drop(at).filter { it != suggestion })
+    }
+
     /** Adds [id] to the pins, or takes it off if it was there. At most eight. */
     fun togglePin(pins: List<String>, id: String) = if (id in pins) pins - id else (pins + id).takeLast(8)
 
