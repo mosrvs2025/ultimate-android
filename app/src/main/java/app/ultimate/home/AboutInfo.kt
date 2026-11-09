@@ -62,6 +62,13 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.90.2", listOf(
+            "Your money is read more carefully: a purchase that \"didn't go through\", was declined, blocked, cancelled or reversed no longer counts as spending, offers, balance notices and security alerts are ignored, and the same payment announced twice counts once. A failed payment shows as failed, not as money spent.",
+            "Your body says why a number is missing instead of a bare dash: resting heart rate, sleep and heart rate variability now show the latest from the last few days with how old it is, and when there is none it says whether Health Connect needs your permission or simply has no data. Tap it to fix it. Allowing only some kinds of health data now works too (before, one missing permission hid the whole group).",
+            "Tapping the insight on Home (\"32 things you copied…\") now opens the records behind it, not the general You screen.",
+            "Home draws instantly from what it showed last time, so the cards no longer pop in one by one a moment after opening.",
+            "The Last 30 days charts on Health (steps, sleep, resting heart rate) can be tapped or dragged across to read any day's date and value.",
+        )),
         Entry("1.90.1", listOf(
             "Fixed \"Couldn't start the update: Too many active sessions\": every install you cancelled or that failed used to leave an unfinished install session behind, and after enough of them Android refused new ones. Ultimate now clears its own leftover sessions before each install and when one is cancelled or fails.",
         )),

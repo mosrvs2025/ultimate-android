@@ -33,7 +33,11 @@ data class LibraryItem(
 )
 
 /** Hands a tool what it should start with: videos shared into the app, or a library item to open. */
-class ToolLaunch(val uris: List<Uri> = emptyList(), val openItemId: String? = null, val query: String? = null) {
+class ToolLaunch(
+    val uris: List<Uri> = emptyList(), val openItemId: String? = null, val query: String? = null,
+    /** A Timeline filter to land on: one kind of record (a Source name) and/or only the small hours. */
+    val source: String? = null, val lateNight: Boolean = false,
+) {
     var consumed: Boolean = false
 }
 

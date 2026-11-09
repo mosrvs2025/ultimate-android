@@ -49,6 +49,7 @@ fun YouToday(app: UltimateApp) {
     var days by remember { mutableStateOf<List<HealthDay>>(emptyList()) }
     var phone by remember { mutableStateOf<List<PhoneDay>>(emptyList()) }
     var healthOk by remember { mutableStateOf<Boolean?>(null) }
+    var allowed by remember { mutableStateOf<Set<String>?>(emptySet()) }
     var mood by remember { mutableStateOf(MoodLog.get(c, today)) }
     val live by LiveHeart.bpm.collectAsStateWithLifecycle()
     val notes = remember { runCatching { app.notificationLog.today() }.getOrNull() }
@@ -57,7 +58,8 @@ fun YouToday(app: UltimateApp) {
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             val avail = HealthReader.available(c)
-            val granted = if (avail) runCatching { HealthReader.granted(c) }.getOrDefault(emptySet()) else emptySet()
+            val granted = if (avail) runCatching { HealthReader.readable(c) }.getOrDefault(emptySet()) else emptySet()
+            allowed = if (avail) HealthReader.allowed(c) else null
             healthOk = granted.isNotEmpty()
             if (granted.isNotEmpty()) days = runCatching { HealthReader.days(c, granted, 30) }.getOrDefault(emptyList())
             phone = phoneDays(c, 30)
@@ -99,13 +101,18 @@ fun YouToday(app: UltimateApp) {
         }
         Card("Your body") {
             val beat = live?.takeIf { System.currentTimeMillis() - it.second < 60_000 }
+            val restLatest = HealthFill.latest(days, today) { it.restingHr }
+            val sleepLatest = HealthFill.latest(days, today, 3) { it.sleepMin }
+            val hrvLatest = HealthFill.latest(days, today) { it.hrvMs }
+            val openHealth = { app.tools.firstOrNull { it.id == "health" }?.let { h -> app.shell.open(h) }; Unit }
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Stat(beat?.let { "❤️ ${it.first}" } ?: (t?.restingHr ?: y?.restingHr)?.let { "❤️ $it" } ?: "—", if (beat != null) "heart rate now (watch)" else "resting heart rate")
-                Stat(t?.steps?.let { "%,d".format(it) } ?: "—", "steps today")
+                if (beat != null) Stat("❤️ ${beat.first}", "heart rate now (watch)")
+                else Stat(restLatest?.let { "❤️ ${it.value}" } ?: "—", restLatest?.let { "resting heart rate · ${HealthFill.ago(it.daysAgo)}" } ?: HealthFill.whyEmpty(HealthFill.Metric.RestingHr, allowed), onClick = openHealth.takeIf { restLatest == null })
+                Stat(t?.steps?.let { "%,d".format(it) } ?: "—", if (t?.steps != null) "steps today" else HealthFill.whyEmpty(HealthFill.Metric.Steps, allowed).replace("steps in", "steps today in"), onClick = openHealth.takeIf { t?.steps == null })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Stat(sleep?.let { HealthInsights.hm(it.toInt()) } ?: "—", "sleep last night")
-                Stat((t?.hrvMs ?: y?.hrvMs)?.let { "%.0f ms".format(it) } ?: "—", "heart rate variability")
+                Stat(sleepLatest?.value?.let { HealthInsights.hm(it.toInt()) } ?: "—", sleepLatest?.let { "sleep · ${HealthFill.ago(it.daysAgo).let { s -> if (it.daysAgo <= 1) "last night" else s }}" } ?: HealthFill.whyEmpty(HealthFill.Metric.Sleep, allowed, 3), onClick = openHealth.takeIf { sleepLatest == null })
+                Stat(hrvLatest?.let { "%.0f ms".format(it.value) } ?: "—", hrvLatest?.let { "heart rate variability · ${HealthFill.ago(it.daysAgo)}" } ?: HealthFill.whyEmpty(HealthFill.Metric.Hrv, allowed), onClick = openHealth.takeIf { hrvLatest == null })
             }
             facts.filter { it.kind == NotificationFacts.Kind.Heart }.take(2).forEach { f ->
                 Text("⌚ ${f.text}", style = MaterialTheme.typography.bodySmall)
@@ -156,8 +163,8 @@ private fun Card(title: String, body: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun androidx.compose.foundation.layout.RowScope.Stat(value: String, label: String) {
-    Column(Modifier.weight(1f)) {
+private fun androidx.compose.foundation.layout.RowScope.Stat(value: String, label: String, onClick: (() -> Unit)? = null) {
+    Column(Modifier.weight(1f).then(if (onClick != null) Modifier.clip(RoundedCornerShape(10.dp)).clickable { onClick() } else Modifier)) {
         Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
