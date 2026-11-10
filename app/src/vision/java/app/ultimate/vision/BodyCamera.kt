@@ -34,7 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * while nobody is seen, and stays null if the pose model isn't in this build.
  */
 @Composable
-internal fun BodyCamera(front: Boolean, filter: FloatArray, body: MutableStateFlow<BodyPose?>) {
+internal fun BodyCamera(front: Boolean, filter: FloatArray, body: MutableStateFlow<BodyPose?>, hands: MutableStateFlow<List<List<Pair<Float, Float>>>>? = null) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val executor = remember { Executors.newSingleThreadExecutor() }
@@ -43,12 +43,26 @@ internal fun BodyCamera(front: Boolean, filter: FloatArray, body: MutableStateFl
             PoseLandmarker.createFromOptions(context, PoseLandmarker.PoseLandmarkerOptions.builder()
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath("pose_landmarker_lite.task").build())
                 .setRunningMode(RunningMode.LIVE_STREAM).setNumPoses(1)
+                // Lower bars than the defaults, so a small, far-away body (and its feet) is kept instead of dropped.
+                .setMinPoseDetectionConfidence(0.3f).setMinPosePresenceConfidence(0.3f).setMinTrackingConfidence(0.3f)
                 .setResultListener { result, _ ->
                     val lm = result.landmarks().firstOrNull()
                     body.value = if (lm == null || lm.size < 33) null else BodyPose(lm.map { Triple(it.x(), it.y(), it.visibility().orElse(1f)) }, System.currentTimeMillis())
                 }.setErrorListener { body.value = null }.build())
         }.getOrNull()
     }
+    // Fingers too, when asked for: both hands, from the same frames. Only close enough hands are found; the body is kept either way.
+    val fingers = remember(hands != null) {
+        if (hands == null) null else runCatching {
+            com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker.createFromOptions(context, com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker.HandLandmarkerOptions.builder()
+                .setBaseOptions(BaseOptions.builder().setModelAssetPath("hand_landmarker.task").build())
+                .setRunningMode(RunningMode.LIVE_STREAM).setNumHands(2)
+                .setResultListener { result, _ -> hands.value = result.landmarks().filter { it.size >= 21 }.map { h -> h.map { it.x() to it.y() } } }
+                .setErrorListener { hands.value = emptyList() }.build())
+        }.getOrNull()
+    }
+    DisposableEffect(fingers) { onDispose { runCatching { fingers?.close() }; hands?.value = emptyList() } }
+    val fingersNow = androidx.compose.runtime.rememberUpdatedState(fingers)
     DisposableEffect(Unit) { onDispose { executor.shutdown(); runCatching { pose?.close() }; body.value = null } }
     AndroidView({ ctx ->
         FrameLayout(ctx).apply {
@@ -67,7 +81,9 @@ internal fun BodyCamera(front: Boolean, filter: FloatArray, body: MutableStateFl
                         val rot = proxy.imageInfo.rotationDegrees
                         val bmp = proxy.toBitmap().let { b -> if (rot == 0) b else Bitmap.createBitmap(b, 0, 0, b.width, b.height, Matrix().apply { postRotate(rot.toFloat()) }, true) }
                         if (CameraLight.tick++ % 15 == 0) CameraLight.check(bmp)
-                        pose?.detectAsync(BitmapImageBuilder(bmp).build(), System.currentTimeMillis())
+                        val t = System.currentTimeMillis()
+                        pose?.detectAsync(BitmapImageBuilder(bmp).build(), t)
+                        fingersNow.value?.detectAsync(BitmapImageBuilder(bmp).build(), t)
                     }
                     proxy.close()
                 }

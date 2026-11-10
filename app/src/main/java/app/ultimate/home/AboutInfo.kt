@@ -62,6 +62,13 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.93.0", listOf(
+            "Work the AR camera from across the room: raise a hand and sweep it sideways to go to the next or previous effect, and hold both hands above your head to switch the swipe between effects and outfits. A big banner says what you picked.",
+            "Energy blast: bring both hands together to charge a ball of energy (the longer, the bigger), then throw them apart to fire it.",
+            "Outfits drawn on your body: tee and jeans, hoodie, summer shorts, suit, hero with a cape, ninja, armour and a gi. Swipe in the air to change them.",
+            "Neon body now also shows your eyes and mouth, and every finger when a hand is close enough to read.",
+            "Legs and feet are kept from further back (they are trusted at a lower score, and a small far-away body is no longer dropped), and the squat counter reacts sooner and shows when you are down.",
+        ), tries = listOf("playground")),
         Entry("1.92.0", listOf(
             "New in Playground: AR. The camera now tracks your whole body (on the phone, nothing saved) and draws on it live: a neon skeleton, light trails from your hands and feet, fire from your fingertips, sparks when your feet move, and a costume (crown, shades, boxing gloves, trainers) that follows you.",
             "Coach: shows your elbow and knee angles on your body, counts squats, and tells you if your shoulders are level.",

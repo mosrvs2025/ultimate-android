@@ -94,8 +94,84 @@ class BodyFxTest {
     }
 
     @Test fun everyEffectSaysWhatItDecorates() {
-        assertEquals(6, BodyEffect.entries.size)
+        assertEquals(8, BodyEffect.entries.size)
         assertTrue(BodyEffect.entries.any { it.parts.contains("hands") } && BodyEffect.entries.any { it.parts.contains("feet") } && BodyEffect.entries.any { it.parts.contains("whole body") })
         assertEquals(33, 1 + BodyPose.BONES.flatMap { listOf(it.first, it.second) }.max())
+    }
+}
+
+class BodyGesturesTest {
+    private val B = app.ultimate.air.BodyPose
+    /** A person facing the camera: shoulders 0.2 apart at y 0.4, nose at 0.3; wrists where asked. */
+    private fun pose(lw: Pair<Float, Float>?, rw: Pair<Float, Float>?): app.ultimate.air.BodyPose {
+        val pts = MutableList(33) { Triple(0.5f, 0.5f, 0f) }
+        fun set(i: Int, p: Pair<Float, Float>) { pts[i] = Triple(p.first, p.second, 0.9f) }
+        set(B.NOSE, 0.5f to 0.3f); set(B.L_SHOULDER, 0.6f to 0.4f); set(B.R_SHOULDER, 0.4f to 0.4f)
+        lw?.let { set(B.L_WRIST, it) }; rw?.let { set(B.R_WRIST, it) }
+        return app.ultimate.air.BodyPose(pts, 0)
+    }
+    private val rest = 0.65f to 0.7f to (0.35f to 0.7f)
+    private fun kinds(e: List<app.ultimate.air.BodyGestures.Event>) = e.filterIsInstance<app.ultimate.air.BodyGestures.Event.Did>().map { it.kind }
+
+    @Test fun aRaisedHandSweptSidewaysIsOneSwipeInThatDirection() {
+        val g = app.ultimate.air.BodyGestures(); val got = ArrayList<app.ultimate.air.BodyGestures.Kind>(); var t = 0L
+        for (i in 0..8) { got += kinds(g.feed(pose(0.45f + i * 0.04f to 0.35f, rest.second), false, t)); t += 40 }
+        assertEquals(listOf(app.ultimate.air.BodyGestures.Kind.SwipeRight), got)
+        for (i in 0..8) { got += kinds(g.feed(pose(0.77f + i * 0.01f to 0.35f, rest.second), false, t)); t += 40 }
+        assertEquals("the follow-through right after doesn't count again", 1, got.size)
+        t += 1000; got.clear()
+        for (i in 0..8) { got += kinds(g.feed(pose(0.8f - i * 0.04f to 0.35f, rest.second), false, t)); t += 40 }
+        assertEquals(listOf(app.ultimate.air.BodyGestures.Kind.SwipeLeft), got)
+    }
+
+    @Test fun handsBelowTheShouldersAndSlowOrVerticalMovesAreNotSwipes() {
+        val g = app.ultimate.air.BodyGestures(); val got = ArrayList<app.ultimate.air.BodyGestures.Kind>(); var t = 0L
+        for (i in 0..8) { got += kinds(g.feed(pose(0.45f + i * 0.04f to 0.6f, rest.second), false, t)); t += 40 }   // low: walking arm swing
+        for (i in 0..40) { got += kinds(g.feed(pose(0.45f + i * 0.008f to 0.35f, rest.second), false, t)); t += 40 } // raised but slow
+        t += 1000
+        for (i in 0..8) { got += kinds(g.feed(pose(0.7f to 0.38f - i * 0.03f, rest.second), false, t)); t += 40 }   // straight up
+        assertTrue(got.toString(), got.isEmpty())
+    }
+
+    @Test fun bothHandsHeldAboveTheHeadOpenTheMenuOnceUntilLowered() {
+        val g = app.ultimate.air.BodyGestures(); val got = ArrayList<app.ultimate.air.BodyGestures.Kind>(); var t = 0L
+        repeat(10) { got += kinds(g.feed(pose(0.62f to 0.15f, 0.38f to 0.15f), false, t)); t += 50 }
+        assertTrue("not before it has been held", got.isEmpty())
+        repeat(30) { got += kinds(g.feed(pose(0.62f to 0.15f, 0.38f to 0.15f), false, t)); t += 50 }
+        assertEquals(listOf(app.ultimate.air.BodyGestures.Kind.Menu), got)
+        repeat(5) { g.feed(pose(rest.first, rest.second), false, t); t += 50 }; t += 800
+        repeat(20) { got += kinds(g.feed(pose(0.62f to 0.15f, 0.38f to 0.15f), false, t)); t += 50 }
+        assertEquals(2, got.size)
+    }
+
+    @Test fun handsTogetherChargeAndThrowingThemApartFiresAwayFromTheBody() {
+        val g = app.ultimate.air.BodyGestures(); var t = 0L
+        repeat(13) { g.feed(pose(0.52f to 0.6f, 0.48f to 0.6f), false, t); t += 50 }
+        assertEquals(0.5f, g.charge, 0.06f); assertEquals(0.5f, g.chargeAt!!.first, 0.01f)
+        val fired = g.feed(pose(0.75f to 0.6f, 0.25f to 0.6f), false, t).filterIsInstance<app.ultimate.air.BodyGestures.Event.Fired>()
+        assertEquals(1, fired.size)
+        val s = fired[0].shot; assertTrue("downwards, away from the shoulders", s.dy > 0.9f); assertEquals(0.5f, s.power, 0.1f)
+        assertEquals(0f, g.charge, 0f); assertNull(g.chargeAt)
+        // A touch that is too short is not a blast.
+        g.feed(pose(0.52f to 0.6f, 0.48f to 0.6f), false, t + 1000); val none = g.feed(pose(0.75f to 0.6f, 0.25f to 0.6f), false, t + 1050)
+        assertTrue(none.isEmpty())
+    }
+
+    @Test fun blastsFlyAndFadeAndFeetAreTrustedFromFurtherBack() {
+        val b = app.ultimate.air.Blasts(); b.fire(app.ultimate.air.BlastShot(0.5f, 0.5f, 1f, 0f, 1f))
+        b.step(0.1f); assertTrue(b.all[0].x > 0.6f); repeat(30) { b.step(0.1f) }; assertTrue(b.all.isEmpty())
+        val pts = MutableList(33) { Triple(0.5f, 0.5f, 0.3f) }
+        val p = app.ultimate.air.BodyPose(pts, 0)
+        assertTrue("an ankle at 0.3 counts", p.ok(B.L_ANKLE)); assertFalse("a wrist at 0.3 does not", p.ok(B.L_WRIST))
+    }
+
+    @Test fun outfitsCoverTheBodyAndTheTorsoIsWiderThanTheJoints() {
+        assertEquals(8, app.ultimate.air.Outfits.all.size); assertTrue(app.ultimate.air.Outfits.all.any { it.cape != null } && app.ultimate.air.Outfits.all.any { it.legs == 1 })
+        val pts = MutableList(33) { Triple(0.5f, 0.5f, 0f) }
+        pts[B.L_SHOULDER] = Triple(0.6f, 0.4f, 0.9f); pts[B.R_SHOULDER] = Triple(0.4f, 0.4f, 0.9f); pts[B.L_HIP] = Triple(0.58f, 0.7f, 0.9f); pts[B.R_HIP] = Triple(0.42f, 0.7f, 0.9f)
+        val q = app.ultimate.air.Outfits.torso(app.ultimate.air.BodyPose(pts, 0), false)!!
+        assertEquals(4, q.size); assertTrue(q[0].first > 0.6f && q[1].first < 0.4f)
+        pts[B.L_HIP] = Triple(0.58f, 0.7f, 0.1f); assertNull(app.ultimate.air.Outfits.torso(app.ultimate.air.BodyPose(pts, 0), false))
+        assertEquals(21, 1 + app.ultimate.air.HAND_BONES.flatMap { listOf(it.first, it.second) }.max())
     }
 }

@@ -8,12 +8,13 @@ import kotlin.math.sqrt
 
 /** Your whole body as the camera sees it: 33 points (MediaPipe Pose order), each x, y in 0..1 of the picture and how sure it is. */
 data class BodyPose(val points: List<Triple<Float, Float, Float>>, val at: Long) {
-    fun ok(i: Int) = i in points.indices && points[i].third >= SURE
+    /** Legs and feet are harder to see, most of all from further back, so they are trusted at a lower score than the rest. */
+    fun ok(i: Int) = i in points.indices && points[i].third >= (if (i >= L_HIP) SURE_LOW else SURE)
     /** Point [i] on screen, mirrored when the front camera is used; null when it is not clearly seen. */
     fun at(i: Int, mirror: Boolean): Pair<Float, Float>? = if (ok(i)) (if (mirror) 1f - points[i].first else points[i].first) to points[i].second else null
 
     companion object {
-        const val SURE = 0.5f
+        const val SURE = 0.5f; const val SURE_LOW = 0.25f
         const val NOSE = 0; const val L_EAR = 7; const val R_EAR = 8
         const val L_SHOULDER = 11; const val R_SHOULDER = 12; const val L_ELBOW = 13; const val R_ELBOW = 14; const val L_WRIST = 15; const val R_WRIST = 16
         const val L_INDEX = 19; const val R_INDEX = 20
@@ -64,7 +65,7 @@ object Joints {
  * a curl or push-up for the elbow). The gap between the two stops wobbling at one level from counting, and a rep must take
  * at least [minMs]. Pure, so it is tested.
  */
-class RepCounter(private val down: Float = 100f, private val up: Float = 155f, private val minMs: Long = 400) {
+class RepCounter(private val down: Float = 105f, private val up: Float = 150f, private val minMs: Long = 300) {
     var count = 0; private set
     var isDown = false; private set
     private var wentDownAt = 0L
@@ -148,5 +149,112 @@ object CameraFilters {
 /** The body effects on offer. [parts] says what each one decorates, so the picker can say "hands", "feet", "whole body". */
 enum class BodyEffect(val label: String, val parts: String) {
     Neon("⚡ Neon body", "whole body"), Trails("✨ Light trails", "hands and feet"), Fire("🔥 Fire hands", "hands"),
-    Kicks("👟 Spark feet", "feet"), Costume("👑 Costume", "head, hands, feet"), Coach("📐 Coach", "angles and reps"),
+    Kicks("👟 Spark feet", "feet"), Blast("💥 Energy blast", "both hands"), Outfit("👕 Outfits", "whole body"),
+    Costume("👑 Costume", "head, hands, feet"), Coach("📐 Coach", "angles and reps"),
+}
+
+/** The 21 points of a hand joined into fingers (MediaPipe order), for drawing a hand on top of a body. */
+val HAND_BONES = listOf(0 to 1, 1 to 2, 2 to 3, 3 to 4, 0 to 5, 5 to 6, 6 to 7, 7 to 8, 5 to 9, 9 to 10, 10 to 11, 11 to 12, 9 to 13, 13 to 14, 14 to 15, 15 to 16, 13 to 17, 17 to 18, 18 to 19, 19 to 20, 0 to 17)
+
+/** A ball of energy let go from between your hands: where it started, which way it flies, and how charged it was (0..1). */
+data class BlastShot(val x: Float, val y: Float, val dx: Float, val dy: Float, val power: Float)
+
+/**
+ * Whole-body gestures you can do from across the room, so the phone can be worked without touching it:
+ *  - **Swipe**: raise a hand above your shoulder and sweep it sideways. Next or previous.
+ *  - **Menu**: hold both hands above your head for a moment. Switches what the swipe changes.
+ *  - **Blast**: bring both hands together in front of you to charge (the longer, the bigger), then throw them apart to fire.
+ * Distances are measured in shoulder widths, so it works the same near or far. Each gesture has a pause after it so one
+ * movement is one command. Pure, so it is tested.
+ */
+class BodyGestures(private val swipeWidths: Float = 1.1f, private val swipeMs: Long = 450, private val menuHoldMs: Long = 600, private val chargeMs: Long = 1200) {
+    enum class Kind { SwipeLeft, SwipeRight, Menu }
+    sealed interface Event { data class Did(val kind: Kind) : Event; data class Fired(val shot: BlastShot) : Event }
+
+    /** How charged the blast is right now (0 when your hands aren't together), and where it sits. */
+    var charge = 0f; private set
+    var chargeAt: Pair<Float, Float>? = null; private set
+
+    private val track = HashMap<Int, ArrayDeque<Triple<Float, Float, Long>>>()
+    private var quietUntil = 0L
+    private var bothUpSince = -1L; private var menuArmed = true
+    private var togetherSince = -1L
+
+    fun feed(p: BodyPose, mirror: Boolean, t: Long): List<Event> {
+        val out = ArrayList<Event>()
+        val unit = Joints.scale(p) ?: run { reset(); return out }
+        val lw = p.at(BodyPose.L_WRIST, mirror); val rw = p.at(BodyPose.R_WRIST, mirror)
+        val ls = p.at(BodyPose.L_SHOULDER, mirror)!!; val rs = p.at(BodyPose.R_SHOULDER, mirror)!!
+        val headY = p.at(BodyPose.NOSE, mirror)?.second ?: (minOf(ls.second, rs.second) - unit * 0.6f)
+
+        // Blast: hands together below the head charge it; throwing them apart lets it go.
+        val together = lw != null && rw != null && hypot(lw.first - rw.first, lw.second - rw.second) < unit * 0.6f && minOf(lw.second, rw.second) > headY
+        if (together) {
+            if (togetherSince < 0) togetherSince = t
+            charge = ((t - togetherSince).toFloat() / chargeMs).coerceIn(0f, 1f)
+            chargeAt = (lw!!.first + rw!!.first) / 2 to (lw.second + rw.second) / 2
+        } else {
+            val at = chargeAt
+            if (charge >= 0.25f && at != null && lw != null && rw != null && hypot(lw.first - rw.first, lw.second - rw.second) > unit * 1.1f) {
+                val cx = (ls.first + rs.first) / 2; val cy = (ls.second + rs.second) / 2
+                var dx = at.first - cx; var dy = at.second - cy; val d = hypot(dx, dy)
+                if (d < unit * 0.25f) { dx = 0f; dy = -1f } else { dx /= d; dy /= d }
+                out += Event.Fired(BlastShot(at.first, at.second, dx, dy, charge)); quietUntil = t + 600
+            }
+            togetherSince = -1; charge = 0f; chargeAt = null
+        }
+
+        // Menu: both hands held above the head. You have to bring them down before it can fire again.
+        val bothUp = lw != null && rw != null && lw.second < headY && rw.second < headY
+        if (bothUp) {
+            if (bothUpSince < 0) bothUpSince = t
+            if (menuArmed && t - bothUpSince >= menuHoldMs && t >= quietUntil) { out += Event.Did(Kind.Menu); menuArmed = false; quietUntil = t + 700 }
+        } else { bothUpSince = -1; menuArmed = true }
+
+        // Swipe: one raised hand moving sideways fast. Not while charging or holding the menu pose.
+        for ((key, w, sh) in listOf(Triple(BodyPose.L_WRIST, lw, ls), Triple(BodyPose.R_WRIST, rw, rs))) {
+            val q = track.getOrPut(key) { ArrayDeque() }
+            if (w == null || w.second > sh.second || together || bothUp) { q.clear(); continue }
+            q.addLast(Triple(w.first, w.second, t)); while (q.isNotEmpty() && t - q.first().third > swipeMs) q.removeFirst()
+            val first = q.first(); val dx = w.first - first.first; val dy = w.second - first.second
+            if (t >= quietUntil && abs(dx) > unit * swipeWidths && abs(dx) > abs(dy) * 1.5f) {
+                out += Event.Did(if (dx > 0) Kind.SwipeRight else Kind.SwipeLeft); quietUntil = t + 800; track.values.forEach { it.clear() }
+            }
+        }
+        return out
+    }
+
+    fun reset() { track.clear(); bothUpSince = -1; togetherSince = -1; charge = 0f; chargeAt = null }
+}
+
+/** Energy balls in flight: they fly straight, grow a little and fade. Pure, so it is tested. */
+class Blasts {
+    class B(var x: Float, var y: Float, val dx: Float, val dy: Float, val power: Float, var life: Float)
+    val all = ArrayList<B>()
+    fun fire(s: BlastShot) { all += B(s.x, s.y, s.dx, s.dy, s.power, 1f); if (all.size > 12) all.removeAt(0) }
+    fun step(dt: Float) { val it = all.iterator(); while (it.hasNext()) { val b = it.next(); val v = 0.9f + b.power; b.x += b.dx * v * dt; b.y += b.dy * v * dt; b.life -= dt * 0.8f; if (b.life <= 0f || b.x < -0.3f || b.x > 1.3f || b.y < -0.3f || b.y > 1.3f) it.remove() } }
+}
+
+/** Clothes drawn on your body. Colours are ARGB; [sleeves] 0 none, 1 short, 2 long; [legs] 0 none, 1 shorts, 2 trousers. */
+data class Outfit(val label: String, val top: Long?, val sleeves: Int, val bottom: Long?, val legs: Int, val cape: Long? = null, val trim: Long? = null)
+
+object Outfits {
+    val all = listOf(
+        Outfit("👕 Tee and jeans", 0xFFE53935, 1, 0xFF1E3A8A, 2),
+        Outfit("🧥 Hoodie and joggers", 0xFF455A64, 2, 0xFF263238, 2, trim = 0xFFECEFF1),
+        Outfit("🩳 Summer", 0xFFFFC107, 1, 0xFF00ACC1, 1),
+        Outfit("🤵 Suit", 0xFF212121, 2, 0xFF212121, 2, trim = 0xFFFFFFFF),
+        Outfit("🦸 Hero", 0xFF1565C0, 2, 0xFFC62828, 2, cape = 0xFFC62828, trim = 0xFFFFD600),
+        Outfit("🥷 Ninja", 0xFF111111, 2, 0xFF111111, 2, trim = 0xFFB71C1C),
+        Outfit("🤖 Armour", 0xFF90A4AE, 2, 0xFF607D8B, 2, trim = 0xFF00E5FF),
+        Outfit("🥋 Gi", 0xFFFAFAFA, 2, 0xFFFAFAFA, 2, trim = 0xFF111111),
+    )
+
+    /** The torso as a four-corner shape (shoulders then hips), a little wider than the joints so it reads as cloth; null if not all seen. */
+    fun torso(p: BodyPose, mirror: Boolean, widen: Float = 0.18f): List<Pair<Float, Float>>? {
+        val ls = p.at(BodyPose.L_SHOULDER, mirror) ?: return null; val rs = p.at(BodyPose.R_SHOULDER, mirror) ?: return null
+        val lh = p.at(BodyPose.L_HIP, mirror) ?: return null; val rh = p.at(BodyPose.R_HIP, mirror) ?: return null
+        fun out(a: Pair<Float, Float>, b: Pair<Float, Float>) = (a.first + (a.first - b.first) * widen) to (a.second + (a.second - b.second) * widen * 0.2f)
+        return listOf(out(ls, rs), out(rs, ls), out(rh, lh), out(lh, rh))
+    }
 }

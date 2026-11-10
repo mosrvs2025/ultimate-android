@@ -1,5 +1,9 @@
 package app.ultimate.vision
 
+import app.ultimate.air.HAND_BONES
+import app.ultimate.air.Outfits
+import app.ultimate.air.Blasts
+import app.ultimate.air.BodyGestures
 import app.ultimate.air.Trails
 import app.ultimate.air.Sparks
 import app.ultimate.air.RepCounter
@@ -339,6 +343,7 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
     }
 
     private val body = MutableStateFlow<BodyPose?>(null)
+    private val bodyHands = MutableStateFlow<List<List<Pair<Float, Float>>>>(emptyList())
 
     /** AR for your whole body: looks for the picture, and effects that follow your hands, feet and limbs. */
     @Composable
@@ -352,26 +357,53 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         val trails = remember { Trails() }
         val sparks = remember { Sparks() }
         val reps = remember { RepCounter() }
+        val gestures = remember { BodyGestures() }
+        val blasts = remember { Blasts() }
+        val fingers by bodyHands.collectAsState()
+        var outfit by remember { mutableIntStateOf(0) }
+        // What a swipe in the air changes: the effect, or (after both hands up) the outfit. The banner says which, big enough to read from across the room.
+        var swipeOutfits by remember { mutableStateOf(false) }
+        var banner by remember { mutableStateOf("" to 0L) }
+        var isDown by remember { mutableStateOf(false) }
+        val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
         var repCount by remember { mutableIntStateOf(0) }
         val lastAt = remember { HashMap<Int, Pair<Float, Float>>() }
         var frame by remember { mutableLongStateOf(0L) }
         // One clock for the effects: sparks fall and trails fade even while you stand still.
-        LaunchedEffect(Unit) { var prev = 0L; while (true) { androidx.compose.runtime.withFrameMillis { t -> if (prev != 0L) sparks.step(((t - prev) / 1000f).coerceAtMost(0.1f)); prev = t; frame = t } } }
+        LaunchedEffect(Unit) { var prev = 0L; while (true) { androidx.compose.runtime.withFrameMillis { t -> if (prev != 0L) { val dt = ((t - prev) / 1000f).coerceAtMost(0.1f); sparks.step(dt); blasts.step(dt) }; prev = t; frame = t } } }
         LaunchedEffect(pose, effect) {
             val p = pose ?: return@LaunchedEffect
             val now = System.currentTimeMillis()
+            gestures.feed(p, front, now).forEach { e ->
+                when (e) {
+                    is BodyGestures.Event.Fired -> if (effect == BodyEffect.Blast) { blasts.fire(e.shot); sparks.emit(e.shot.x, e.shot.y, 30, 0.6f, 200f); haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) }
+                    is BodyGestures.Event.Did -> {
+                        when (e.kind) {
+                            BodyGestures.Kind.Menu -> { swipeOutfits = !swipeOutfits; if (swipeOutfits) effect = BodyEffect.Outfit; banner = (if (swipeOutfits) "👕 Swipe to change outfit" else "✨ Swipe to change effect") to now }
+                            else -> {
+                                val step = if (e.kind == BodyGestures.Kind.SwipeRight) 1 else -1
+                                if (swipeOutfits && effect == BodyEffect.Outfit) { outfit = (outfit + step + Outfits.all.size) % Outfits.all.size; banner = Outfits.all[outfit].label to now }
+                                else { val all = BodyEffect.entries; effect = all[(effect.ordinal + step + all.size) % all.size]; swipeOutfits = false; trails.clear(); sparks.all.clear(); banner = effect.label to now }
+                            }
+                        }
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    }
+                }
+            }
             fun moved(i: Int, at: Pair<Float, Float>) = (lastAt.put(i, at)?.let { hypot(at.first - it.first, at.second - it.second) } ?: 0f)
             when (effect) {
                 BodyEffect.Trails -> (BodyPose.HANDS + BodyPose.FEET).forEach { i -> p.at(i, front)?.let { trails.add(i, it.first, it.second, now) } }
                 BodyEffect.Fire -> listOf(BodyPose.L_INDEX, BodyPose.R_INDEX).forEach { i -> p.at(i, front)?.let { sparks.emit(it.first, it.second, 4, moved(i, it) * 8f, 18f) } }
                 BodyEffect.Kicks -> listOf(BodyPose.L_TOE, BodyPose.R_TOE).forEach { i -> p.at(i, front)?.let { val m = moved(i, it); if (m > 0.012f) sparks.emit(it.first, it.second, (m * 400).toInt().coerceIn(2, 14), m * 10f, 190f) } }
-                BodyEffect.Coach -> if (reps.feed(Joints.knee(p), now)) repCount = reps.count
+                BodyEffect.Coach -> { if (reps.feed(Joints.knee(p), now)) repCount = reps.count; isDown = reps.isDown }
                 else -> Unit
             }
         }
-        Text(if (pose == null) "Step back so the camera sees you. Prop the phone up for your whole body, or point it at your hands or feet." else "${effect.label.drop(2).trim()}: ${effect.parts}.", style = MaterialTheme.typography.bodyMedium)
+        Text(if (pose == null) "Step back so the camera sees you. Prop the phone up for your whole body, or point it at your hands or feet."
+            else if (effect == BodyEffect.Blast) "Bring both hands together to charge, then throw them apart to fire."
+            else "No need to touch the phone: raise a hand and sweep it sideways for the next ${if (swipeOutfits) "outfit" else "effect"}. Hold both hands above your head to switch between effects and outfits.", style = MaterialTheme.typography.bodyMedium)
         Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
-            androidx.compose.runtime.key(front) { BodyCamera(front, CameraFilters.all[look].second, body) }
+            androidx.compose.runtime.key(front) { BodyCamera(front, CameraFilters.all[look].second, body, if (effect == BodyEffect.Neon) bodyHands else null) }
             Canvas(Modifier.fillMaxSize()) {
                 @Suppress("UNUSED_VARIABLE") val tick = frame
                 val p = pose
@@ -389,6 +421,15 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                             }
                         }
                         pt(BodyPose.NOSE)?.let { drawCircle(Color.White, unit * 0.32f, it, style = Stroke(unit * 0.05f)) }
+                        // The face from the same body points: eyes and mouth, so the head isn't an empty ring.
+                        listOf(2, 5).forEach { i -> pt(i)?.let { drawCircle(Color(0xFF7FD3FF), unit * 0.035f, it) } }
+                        val ml = pt(9); val mr = pt(10); if (ml != null && mr != null) drawLine(Color(0xFFFF6BD6), ml, mr, strokeWidth = unit * 0.03f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                        // Every finger, when a hand is close enough to be read.
+                        fingers.forEach { h ->
+                            fun hp(i: Int) = Offset((if (front) 1f - h[i].first else h[i].first) * size.width, h[i].second * size.height)
+                            HAND_BONES.forEach { (a, b) -> drawLine(Color(0xFF3DDC97), hp(a), hp(b), strokeWidth = unit * 0.025f, cap = androidx.compose.ui.graphics.StrokeCap.Round) }
+                            listOf(4, 8, 12, 16, 20).forEach { drawCircle(Color.White, unit * 0.03f, hp(it)) }
+                        }
                     }
                     BodyEffect.Trails -> trails.lines(System.currentTimeMillis()).forEach { (key, line) ->
                         val hue = if (key in BodyPose.HANDS) 285f else 170f
@@ -399,6 +440,34 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                         }
                     }
                     BodyEffect.Fire, BodyEffect.Kicks -> Unit
+                    BodyEffect.Blast -> {
+                        gestures.chargeAt?.let { c ->
+                            val o = Offset((c.first) * size.width, c.second * size.height); val r = unit * (0.12f + 0.45f * gestures.charge)
+                            drawCircle(Color(0xFF7FD3FF).copy(alpha = 0.35f), r * 1.6f, o); drawCircle(Color.White, r * (0.6f + 0.1f * kotlin.math.sin(frame / 40f)), o); drawCircle(Color(0xFF00E5FF), r, o, style = Stroke(unit * 0.04f))
+                        }
+                        blasts.all.forEach { b ->
+                            val o = Offset(b.x * size.width, b.y * size.height); val r = unit * (0.25f + 0.5f * b.power) * (1.3f - 0.3f * b.life)
+                            drawCircle(Color(0xFF00E5FF).copy(alpha = 0.3f * b.life), r * 1.8f, o); drawCircle(Color.White.copy(alpha = b.life.coerceIn(0f, 1f)), r * 0.7f, o); drawCircle(Color(0xFF7FD3FF).copy(alpha = b.life.coerceIn(0f, 1f)), r, o, style = Stroke(unit * 0.05f))
+                        }
+                    }
+                    BodyEffect.Outfit -> if (p != null) {
+                        val o = Outfits.all[outfit]
+                        fun limb(a: Int, b: Int, c: Long, w: Float) { val pa = pt(a); val pb = pt(b); if (pa != null && pb != null) drawLine(Color(c), pa, pb, strokeWidth = unit * w, cap = androidx.compose.ui.graphics.StrokeCap.Round) }
+                        fun poly(pts: List<Offset>, c: Long) = drawPath(androidx.compose.ui.graphics.Path().apply { moveTo(pts[0].x, pts[0].y); pts.drop(1).forEach { lineTo(it.x, it.y) }; close() }, Color(c))
+                        val torso = Outfits.torso(p, front)?.map { Offset(it.first * size.width, it.second * size.height) }
+                        if (o.cape != null && torso != null) poly(listOf(torso[0], torso[1], Offset(torso[2].x + unit * 0.5f, torso[2].y + unit * 1.1f), Offset(torso[3].x - unit * 0.5f, torso[3].y + unit * 1.1f)), o.cape)
+                        if (o.bottom != null && o.legs > 0) {
+                            limb(BodyPose.L_HIP, BodyPose.L_KNEE, o.bottom, 0.42f); limb(BodyPose.R_HIP, BodyPose.R_KNEE, o.bottom, 0.42f)
+                            if (o.legs == 2) { limb(BodyPose.L_KNEE, BodyPose.L_ANKLE, o.bottom, 0.34f); limb(BodyPose.R_KNEE, BodyPose.R_ANKLE, o.bottom, 0.34f) }
+                            limb(BodyPose.L_HIP, BodyPose.R_HIP, o.bottom, 0.42f)
+                        }
+                        if (o.top != null) {
+                            if (o.sleeves >= 1) { limb(BodyPose.L_SHOULDER, BodyPose.L_ELBOW, o.top, 0.32f); limb(BodyPose.R_SHOULDER, BodyPose.R_ELBOW, o.top, 0.32f) }
+                            if (o.sleeves == 2) { limb(BodyPose.L_ELBOW, BodyPose.L_WRIST, o.top, 0.26f); limb(BodyPose.R_ELBOW, BodyPose.R_WRIST, o.top, 0.26f) }
+                            torso?.let { poly(it, o.top) }
+                            o.trim?.let { c -> torso?.let { tq -> drawLine(Color(c), Offset((tq[0].x + tq[1].x) / 2, (tq[0].y + tq[1].y) / 2), Offset((tq[2].x + tq[3].x) / 2, (tq[2].y + tq[3].y) / 2), strokeWidth = unit * 0.05f); drawLine(Color(c), tq[3], tq[2], strokeWidth = unit * 0.07f) } }
+                        }
+                    }
                     BodyEffect.Costume -> if (p != null) {
                         val ears = pt(BodyPose.L_EAR) to pt(BodyPose.R_EAR)
                         val head = (ears.first?.let { l -> ears.second?.let { r -> (l - r).getDistance() } } ?: (unit * 0.45f))
@@ -419,14 +488,19 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                 sparks.all.forEach { s -> drawCircle(Color.hsv(s.hue % 360f, 0.9f, 1f).copy(alpha = s.life.coerceIn(0f, 1f)), unit * 0.035f * (0.5f + s.life), Offset(s.x * size.width, s.y * size.height)) }
             }
             if (effect == BodyEffect.Coach) Column(Modifier.align(Alignment.TopStart).padding(12.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Text("$repCount squats", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                Text("$repCount squats" + if (isDown) "  ⬇ down, now up" else "", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
                 pose?.let { Joints.shoulderTilt(it) }?.let { Text(if (it < 4f) "Shoulders level" else "Shoulders tilted %.0f°".format(it), color = Color.White, style = MaterialTheme.typography.labelMedium) }
                 Text("Reset", Modifier.clip(RoundedCornerShape(8.dp)).clickable { reps.reset(); repCount = 0 }.padding(vertical = 4.dp), color = Color(0xFF7FD3FF), style = MaterialTheme.typography.labelLarge)
             }
+            if (System.currentTimeMillis() - banner.second < 1800 && frame >= 0) Text(banner.first, Modifier.align(Alignment.Center).clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 22.dp, vertical = 14.dp),
+                color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             androidx.compose.material3.FilledTonalIconButton({ front = !front; trails.clear() }, Modifier.align(Alignment.TopEnd).padding(8.dp)) { Text("🔄") }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            BodyEffect.entries.forEach { e -> FilterChip(effect == e, { effect = e; trails.clear(); sparks.all.clear() }, { Text(e.label) }) }
+            BodyEffect.entries.forEach { e -> FilterChip(effect == e, { effect = e; swipeOutfits = e == BodyEffect.Outfit; trails.clear(); sparks.all.clear() }, { Text(e.label) }) }
+        }
+        if (effect == BodyEffect.Outfit) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Outfits.all.forEachIndexed { i, o -> FilterChip(outfit == i, { outfit = i }, { Text(o.label) }) }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CameraFilters.all.forEachIndexed { i, (name, _) -> FilterChip(look == i, { look = i }, { Text(name) }) }
