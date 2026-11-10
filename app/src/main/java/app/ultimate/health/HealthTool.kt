@@ -1,5 +1,8 @@
 package app.ultimate.health
 
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.core.RepeatMode
@@ -106,7 +109,7 @@ class HealthTool(private val context: android.content.Context) : Tool {
             loading = true
             if (available) {
                 granted = HealthReader.granted(c)
-                days = withContext(Dispatchers.IO) { runCatching { HealthReader.days(c, granted) }.getOrDefault(emptyList()) }
+                days = withContext(Dispatchers.IO) { runCatching { HealthReader.days(c, HealthReader.readable(c)) }.getOrDefault(emptyList()) }
             }
             phone = withContext(Dispatchers.IO) { phoneDays(c) }
             loading = false
@@ -175,9 +178,9 @@ class HealthTool(private val context: android.content.Context) : Tool {
 
                 if (days.isNotEmpty()) {
                     Text("Last 30 days", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Bars("Steps", (today - 29..today).map { byDay[it]?.steps?.toFloat() }, MaterialTheme.colorScheme.primary)
-                    Bars("Sleep (hours)", (today - 29..today).map { byDay[it]?.sleepMin?.let { m -> m / 60f } }, Color(0xFF8B7CF6))
-                    Bars("Resting heart rate", (today - 29..today).map { byDay[it]?.restingHr?.toFloat() }, Color(0xFFFF6B6B))
+                    Bars("Steps", (today - 29..today).map { byDay[it]?.steps?.toFloat() }, MaterialTheme.colorScheme.primary, (today - 29..today).toList())
+                    Bars("Sleep (hours)", (today - 29..today).map { byDay[it]?.sleepMin?.let { m -> m / 60f } }, Color(0xFF8B7CF6), (today - 29..today).toList())
+                    Bars("Resting heart rate", (today - 29..today).map { byDay[it]?.restingHr?.toFloat() }, Color(0xFFFF6B6B), (today - 29..today).toList())
                     val w = days.filter { it.day >= today - 29 }; val count = w.sumOf { it.workouts }
                     if (count > 0) Text("Workouts: $count in 30 days, ${HealthInsights.hm(w.sumOf { it.workoutMin }.toInt())} in all", style = MaterialTheme.typography.bodyMedium)
                 }
@@ -217,17 +220,38 @@ private fun Card(title: String, text: String) {
     }
 }
 
-/** A day-by-day bar chart; gaps are days with nothing recorded. */
+/**
+ * A day-by-day bar chart; gaps are days with nothing recorded. Tap a bar, or drag across the chart, to read that day's date and
+ * value; letting go leaves it showing. With nothing touched it shows the latest day.
+ */
 @Composable
-private fun Bars(title: String, values: List<Float?>, color: Color) {
+private fun Bars(title: String, values: List<Float?>, color: Color, days: List<Long>) {
     val max = values.filterNotNull().maxOrNull()?.takeIf { it > 0 } ?: return
-    val last = values.lastOrNull { it != null }
+    var picked by remember(values) { mutableStateOf<Int?>(null) }
+    val shown = picked ?: values.indexOfLast { it != null }
+    val v = values.getOrNull(shown)
+    fun fmt(x: Float) = if (x >= 100) "%,d".format(x.roundToInt()) else "%.1f".format(x)
+    val label = days.getOrNull(shown)?.let { d -> java.time.LocalDate.ofEpochDay(d).let { "${it.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())} ${it.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())} ${it.dayOfMonth}" } }
     Column {
-        Row { Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge); last?.let { Text(if (it >= 100) "%,d".format(it.roundToInt()) else "%.1f".format(it), style = MaterialTheme.typography.labelLarge, color = color) } }
+        Row {
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+            if (label != null) Text(label + " · " + (v?.let { fmt(it) } ?: "no data"), style = MaterialTheme.typography.labelLarge, color = color)
+        }
         Box(Modifier.fillMaxWidth().height(70.dp).padding(top = 4.dp)) {
-            Canvas(Modifier.fillMaxSize()) {
+            Canvas(
+                Modifier.fillMaxSize().pointerInput(values) {
+                    detectTapGestures { o -> picked = (o.x / (size.width / values.size)).toInt().coerceIn(0, values.size - 1) }
+                }.pointerInput(values) {
+                    detectHorizontalDragGestures(onDragStart = { o -> picked = (o.x / (size.width / values.size)).toInt().coerceIn(0, values.size - 1) }) { change, _ ->
+                        picked = (change.position.x / (size.width / values.size)).toInt().coerceIn(0, values.size - 1)
+                    }
+                },
+            ) {
                 val w = size.width / values.size
-                values.forEachIndexed { i, v -> if (v != null) { val h = size.height * (v / max); drawRect(color, Offset(i * w + w * 0.15f, size.height - h), Size(w * 0.7f, h)) } }
+                values.forEachIndexed { i, x ->
+                    if (x != null) { val h = size.height * (x / max); drawRect(if (i == shown) color else color.copy(alpha = if (picked == null) 1f else 0.45f), Offset(i * w + w * 0.15f, size.height - h), Size(w * 0.7f, h)) }
+                    else if (i == shown) drawRect(color.copy(alpha = 0.25f), Offset(i * w + w * 0.15f, size.height - 3.dp.toPx()), Size(w * 0.7f, 3.dp.toPx()))
+                }
             }
         }
     }

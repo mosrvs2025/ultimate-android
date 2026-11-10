@@ -103,16 +103,16 @@ private fun span(ms: Long) = if (ms >= 3_600_000) "${ms / 3_600_000}h ${ms / 60_
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun TimelineScreen(app: UltimateApp, initialQuery: String, onExit: () -> Unit, preset: List<Moment>? = null, embedded: Boolean = false, header: (@Composable () -> Unit)? = null) {
+internal fun TimelineScreen(app: UltimateApp, initialQuery: String, onExit: () -> Unit, preset: List<Moment>? = null, embedded: Boolean = false, header: (@Composable () -> Unit)? = null, initialSource: Source? = null, initialLate: Boolean = false) {
     var all by remember { mutableStateOf(preset) }
     val now = remember { System.currentTimeMillis() }
     LaunchedEffect(Unit) { if (preset == null) all = withContext(Dispatchers.IO) { TimelineReader.read(app, now - 60 * 86_400_000L) } }
     var query by remember { mutableStateOf(initialQuery) }
-    var only by remember { mutableStateOf<Source?>(null) }
+    var only by remember { mutableStateOf(initialSource) }
     var day by remember { mutableLongStateOf(TimelineMath.dayOf(now)) }
     // A stretch of hours dragged across on the chart (or one tapped), and "only the small hours" from a finding.
     var hours by remember { mutableStateOf<IntRange?>(null) }
-    var late by remember { mutableStateOf(false) }
+    var late by remember { mutableStateOf(initialLate) }
     var open by remember { mutableStateOf<Moment?>(null) }
     val list = all.orEmpty()
     val context = androidx.compose.ui.platform.LocalContext.current

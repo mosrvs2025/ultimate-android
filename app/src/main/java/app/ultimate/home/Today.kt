@@ -75,6 +75,7 @@ import app.ultimate.files.UpdateWatcher
 import app.ultimate.inbox.listenerEnabled
 import app.ultimate.screentime.ScreenTime
 import app.ultimate.screentime.UsageMath
+import app.ultimate.core.ToolLaunch
 import app.ultimate.core.appear
 import app.ultimate.core.copyText
 import app.ultimate.core.formatBytes
@@ -101,6 +102,8 @@ data class Facts(
     val checkupScore: Int?, val checkupAt: Long?, val updateVersion: String?, val now: Long,
     /** Everything kept today, from every record, and one finding from reading the last month together. */
     val today: List<Moment> = emptyList(), val finding: String? = null,
+    /** What the finding is about, so tapping it lands on exactly those records. */
+    val findingTarget: app.ultimate.timeline.Finding? = null,
 )
 
 /** A suggestion on Home: something worth doing now, and the tool that does it. */
@@ -136,16 +139,17 @@ private fun gather(app: UltimateApp, now: Long): Facts {
     val inbox = "inbox" in ids
     val last = if ("checkup" in ids) app.checkupManager.last.value else null
     // Today from every record, and one of Timeline's findings (a different one each day, so Home keeps telling you something new).
-    val (today, finding) = if ("timeline" in ids) runCatching {
+    val (today, picked) = if ("timeline" in ids) runCatching {
         val month = TimelineReader.read(app, now - 30 * 86_400_000L)
-        val all = TimelineMath.insights(month, now)
+        val all = TimelineMath.findings(month, now)
         TimelineMath.onDay(month, TimelineMath.dayOf(now)) to all.getOrNull((TimelineMath.dayOf(now) % all.size.coerceAtLeast(1)).toInt())
     }.getOrDefault(emptyList<Moment>() to null) else emptyList<Moment>() to null
+    val finding = picked?.text
     return Facts(
         level, status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL, stat.availableBytes, stat.totalBytes,
         screen, if (inbox) runCatching { app.notificationLog.today(now) }.getOrNull() else null, if (inbox) listenerEnabled(app) else null,
         last?.first, last?.second, if (BuildConfig.HAS_FILES) runCatching { UpdateWatcher.find(app)?.versionName }.getOrNull() else null, now,
-        today, finding,
+        today, finding, picked,
     )
 }
 
@@ -153,10 +157,11 @@ private fun gather(app: UltimateApp, now: Long): Facts {
 @Composable
 fun TodayDashboard(app: UltimateApp) {
     val context = LocalContext.current
-    var facts by remember { mutableStateOf<Facts?>(null) }
+    // Start from what was on screen last time, so nothing pops in a moment later; the fresh read then replaces it.
+    var facts by remember { mutableStateOf(FactsCache.load(app)) }
     var tick by remember { mutableStateOf(0) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
-    LaunchedEffect(tick) { facts = withContext(Dispatchers.IO) { gather(app, System.currentTimeMillis()) } }
+    LaunchedEffect(tick) { facts = withContext(Dispatchers.IO) { gather(app, System.currentTimeMillis()).also { FactsCache.save(app, it) } } }
     LaunchedEffect(Unit) { while (true) { delay(60_000); tick++ } }
     val ids = remember { app.tools.map { it.id }.toSet() }
     val seen = remember { mutableSetOf<Any>() }
@@ -210,7 +215,11 @@ fun TodayDashboard(app: UltimateApp) {
         f?.finding?.let { found ->
             Row(
                 Modifier.fillMaxWidth().appear("finding", seen, 6).pressScale(0.98f).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.primaryContainer)
-                    .clickable { open("timeline") }.padding(horizontal = 14.dp, vertical = 12.dp),
+                    .clickable {
+                        // Land on the records the finding is about, not on the general You screen.
+                        val t = f.findingTarget
+                        app.tools.firstOrNull { it.id == "timeline" }?.let { tl -> app.insights.count("home.card.timeline"); app.shell.open(tl, ToolLaunch(query = t?.query, source = t?.source?.name, lateNight = t?.lateNight == true)) }
+                    }.padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Rounded.AutoGraph, null, tint = MaterialTheme.colorScheme.onPrimaryContainer); Spacer(Modifier.width(12.dp))

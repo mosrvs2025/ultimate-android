@@ -35,6 +35,9 @@ class ApkInstaller(private val context: Context) {
     /** Streams the APK(s) into an install session and hands it to Android, which shows its confirmation. Returns how many APKs. */
     suspend fun install(uri: Uri, name: String): Int = withContext(Dispatchers.IO) {
         val installer = context.packageManager.packageInstaller
+        // Every cancelled or unfinished install leaves a session behind, and Android refuses new ones after enough of them
+        // ("Too many active sessions for UID"). Ours are never needed again, so clear them first.
+        abandonStale(installer)
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
         if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
         val id = installer.createSession(params)
@@ -65,6 +68,13 @@ class ApkInstaller(private val context: Context) {
             runCatching { session.abandon() }
             throw e
         }
+    }
+
+    companion object {
+        /** Abandons every install session this app has left open. Returns how many. Safe to call any time: it only touches our own. */
+        fun abandonStale(installer: PackageInstaller): Int = runCatching {
+            installer.mySessions.count { s -> runCatching { installer.abandonSession(s.sessionId) }.isSuccess }
+        }.getOrDefault(0)
     }
 
     private fun write(session: PackageInstaller.Session, name: String, input: InputStream, size: Long) {
@@ -98,6 +108,8 @@ class InstallStatusActivity : androidx.activity.ComponentActivity() {
                 val text = InstallMessages.explain(status, msg)
                 toast(text)
                 (applicationContext as? app.ultimate.UltimateApp)?.insights?.problem("Install", text)
+                // A cancelled or failed install is finished; don't leave its session counting against the limit.
+                intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1).takeIf { it >= 0 }?.let { runCatching { packageManager.packageInstaller.abandonSession(it) } }
             }
         }
     }

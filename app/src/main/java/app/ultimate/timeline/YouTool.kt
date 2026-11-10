@@ -73,16 +73,16 @@ class YouTool(private val app: UltimateApp) : Tool {
     override fun opensOwnScreen(item: LibraryItem) = false
     override suspend fun remove(id: String, deleteFile: Boolean) = true
     override suspend fun refresh() = Unit
-    @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = YouScreen(app, launch.query, onExit)
+    @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = YouScreen(app, launch.query, onExit, launch.source, launch.lateNight)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun YouScreen(app: UltimateApp, query: String?, onExit: () -> Unit) {
+internal fun YouScreen(app: UltimateApp, query: String?, onExit: () -> Unit, source: String? = null, lateNight: Boolean = false) {
     // Today first: body, mind and phone life together.
     val tabs = if (BuildConfig.HAS_FOOTPRINT) listOf("Today", "Days", "Patterns", "Privacy") else listOf("Today", "Days")
     // A search lands on Days; otherwise open on Today.
-    var tab by remember { mutableIntStateOf(if (query.isNullOrBlank()) 0 else 1) }
+    var tab by remember { mutableIntStateOf(if (query.isNullOrBlank() && source == null && !lateNight) 0 else 1) }
     var aboutMe by remember { mutableStateOf(false) }
     Scaffold(topBar = {
         TopAppBar(title = { Text("You") }, navigationIcon = { ToolBackButton(onExit) }, actions = {
@@ -94,7 +94,7 @@ internal fun YouScreen(app: UltimateApp, query: String?, onExit: () -> Unit) {
             if (tabs.size > 1) GooeyTabs(tabs, tab, { tab = it }, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             when (tabs[tab]) {
                 "Today" -> YouToday(app)
-                "Days" -> TimelineScreen(app, query.orEmpty(), onExit, embedded = true)
+                "Days" -> TimelineScreen(app, query.orEmpty(), onExit, embedded = true, initialSource = source?.let { s -> Source.entries.firstOrNull { it.name == s } }, initialLate = lateNight)
                 "Patterns" -> FootprintScreen(app, onExit, part = FootprintPart.Patterns)
                 else -> FootprintScreen(app, onExit, part = FootprintPart.Privacy)
             }

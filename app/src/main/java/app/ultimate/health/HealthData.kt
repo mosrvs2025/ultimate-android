@@ -57,6 +57,15 @@ object HealthReader {
         HealthKind.entries.filter { have.containsAll(it.permissions) }.toSet()
     }.getOrDefault(emptySet())
 
+    /** Every permission Health Connect has granted us, one by one (Samsung Health lets you switch each on its own). */
+    suspend fun allowed(c: Context): Set<String> = runCatching { HealthConnectClient.getOrCreate(c).permissionController.getGrantedPermissions() }.getOrDefault(emptySet())
+
+    /** Kinds we can read at least part of. A kind with only some of its permissions still gives what was allowed (steps without HRV, say). */
+    suspend fun readable(c: Context): Set<HealthKind> {
+        val have = allowed(c)
+        return HealthKind.entries.filter { k -> k.permissions.any { it in have } }.toSet()
+    }
+
     /** The last [count] days, oldest first, for the kinds in [kinds]. Each part fails on its own, so one missing type doesn't hide the rest. */
     suspend fun days(c: Context, kinds: Set<HealthKind>, count: Int = 60): List<HealthDay> {
         val client = HealthConnectClient.getOrCreate(c); val zone = ZoneId.systemDefault()
