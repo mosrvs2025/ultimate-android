@@ -1,5 +1,7 @@
 package app.ultimate.health
 
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -153,9 +155,24 @@ class HealthTool(private val context: android.content.Context) : Tool {
                         (t?.spo2 ?: days.lastOrNull { it.spo2 != null }?.spo2)?.let { Tile("Blood oxygen", "${it.roundToInt()}%") }
                         days.lastOrNull { it.weightKg != null }?.weightKg?.let { Tile("Weight", "%.1f kg".format(it)) }
                     }
-                    HealthInsights.trends(days, today).takeIf { it.isNotEmpty() }?.let { tr ->
-                        Text("This week", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        tr.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
+                    // This week against last: each card says how much, which way, and whether that is the good way.
+                    val deltas = remember(days) { HealthDepth.weekly(days, today) }
+                    if (deltas.isNotEmpty()) {
+                        Text("This week vs last", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { deltas.forEach { DeltaCard(it) } }
+                    }
+                    // Steps goal: seven days at a glance, tap a day for its count.
+                    val goal = remember(days) { HealthDepth.stepGoal(days, today) }
+                    if (goal.days.any { it.second != null }) GoalStrip(goal, byDay)
+                    // Sleep by stage for the last week.
+                    val nights = remember(days) { HealthDepth.nights(days, today) }
+                    if (nights.isNotEmpty()) SleepStages(nights)
+                    HealthDepth.worthDoing(days, today).takeIf { it.isNotEmpty() }?.let { todo ->
+                        Text("Worth doing", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.tertiaryContainer).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            todo.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onTertiaryContainer) }
+                            Text("Plain observations from your own numbers, not medical advice.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f))
+                        }
                     }
                 }
 
@@ -202,6 +219,83 @@ private fun LiveHeartCard(bpm: Int) {
             Text("$bpm bpm", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.White)
             Text("Live from your watch", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f))
         }
+    }
+}
+
+@Composable
+private fun DeltaCard(d: HealthDepth.Delta) {
+    val good = Color(0xFF3DDC97); val bad = Color(0xFFFF8A65)
+    val tint = when (d.good) { true -> good; false -> bad; null -> MaterialTheme.colorScheme.onSurfaceVariant }
+    fun fmt(v: Double) = when (d.metric) {
+        HealthDepth.Metric.Steps -> "%,d".format(v.roundToInt()); HealthDepth.Metric.Sleep -> HealthInsights.hm(v.roundToInt())
+        HealthDepth.Metric.RestingHr -> "${v.roundToInt()} bpm"; HealthDepth.Metric.Hrv -> "${v.roundToInt()} ms"; HealthDepth.Metric.Active -> "${v.roundToInt()} kcal"
+    }
+    Column(Modifier.width(165.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(12.dp)) {
+        Text(d.metric.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(fmt(d.now), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text((if (d.flat) "• " else if (d.up) "▲ " else "▼ ") + HealthDepth.pctText(d), color = tint, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        Text("was ${fmt(d.before)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // Two weeks as a small line, this week bolder.
+        val pts = d.daily; val max = pts.filterNotNull().maxOrNull() ?: 1.0; val min = pts.filterNotNull().minOrNull() ?: 0.0
+        Canvas(Modifier.fillMaxWidth().height(28.dp).padding(top = 6.dp)) {
+            fun y(v: Double) = size.height * (1f - ((v - min) / (max - min).coerceAtLeast(1e-6)).toFloat().coerceIn(0f, 1f))
+            val step = size.width / (pts.size - 1).coerceAtLeast(1)
+            var prev: Offset? = null
+            pts.forEachIndexed { i, v -> val o = v?.let { Offset(i * step, y(it)) }; if (o != null && prev != null) drawLine(tint.copy(alpha = if (i >= 7) 1f else 0.4f), prev!!, o, strokeWidth = if (i >= 7) 4f else 2.5f); prev = o }
+        }
+    }
+}
+
+/** The step goal over the last week: a ring for how many days hit it, and a bar for each day that can be tapped. */
+@Composable
+private fun GoalStrip(g: HealthDepth.Goal, byDay: Map<Long, HealthDay>) {
+    var picked by remember { mutableStateOf<Long?>(null) }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Steps goal · 8,000", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("${g.hit} of ${g.days.size} days" + if (g.streak >= 2) " · ${g.streak} in a row 🔥" else "", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
+        Row(Modifier.fillMaxWidth().height(64.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
+            val max = (g.days.mapNotNull { byDay[it.first]?.steps }.maxOrNull() ?: 8000L).coerceAtLeast(8000L)
+            g.days.forEach { (d, hit) ->
+                val steps = byDay[d]?.steps ?: 0L
+                Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(8.dp)).clickable { picked = d }, contentAlignment = Alignment.BottomCenter) {
+                    Box(Modifier.fillMaxWidth().fillMaxHeight((steps.toFloat() / max).coerceIn(0.04f, 1f)).clip(RoundedCornerShape(8.dp))
+                        .background(when (hit) { true -> Color(0xFF3DDC97); false -> MaterialTheme.colorScheme.primary.copy(alpha = if (picked == d) 1f else 0.55f); null -> MaterialTheme.colorScheme.outlineVariant }))
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            g.days.forEach { (d, _) -> Text(java.time.LocalDate.ofEpochDay(d).dayOfWeek.getDisplayName(java.time.format.TextStyle.NARROW, java.util.Locale.getDefault()), Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        picked?.let { d -> Text(java.time.LocalDate.ofEpochDay(d).let { "${it.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())} ${it.dayOfMonth}" } + " · " + (byDay[d]?.steps?.let { "%,d steps".format(it) } ?: "no steps recorded"), style = MaterialTheme.typography.bodyMedium) }
+    }
+}
+
+/** Seven nights as stacked bars: deep, REM and light sleep. Tap a night for its breakdown. */
+@Composable
+private fun SleepStages(nights: List<HealthDepth.Night>) {
+    var picked by remember { mutableStateOf<HealthDepth.Night?>(null) }
+    val deep = Color(0xFF5E4BDB); val rem = Color(0xFFB388FF); val light = Color(0xFF8B7CF6).copy(alpha = 0.45f)
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Sleep by stage", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("avg ${HealthInsights.hm(nights.map { it.total }.average().roundToInt())}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
+        val max = nights.maxOf { it.total }.coerceAtLeast(8 * 60L)
+        Row(Modifier.fillMaxWidth().height(80.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
+            nights.forEach { n ->
+                Column(Modifier.weight(1f).fillMaxHeight(n.total.toFloat() / max).clip(RoundedCornerShape(8.dp)).clickable { picked = n }) {
+                    Box(Modifier.fillMaxWidth().weight(n.light.coerceAtLeast(1).toFloat()).background(light))
+                    if (n.rem > 0) Box(Modifier.fillMaxWidth().weight(n.rem.toFloat()).background(rem))
+                    if (n.deep > 0) Box(Modifier.fillMaxWidth().weight(n.deep.toFloat()).background(deep))
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            nights.forEach { n -> Text(java.time.LocalDate.ofEpochDay(n.day).dayOfWeek.getDisplayName(java.time.format.TextStyle.NARROW, java.util.Locale.getDefault()), Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        Text(picked?.let { "${HealthInsights.hm(it.total.toInt())}: deep ${HealthInsights.hm(it.deep.toInt())}, REM ${HealthInsights.hm(it.rem.toInt())}, light ${HealthInsights.hm(it.light.toInt())}" } ?: "Tap a night. Dark is deep sleep, purple is REM, pale is light.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

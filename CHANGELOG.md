@@ -3,6 +3,12 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 1.96.0
+- A deeper Health screen: This week vs last cards for steps, sleep, resting heart rate, HRV and active calories, each with the change, an arrow coloured by whether that is the good way, last week's number and a two-week line.
+- Steps goal: the last seven days as bars against 8,000 steps, green on the days you hit it, with your streak. Tap a day for its count.
+- Sleep by stage: seven nights as stacked bars (deep, REM, light). Tap a night for its breakdown.
+- Worth doing: up to four plain observations from your own numbers (short sleep, steps down, resting heart rate up, a streak to keep). They only appear when the numbers clearly support them and are not medical advice.
+
 ## 1.95.0
 - A floating palette in AR: hold both hands above your head and an arc of choices appears over your shoulders and moves with you. Point at one and keep your hand there; a ring fills and it is chosen. Effects normally, outfits when you are wearing one.
 - Energy blast has impact: sparks rush inward and rings close faster as you charge, colours pull apart at the edges, and letting go fires a beam with a flash and a shake.

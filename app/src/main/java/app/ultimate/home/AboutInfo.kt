@@ -62,6 +62,12 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.96.0", listOf(
+            "A deeper Health screen: This week vs last cards for steps, sleep, resting heart rate, HRV and active calories, each with the change, an arrow coloured by whether that is the good way, last week's number and a two-week line.",
+            "Steps goal: the last seven days as bars against 8,000 steps, green on the days you hit it, with your streak. Tap a day for its count.",
+            "Sleep by stage: seven nights as stacked bars (deep, REM, light). Tap a night for its breakdown.",
+            "Worth doing: up to four plain observations from your own numbers (short sleep, steps down, resting heart rate up, a streak to keep). They only appear when the numbers clearly support them and are not medical advice.",
+        ), tries = listOf("health")),
         Entry("1.95.0", listOf(
             "A floating palette in AR: hold both hands above your head and an arc of choices appears over your shoulders and moves with you. Point at one and keep your hand there; a ring fills and it is chosen. Effects normally, outfits when you are wearing one.",
             "Energy blast has impact: sparks rush inward and rings close faster as you charge, colours pull apart at the edges, and letting go fires a beam with a flash and a shake.",
