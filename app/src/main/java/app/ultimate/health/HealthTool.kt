@@ -1,5 +1,7 @@
 package app.ultimate.health
 
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.input.pointer.pointerInput
@@ -202,6 +204,7 @@ class HealthTool(private val context: android.content.Context) : Tool {
                     if (count > 0) Text("Workouts: $count in 30 days, ${HealthInsights.hm(w.sumOf { it.workoutMin }.toInt())} in all", style = MaterialTheme.typography.bodyMedium)
                 }
 
+                FoodCard()
                 Card("What Android doesn't share", "ECG readings, the raw signals behind body composition, and blood pressure from Samsung's own monitor stay inside Samsung Health Monitor: they're regulated medical features that other apps can't read. Everything else your watch records can show up here once Samsung Health shares it.")
                 TextButton({ reload++ }) { Text("Refresh") }
             }
@@ -246,11 +249,73 @@ private fun DeltaCard(d: HealthDepth.Delta) {
     }
 }
 
+/** Food and water, by hand: today's meals with an optional calorie guess, a glass counter, and the week at a glance. Stays on the phone. */
+@Composable
+private fun FoodCard() {
+    val context = LocalContext.current
+    val store = remember { FoodJournalStore(context) }
+    var entries by remember { mutableStateOf(store.entries()) }
+    var water by remember { mutableStateOf(store.water()) }
+    var adding by remember { mutableStateOf(false) }
+    val today = remember { LocalDate.now().toEpochDay() }
+    val now = FoodJournal.day(entries, water, today)
+    val week = FoodJournal.week(entries, water, today)
+    if (adding) AddFoodDialog({ adding = false }) { meal, text, kcal -> entries = store.add(FoodEntry(java.util.UUID.randomUUID().toString(), today, System.currentTimeMillis(), meal, text, kcal)); adding = false }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Food and water", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            now.kcal?.let { Text("$it kcal today", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("💧 ${now.glasses} of ${FoodJournal.WATER_GOAL} glasses", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+            androidx.compose.material3.OutlinedButton({ water = store.setWater(today, now.glasses - 1) }, enabled = now.glasses > 0) { Text("−") }
+            Spacer(Modifier.width(8.dp))
+            androidx.compose.material3.FilledTonalButton({ water = store.setWater(today, now.glasses + 1) }) { Text("+ Glass") }
+        }
+        androidx.compose.material3.LinearProgressIndicator({ (now.glasses.toFloat() / FoodJournal.WATER_GOAL).coerceIn(0f, 1f) }, Modifier.fillMaxWidth())
+        if (now.entries.isEmpty()) Text("Nothing logged today. Tap Add to note a meal or snack.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        now.entries.forEach { e ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) { Text(e.text, style = MaterialTheme.typography.bodyMedium); Text(e.meal + (e.kcal?.let { " · $it kcal" } ?: ""), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                androidx.compose.material3.TextButton({ entries = store.remove(e.id) }) { Text("✕") }
+            }
+        }
+        androidx.compose.material3.Button({ adding = true }, Modifier.fillMaxWidth()) { Text("Add food or a drink") }
+        FoodJournal.summary(week)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        Text("Kept on this phone only.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AddFoodDialog(onDismiss: () -> Unit, onAdd: (String, String, Int?) -> Unit) {
+    var meal by remember { mutableStateOf(FoodJournal.MEALS[(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)).let { h -> if (h < 11) 0 else if (h < 16) 1 else if (h < 21) 2 else 3 }]) }
+    var text by remember { mutableStateOf("") }
+    var kcal by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss, title = { Text("Add to today") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { FoodJournal.MEALS.forEach { m -> androidx.compose.material3.FilterChip(meal == m, { meal = m }, { Text(m) }) } }
+            androidx.compose.material3.OutlinedTextField(text, { text = it }, label = { Text("What was it?") }, singleLine = true)
+            androidx.compose.material3.OutlinedTextField(kcal, { kcal = it.filter { c -> c.isDigit() }.take(5) }, label = { Text("Calories (optional)") }, singleLine = true, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
+        } },
+        confirmButton = { TextButton({ onAdd(meal, text.trim(), kcal.toIntOrNull()) }, enabled = text.isNotBlank()) { Text("Add") } },
+        dismissButton = { TextButton(onDismiss) { Text("Cancel") } },
+    )
+}
+
 /** The step goal over the last week: a ring for how many days hit it, and a bar for each day that can be tapped. */
 @Composable
 private fun GoalStrip(g: HealthDepth.Goal, byDay: Map<Long, HealthDay>) {
     var picked by remember { mutableStateOf<Long?>(null) }
+    val shown = picked ?: g.days.last().first
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // What the tapped bar says, big, so a tap visibly does something: the day, its steps, and how close it came to the goal.
+        val steps = byDay[shown]?.steps
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(steps?.let { "%,d".format(it) } ?: "–", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Text("  steps · " + java.time.LocalDate.ofEpochDay(shown).let { "${it.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())} ${it.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())} ${it.dayOfMonth}" } + (steps?.let { "  ·  ${(it * 100 / 8000).coerceAtMost(999)}% of goal" } ?: "  ·  nothing recorded"), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 4.dp))
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Steps goal · 8,000", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text("${g.hit} of ${g.days.size} days" + if (g.streak >= 2) " · ${g.streak} in a row 🔥" else "", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -261,14 +326,14 @@ private fun GoalStrip(g: HealthDepth.Goal, byDay: Map<Long, HealthDay>) {
                 val steps = byDay[d]?.steps ?: 0L
                 Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(8.dp)).clickable { picked = d }, contentAlignment = Alignment.BottomCenter) {
                     Box(Modifier.fillMaxWidth().fillMaxHeight((steps.toFloat() / max).coerceIn(0.04f, 1f)).clip(RoundedCornerShape(8.dp))
-                        .background(when (hit) { true -> Color(0xFF3DDC97); false -> MaterialTheme.colorScheme.primary.copy(alpha = if (picked == d) 1f else 0.55f); null -> MaterialTheme.colorScheme.outlineVariant }))
+                        .background(when (hit) { true -> Color(0xFF3DDC97).copy(alpha = if (shown == d) 1f else 0.6f); false -> MaterialTheme.colorScheme.primary.copy(alpha = if (shown == d) 1f else 0.45f); null -> MaterialTheme.colorScheme.outlineVariant })
+                        .then(if (shown == d) Modifier.border(2.dp, Color.White, RoundedCornerShape(8.dp)) else Modifier))
                 }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             g.days.forEach { (d, _) -> Text(java.time.LocalDate.ofEpochDay(d).dayOfWeek.getDisplayName(java.time.format.TextStyle.NARROW, java.util.Locale.getDefault()), Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
-        picked?.let { d -> Text(java.time.LocalDate.ofEpochDay(d).let { "${it.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())} ${it.dayOfMonth}" } + " · " + (byDay[d]?.steps?.let { "%,d steps".format(it) } ?: "no steps recorded"), style = MaterialTheme.typography.bodyMedium) }
     }
 }
 

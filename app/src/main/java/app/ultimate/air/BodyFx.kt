@@ -176,7 +176,7 @@ data class BlastShot(val x: Float, val y: Float, val dx: Float, val dy: Float, v
  * Distances are measured in shoulder widths, so it works the same near or far. Each gesture has a pause after it so one
  * movement is one command. Pure, so it is tested.
  */
-class BodyGestures(private val swipeWidths: Float = 0.7f, private val swipeMs: Long = 600, private val menuHoldMs: Long = 600, private val chargeMs: Long = 1200) {
+class BodyGestures(private val swipeWidths: Float = 0.85f, private val swipeMs: Long = 600, private val armMs: Long = 10_000, private val menuHoldMs: Long = 600, private val chargeMs: Long = 1200) {
     enum class Kind { SwipeLeft, SwipeRight, Menu }
     sealed interface Event { data class Did(val kind: Kind) : Event; data class Fired(val shot: BlastShot) : Event }
 
@@ -188,6 +188,17 @@ class BodyGestures(private val swipeWidths: Float = 0.7f, private val swipeMs: L
     var swipeHand: Pair<Float, Float>? = null; private set
 
     private val track = HashMap<Int, ArrayDeque<Triple<Float, Float, Long>>>()
+    private var armedUntil = Long.MIN_VALUE
+
+    /**
+     * Swipes only count while the gestures are switched on, and they are switched on on purpose (both hands above the head), for
+     * [armMs] after the last use. Otherwise ordinary arm movement (reaching, waving at someone, drinking) changed the effect, or
+     * even started the squat counter, by itself.
+     */
+    fun arm(t: Long) { armedUntil = t + armMs }
+    fun armed(t: Long) = t < armedUntil
+    /** How long the gestures stay on, in seconds, for a countdown. */
+    fun armedLeft(t: Long) = ((armedUntil - t) / 1000f).coerceAtLeast(0f)
     private var quietUntil = 0L
     private var bothUpSince = -1L; private var menuArmed = true
     private var togetherSince = -1L
@@ -220,7 +231,7 @@ class BodyGestures(private val swipeWidths: Float = 0.7f, private val swipeMs: L
         val bothUp = lw != null && rw != null && lw.second < headY && rw.second < headY
         if (bothUp) {
             if (bothUpSince < 0) bothUpSince = t
-            if (menuArmed && t - bothUpSince >= menuHoldMs && t >= quietUntil) { out += Event.Did(Kind.Menu); menuArmed = false; quietUntil = t + 700 }
+            if (menuArmed && t - bothUpSince >= menuHoldMs && t >= quietUntil) { out += Event.Did(Kind.Menu); menuArmed = false; quietUntil = t + 700; arm(t) }
         } else { bothUpSince = -1; menuArmed = true }
 
         // Swipe: one raised hand moving sideways fast. Not while charging or holding the menu pose.
@@ -231,8 +242,9 @@ class BodyGestures(private val swipeWidths: Float = 0.7f, private val swipeMs: L
             q.addLast(Triple(w.first, w.second, t)); while (q.isNotEmpty() && t - q.first().third > swipeMs) q.removeFirst()
             val first = q.first(); val dx = w.first - first.first; val dy = w.second - first.second
             if (abs(dx) / (unit * swipeWidths) > abs(swipeProgress)) { swipeProgress = (dx / (unit * swipeWidths)).coerceIn(-1f, 1f); swipeHand = w }
-            if (t >= quietUntil && abs(dx) > unit * swipeWidths && abs(dx) > abs(dy) * 1.5f) {
-                out += Event.Did(if (dx > 0) Kind.SwipeRight else Kind.SwipeLeft); quietUntil = t + 800; track.values.forEach { it.clear() }
+            if (!armed(t)) { swipeProgress = 0f; swipeHand = null; continue }
+            if (t >= quietUntil && abs(dx) > unit * swipeWidths && abs(dx) > abs(dy) * 2f) {
+                out += Event.Did(if (dx > 0) Kind.SwipeRight else Kind.SwipeLeft); quietUntil = t + 800; arm(t); track.values.forEach { it.clear() }
             }
         }
         return out
@@ -299,7 +311,7 @@ object ArcMenu {
 }
 
 /** Point at something and keep your hand there to choose it: no pinch needed, so it works from far away. Pure, so it is tested. */
-class Dwell(private val holdMs: Long = 700) {
+class Dwell(private val holdMs: Long = 500) {
     var hover = -1; private set
     var progress = 0f; private set
     private var since = 0L; private var armed = true

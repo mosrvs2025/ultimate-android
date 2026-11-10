@@ -396,25 +396,55 @@ class SenseRecorderTest {
 }
 
 class TongueDetectorTest {
-    private fun face(): List<Pair<Float, Float>> = MutableList(468) { 0.5f to 0.5f }.also {
+    private fun face(open: Boolean = true): List<Pair<Float, Float>> = MutableList(468) { 0.5f to 0.5f }.also {
         it[17] = 0.5f to 0.6f; it[152] = 0.5f to 0.8f; it[61] = 0.42f to 0.55f; it[291] = 0.58f to 0.55f
-        it[50] = 0.35f to 0.45f; it[280] = 0.65f to 0.45f
+        it[50] = 0.35f to 0.45f; it[280] = 0.65f to 0.45f; it[10] = 0.5f to 0.2f
+        it[13] = 0.5f to 0.55f; it[14] = 0.5f to (if (open) 0.62f else 0.555f)
     }
     private val skin = (220 shl 16) or (170 shl 8) or 140
     private val tongue = (225 shl 16) or (90 shl 8) or 110
+    private fun strip(y: Float) = y in 0.62f..0.7f
 
-    @Test fun aPinkStripBelowTheLipIsATongue() {
+    @Test fun aPinkStripBelowTheLipWithTheMouthOpenIsATongue() {
         val d = app.ultimate.air.TongueDetector()
-        repeat(20) { assertTrue(d.feed(face()) { _, _ -> skin } < 0.1f) }
-        val out = d.feed(face()) { _, y -> if (y in 0.62f..0.7f) tongue else skin }
+        repeat(20) { assertTrue(d.feed(face(false)) { _, _ -> skin } == 0f) }
+        var out = 0f; repeat(5) { out = d.feed(face(true)) { _, y -> if (strip(y)) tongue else skin } }
         assertTrue("level $out", out > 0.8f)
+    }
+
+    @Test fun aShutMouthIsNeverATongueWhateverTheColour() {
+        val d = app.ultimate.air.TongueDetector()
+        repeat(10) { d.feed(face(false)) { _, _ -> skin } }
+        repeat(10) { assertEquals(0f, d.feed(face(false)) { _, y -> if (strip(y)) tongue else skin }, 0f) }
+    }
+
+    @Test fun anOddFirstFrameCannotLeaveItStuckOn() {
+        // The reported bug: it always thought the tongue was out. A first reading with a reddish strip used to become the "normal".
+        val d = app.ultimate.air.TongueDetector()
+        repeat(3) { d.feed(face(false)) { _, y -> if (strip(y)) tongue else skin } }
+        repeat(30) { d.feed(face(false)) { _, _ -> skin } }
+        var out = 1f; repeat(6) { out = d.feed(face(true)) { _, _ -> skin } }
+        assertEquals("an open mouth with plain skin below is not a tongue", 0f, out, 0.01f)
+        var real = 0f; repeat(6) { real = d.feed(face(true)) { _, y -> if (strip(y)) tongue else skin } }
+        assertTrue(real > 0.8f)
     }
 
     @Test fun evenLightingChangesDontLookLikeATongue() {
         val d = app.ultimate.air.TongueDetector()
-        repeat(20) { d.feed(face()) { _, _ -> skin } }
+        repeat(20) { d.feed(face(false)) { _, _ -> skin } }
         val warm = (240 shl 16) or (160 shl 8) or 120
-        assertTrue(d.feed(face()) { _, _ -> warm } < 0.2f)
+        repeat(5) { assertTrue(d.feed(face(true)) { _, _ -> warm } < 0.2f) }
+    }
+
+    @Test fun theThumbCountsWithAShorterTapThanTheFingers() {
+        val a = app.ultimate.air.DeskPiano(); a.setDesk(List(5) { 0.5f to 0.7f }, padMode = true)
+        fun hit(piano: app.ultimate.air.DeskPiano, i: Int, lift: Float): Boolean {
+            val rest = List<Pair<Float, Float>?>(5) { 0.5f to 0.7f }
+            piano.feed(rest.toMutableList().also { it[i] = 0.5f to 0.7f - lift })
+            return piano.feed(rest.toMutableList().also { it[i] = 0.5f to 0.7f }).contains(i)
+        }
+        assertTrue("thumb, small lift", hit(a, 0, 0.02f)); assertTrue("index, same small lift, does not count", !hit(a, 1, 0.02f))
+        assertTrue("index, full lift", hit(a, 1, 0.045f))
     }
 }
 

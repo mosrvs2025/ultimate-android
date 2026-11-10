@@ -114,7 +114,7 @@ class BodyGesturesTest {
     private fun kinds(e: List<app.ultimate.air.BodyGestures.Event>) = e.filterIsInstance<app.ultimate.air.BodyGestures.Event.Did>().map { it.kind }
 
     @Test fun aRaisedHandSweptSidewaysIsOneSwipeInThatDirection() {
-        val g = app.ultimate.air.BodyGestures(); val got = ArrayList<app.ultimate.air.BodyGestures.Kind>(); var t = 0L
+        val g = app.ultimate.air.BodyGestures(); val got = ArrayList<app.ultimate.air.BodyGestures.Kind>(); var t = 0L; g.arm(0)
         for (i in 0..8) { got += kinds(g.feed(pose(0.45f + i * 0.04f to 0.35f, rest.second), false, t)); t += 40 }
         assertEquals(listOf(app.ultimate.air.BodyGestures.Kind.SwipeRight), got)
         for (i in 0..8) { got += kinds(g.feed(pose(0.77f + i * 0.01f to 0.35f, rest.second), false, t)); t += 40 }
@@ -125,7 +125,7 @@ class BodyGesturesTest {
     }
 
     @Test fun handsBelowTheShouldersAndSlowOrVerticalMovesAreNotSwipes() {
-        val g = app.ultimate.air.BodyGestures(); val got = ArrayList<app.ultimate.air.BodyGestures.Kind>(); var t = 0L
+        val g = app.ultimate.air.BodyGestures(); val got = ArrayList<app.ultimate.air.BodyGestures.Kind>(); var t = 0L; g.arm(0)
         for (i in 0..8) { got += kinds(g.feed(pose(0.45f + i * 0.04f to 0.6f, rest.second), false, t)); t += 40 }   // low: walking arm swing
         for (i in 0..40) { got += kinds(g.feed(pose(0.45f + i * 0.008f to 0.35f, rest.second), false, t)); t += 40 } // raised but slow
         t += 1000
@@ -203,18 +203,18 @@ class SpatialUiTest {
         assertEquals(-1, d.feed(listOf(0.5f to 0.6f), slots, 0.08f, 0)); assertEquals(-1, d.hover)
         assertEquals(-1, d.feed(listOf(0.21f to 0.22f), slots, 0.08f, 100)); assertEquals(0, d.hover)
         assertEquals("moved on before the hold was up", -1, d.feed(listOf(0.5f to 0.12f), slots, 0.08f, 400)); assertEquals(1, d.hover)
-        assertEquals(-1, d.feed(listOf(0.5f to 0.12f), slots, 0.08f, 800)); assertEquals(0.57f, d.progress, 0.02f)
+        assertEquals(-1, d.feed(listOf(0.5f to 0.12f), slots, 0.08f, 800)); assertEquals(0.8f, d.progress, 0.02f)
         assertEquals(1, d.feed(listOf(0.5f to 0.12f), slots, 0.08f, 1150))
         assertEquals("only once while it stays there", -1, d.feed(listOf(0.5f to 0.12f), slots, 0.08f, 2500))
         assertEquals("either hand can point", 2, d.feed(listOf(0.5f to 0.9f, 0.8f to 0.2f), slots, 0.08f, 3000).let { d.feed(listOf(0.5f to 0.9f, 0.8f to 0.2f), slots, 0.08f, 3800) })
     }
 
     @Test fun aLooserSweepAtChestHeightNowCountsAndTheMeterShowsItBuilding() {
-        val g = app.ultimate.air.BodyGestures(); var t = 0L; val seen = ArrayList<Float>(); var swipes = 0
+        val g = app.ultimate.air.BodyGestures(); g.arm(0); var t = 0L; val seen = ArrayList<Float>(); var swipes = 0
         fun p(x: Float): app.ultimate.air.BodyPose { val pts = MutableList(33) { Triple(0.5f, 0.5f, 0f) }
             pts[B.NOSE] = Triple(0.5f, 0.3f, 0.9f); pts[B.L_SHOULDER] = Triple(0.6f, 0.4f, 0.9f); pts[B.R_SHOULDER] = Triple(0.4f, 0.4f, 0.9f); pts[B.L_WRIST] = Triple(x, 0.45f, 0.9f); return app.ultimate.air.BodyPose(pts, 0) }
-        for (i in 0..6) { swipes += g.feed(p(0.5f + i * 0.025f), false, t).size; seen += g.swipeProgress; t += 60 }
-        assertEquals("0.15 across at chest height (below the shoulder line) is a swipe now", 1, swipes)
+        for (i in 0..6) { swipes += g.feed(p(0.5f + i * 0.03f), false, t).size; seen += g.swipeProgress; t += 60 }
+        assertEquals("0.18 across at chest height is a swipe once the gestures are on", 1, swipes)
         assertTrue("the meter climbed on the way: $seen", seen.take(5).zipWithNext().all { (a, b) -> b >= a } && seen[3] > 0.4f)
     }
 
@@ -234,5 +234,28 @@ class SpatialUiTest {
         val sp = app.ultimate.air.Sparks(seed = 2); sp.implode(0.5f, 0.5f, 20, 0.2f)
         val before = sp.all.map { kotlin.math.hypot(it.x - 0.5f, it.y - 0.5f) }.average(); sp.step(0.1f)
         assertTrue(sp.all.map { kotlin.math.hypot(it.x - 0.5f, it.y - 0.5f) }.average() < before)
+    }
+}
+
+class GestureArmingTest {
+    private val B = app.ultimate.air.BodyPose
+    private fun p(x: Float, up: Boolean = false): app.ultimate.air.BodyPose { val pts = MutableList(33) { Triple(0.5f, 0.5f, 0f) }
+        pts[B.NOSE] = Triple(0.5f, 0.3f, 0.9f); pts[B.L_SHOULDER] = Triple(0.6f, 0.4f, 0.9f); pts[B.R_SHOULDER] = Triple(0.4f, 0.4f, 0.9f)
+        if (up) { pts[B.L_WRIST] = Triple(0.62f, 0.15f, 0.9f); pts[B.R_WRIST] = Triple(0.38f, 0.15f, 0.9f) } else pts[B.L_WRIST] = Triple(x, 0.45f, 0.9f)
+        return app.ultimate.air.BodyPose(pts, 0) }
+
+    @Test fun ordinaryArmMovementDoesNothingUntilTheGesturesAreSwitchedOn() {
+        val g = app.ultimate.air.BodyGestures(); var t = 0L; var events = 0
+        repeat(3) { for (i in 0..8) { events += g.feed(p(0.45f + i * 0.04f), false, t).size; t += 40 }; t += 900 }
+        assertEquals("a wave, a reach, a drink: nothing changes", 0, events); assertFalse(g.armed(t))
+    }
+
+    @Test fun bothHandsUpSwitchesThemOnForTenSecondsAndEachSwipeKeepsThemOn() {
+        val g = app.ultimate.air.BodyGestures(); var t = 0L; val kinds = ArrayList<app.ultimate.air.BodyGestures.Kind>()
+        repeat(30) { g.feed(p(0f, up = true), false, t).forEach { e -> if (e is app.ultimate.air.BodyGestures.Event.Did) kinds += e.kind }; t += 50 }
+        assertEquals(listOf(app.ultimate.air.BodyGestures.Kind.Menu), kinds); assertTrue(g.armed(t)); assertEquals(true, g.armedLeft(t) in 7f..10f)
+        t += 3000; for (i in 0..8) { g.feed(p(0.45f + i * 0.04f), false, t).forEach { e -> if (e is app.ultimate.air.BodyGestures.Event.Did) kinds += e.kind }; t += 40 }
+        assertEquals(2, kinds.size); assertTrue("a swipe renews the ten seconds", g.armedLeft(t) > 8f)
+        t += 11_000; assertFalse(g.armed(t))
     }
 }
