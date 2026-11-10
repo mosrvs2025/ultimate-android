@@ -1,5 +1,6 @@
 package app.ultimate.studio
 
+import app.ultimate.core.relativeTime
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material.icons.rounded.ClosedCaption
 import androidx.compose.animation.core.animateDpAsState
@@ -169,7 +170,7 @@ private val TILE = 52.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StudioScreen(manager: StudioManager, onExit: () -> Unit) {
+fun StudioScreen(manager: StudioManager, onExit: () -> Unit, launched: Boolean = false) {
     val project by manager.project.collectAsStateWithLifecycle()
     val loading by manager.loading.collectAsStateWithLifecycle()
     val work by manager.work.collectAsStateWithLifecycle()
@@ -186,6 +187,16 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit) {
     var showProjects by remember { mutableStateOf(false) }
     var dpPerSecond by rememberSaveable { mutableFloatStateOf(64f) }
     val pxPerMs = with(density) { dpPerSecond.dp.toPx() } / 1000f
+    // A fresh visit asks whether to pick up the last film or start a new one, instead of silently showing leftovers from before.
+    var askResume by rememberSaveable { mutableStateOf(!launched) }
+    var renaming by remember { mutableStateOf(false) }
+    val exportsNow by manager.exports.collectAsStateWithLifecycle()
+    var finished by remember { mutableStateOf<StudioExport?>(null) }
+    var wasWorking by remember { mutableStateOf(false) }
+    LaunchedEffect(work.active) {
+        if (work.active) wasWorking = true
+        else if (wasWorking) { wasWorking = false; finished = exportsNow.firstOrNull()?.takeIf { System.currentTimeMillis() - it.createdAt < 60_000 } }
+    }
 
     val busy = loading || work.active
     val selected = project.clips.firstOrNull { it.id == selection }
@@ -198,6 +209,37 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit) {
     LaunchedEffect(project.durationMs) { if (playhead > project.durationMs) playhead = project.durationMs }
     LaunchedEffect(project.clips.map { it.id }) { if (project.clips.none { it.id == selection }) { selection = null; if (panel != Panel.Audio && panel != Panel.Format) panel = null } }
     LaunchedEffect(work.active) { if (work.active) { playing = false; showExport = true } }
+    LaunchedEffect(loading, project.clips.isEmpty()) { if (askResume && !loading && project.clips.isEmpty()) askResume = false }
+    if (askResume && !loading && project.clips.isNotEmpty()) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { askResume = false },
+        title = { Text("Pick up where you left off?") },
+        text = { Text("\"${project.name}\": ${project.clips.size} clip${if (project.clips.size == 1) "" else "s"}, ${clock(project.durationMs)}, last changed ${relativeTime(project.updatedAt)}.") },
+        confirmButton = { TextButton({ askResume = false }) { Text("Resume") } },
+        dismissButton = { TextButton({ askResume = false; manager.newProject() }) { Text("New project") } },
+    )
+    if (renaming) {
+        var text by remember { mutableStateOf(project.name) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { renaming = false }, title = { Text("Name this film") },
+            text = { androidx.compose.material3.OutlinedTextField(text, { text = it }, singleLine = true, label = { Text("Name") }) },
+            confirmButton = { TextButton({ manager.rename(text); renaming = false }, enabled = text.isNotBlank()) { Text("Save") } },
+            dismissButton = { TextButton({ renaming = false }) { Text("Cancel") } },
+        )
+    }
+    finished?.let { e ->
+        val ctx = LocalContext.current
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { finished = null },
+            icon = { Icon(Icons.Rounded.Movie, null) },
+            title = { Text("Export finished") },
+            text = { Text("${e.name}\n${formatBytes(e.bytes)} · ${e.width}×${e.height} · ${clock(e.durationMs)}\nSaved in Movies/Ultimate Studio.") },
+            confirmButton = { TextButton({ finished = null; runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(e.uri), "video/mp4").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) } }) { Text("Play") } },
+            dismissButton = { Row {
+                TextButton({ runCatching { ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("video/mp4").putExtra(Intent.EXTRA_STREAM, Uri.parse(e.uri)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share video")) } }) { Text("Share") }
+                TextButton({ finished = null }) { Text("Done") }
+            } },
+        )
+    }
 
     fun stop() { playing = false }
     fun change(id: String, f: (StudioClip) -> StudioClip) = manager.updateClip(id, f)
@@ -215,7 +257,7 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit) {
     MaterialTheme(colorScheme = StudioColors) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                TopBar(project.name, status, busy, onClose = { stop(); onExit() }, onProjects = { stop(); showProjects = true }, onExport = { stop(); showExport = true }, canExport = project.clips.isNotEmpty())
+                TopBar(project.name, status, busy, onRename = { stop(); renaming = true }, onClose = { stop(); onExit() }, onProjects = { stop(); showProjects = true }, onExport = { stop(); showExport = true }, canExport = project.clips.isNotEmpty())
                 if (loading) GooeyProgress(Modifier.fillMaxWidth().height(2.dp))
 
                 // Preview: always on screen, at the canvas shape.
@@ -350,11 +392,14 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit) {
 // ───────────────────────────────── chrome ─────────────────────────────────
 
 @Composable
-private fun TopBar(name: String, status: String, busy: Boolean, onClose: () -> Unit, onProjects: () -> Unit, onExport: () -> Unit, canExport: Boolean) {
+private fun TopBar(name: String, status: String, busy: Boolean, onRename: () -> Unit, onClose: () -> Unit, onProjects: () -> Unit, onExport: () -> Unit, canExport: Boolean) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClose) { Icon(Icons.Rounded.Close, "Close Studio") }
-        Column(Modifier.weight(1f)) {
-            Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).clickable(enabled = !busy) { onRename() }.padding(horizontal = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(name, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Icon(Icons.Rounded.Edit, "Rename the film", Modifier.padding(start = 6.dp).size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         }
         IconButton(onProjects, enabled = !busy) { Icon(Icons.Rounded.FolderOpen, "Projects") }
@@ -948,6 +993,16 @@ private fun ExportSheet(project: StudioProject, manager: StudioManager, onDismis
         LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Text("Export", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                var naming by remember { mutableStateOf(false) }
+                if (naming) { var nm by remember { mutableStateOf(project.name) }
+                    androidx.compose.material3.AlertDialog(onDismissRequest = { naming = false }, title = { Text("Name this film") },
+                        text = { androidx.compose.material3.OutlinedTextField(nm, { nm = it }, singleLine = true, label = { Text("Name") }) },
+                        confirmButton = { TextButton({ manager.rename(nm); naming = false }, enabled = nm.isNotBlank()) { Text("Save") } },
+                        dismissButton = { TextButton({ naming = false }) { Text("Cancel") } }) }
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(enabled = !work.active) { naming = true }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("File name: ${project.name}", Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Icon(Icons.Rounded.Edit, "Rename", Modifier.padding(start = 6.dp).size(16.dp))
+                }
                 Text("${project.width} × ${project.height} · ${clock(project.durationMs)} · ${project.clips.size} clips · MP4, no watermark", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             item {

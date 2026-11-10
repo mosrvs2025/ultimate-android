@@ -128,3 +128,37 @@ class HabitModelTest {
         assertEquals("night", Situation.part(23)); assertEquals("night", Situation.part(3)); assertEquals("early", Situation.part(6))
     }
 }
+
+class HabitVetoTest {
+    private val day = 86_400_000L
+    private fun evening(charging: Boolean = true, motion: String? = null) = Situation.of(21, 3, charging, headphones = false, wifi = null, motion = motion)
+
+    @Test fun notNowSilencesThatMomentButNotOthersAndWearsOff() {
+        val m = HabitModel(); val now = 100 * day
+        repeat(10) { m.observe("terminal", evening(), now - it * day) }
+        assertEquals("terminal", m.suggest(evening(), now)!!.tool)
+        m.veto("terminal", evening(), now)
+        assertNull("same part of day, same charging", m.suggest(evening(), now + 3_600_000))
+        assertNull("still quiet a week later", m.suggest(evening(), now + 7 * day))
+        repeat(10) { m.observe("terminal", evening(), now + 15 * day - it * 3_600_000L) }
+        assertEquals("offered again once the veto has worn off", "terminal", m.suggest(evening(), now + 15 * day)!!.tool)
+    }
+
+    @Test fun threeRefusalsInAMonthSilenceTheToolEverywhere() {
+        val m = HabitModel(); val now = 100 * day
+        val morning = Situation.of(8, 3, charging = false, headphones = true, wifi = null)
+        repeat(10) { m.observe("audio", morning, now - it * day) }
+        m.veto("audio", evening(), now); m.veto("audio", evening(false), now); m.veto("audio", Situation.of(13, 3, false, false, null), now)
+        assertNull(m.suggest(morning, now + day))
+    }
+
+    @Test fun vetoesAndMotionSurviveSavingAndForgetting() {
+        val m = HabitModel(); val now = 100 * day
+        repeat(10) { m.observe("terminal", evening(motion = "still"), now - it * day) }
+        m.veto("terminal", evening(motion = "still"), now)
+        val back = HabitModel.fromJson(m.toJson())
+        assertEquals(10, back.size); assertNull(back.suggest(evening(motion = "still"), now + day))
+        assertEquals("still", evening(motion = "still").features["motion"]); assertNull(evening().features["motion"])
+        back.clear(); assertEquals(0, HabitModel.fromJson(back.toJson()).size)
+    }
+}

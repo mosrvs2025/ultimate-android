@@ -124,7 +124,8 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
     val revision by app.insights.revision.collectAsStateWithLifecycle()
     // With habit learning on (About and settings), the one tool the model is sure you want now goes first; otherwise nothing changes.
     val learning by app.habits.enabled.collectAsStateWithLifecycle()
-    val suggestion = remember(revision, learning) { if (learning) app.habits.suggest(app.tools.map { it.id }.filter { it != "orb" }) else null }
+    var turnedDown by remember { mutableStateOf(0) }
+    val suggestion = remember(revision, learning, turnedDown) { if (learning) app.habits.suggest(app.tools.map { it.id }.filter { it != "orb" }) else null }
     val favorites = remember(runningIds, pins, revision, suggestion) {
         val ids = app.tools.map { it.id }.filter { it != "orb" }
         val base = HomeLayout.withSuggestion(HomeLayout.constellation(ids, app.insights.recentOpens(), runningIds, System.currentTimeMillis()), emptyList(), suggestion?.tool, ids)
@@ -133,7 +134,7 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
     }
     // How the phone is being carried decides how big the tiles are; sampled for a moment each time Home appears.
     var motion by remember { mutableStateOf(Motion.Still) }
-    androidx.compose.runtime.LaunchedEffect(Unit) { motion = MotionSampler.sample(app) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { motion = MotionSampler.sample(app); app.habits.felt(motion) }
     val morph = UiMorph.forMotion(motion)
     val tileMin by androidx.compose.animation.core.animateDpAsState(morph.tileMinDp.dp, label = "tile-min")
     val pending = remember(revision) { app.insights.pendingTools() }
@@ -170,14 +171,21 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
         }
         if (suggestion != null || morph.note != null) item(key = "why-now", span = { GridItemSpan(maxLineSpan) }) {
             val t = suggestion?.let { s -> app.tools.firstOrNull { it.id == s.tool } }
-            Text(
-                listOfNotNull(
-                    t?.let { "Suggested now: ${it.title}" + suggestion?.because?.takeIf { b -> b.isNotEmpty() }?.let { b -> " (" + b.joinToString(", ") + ")" }.orEmpty() },
-                    morph.note,
-                ).joinToString(" · "),
-                Modifier.padding(start = 4.dp).then(if (t != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable { shell.open(t) } else Modifier),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            // A suggestion is an offer, never an action: it looks tappable, says why, and can be turned down in one tap (which it remembers).
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (t != null) Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.secondaryContainer).clickable { shell.open(t) }.padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(t.icon, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer); Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Suggested now: ${t.title}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        suggestion?.because?.takeIf { it.isNotEmpty() }?.let { Text("Because: " + it.joinToString(", "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)) }
+                    }
+                    TextButton({ app.habits.veto(t.id); app.insights.count("home.suggest.no"); turnedDown++ }) { Text("Not now") }
+                }
+                morph.note?.let { Text(it, Modifier.padding(start = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
         }
         itemsIndexed(favorites, key = { _, t -> "fav-${t.id}" }, span = { _, _ -> GridItemSpan(2) }) { i, tool ->
             ToolTile(

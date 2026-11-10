@@ -93,7 +93,7 @@ jobs:
           # app without them (the engine falls back to a stub), so check the finished files rather than trusting the build.
           for flavor in ultimateplus ultimate; do
             apk="app/build/outputs/apk/$flavor/release/app-$flavor-release.apk"
-            for need in assets/gesture_recognizer.task assets/face_landmarker.task assets/hand_landmarker.task; do
+            for need in assets/gesture_recognizer.task assets/face_landmarker.task assets/hand_landmarker.task assets/pose_landmarker_lite.task; do
               unzip -l "$apk" | grep -q "$need" || { echo "MISSING $need in $apk"; fail=1; }
             done
             size=$(unzip -l "$apk" | awk '/lib\/arm64-v8a\/libultimate_needle.so/ {print $1}')

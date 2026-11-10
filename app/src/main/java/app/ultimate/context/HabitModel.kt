@@ -15,7 +15,8 @@ data class Situation(val features: Map<String, String>) {
         fun part(hour: Int) = when (hour) { in 5..8 -> "early"; in 9..11 -> "morning"; in 12..16 -> "afternoon"; in 17..21 -> "evening"; else -> "night" }
 
         /** Builds a situation from plain facts. [prev] is the tool opened just before (null: none lately). */
-        fun of(hour: Int, weekday: Int, charging: Boolean, headphones: Boolean, wifi: Boolean?, watch: String? = null, prev: String? = null) = Situation(buildMap {
+        fun of(hour: Int, weekday: Int, charging: Boolean, headphones: Boolean, wifi: Boolean?, watch: String? = null, prev: String? = null, motion: String? = null) = Situation(buildMap {
+            if (motion != null) put("motion", motion)
             put("part", part(hour))
             put("days", if (weekday == 1 || weekday == 7) "weekend" else "weekday")
             put("charging", if (charging) "yes" else "no")
@@ -42,6 +43,19 @@ data class Prediction(val tool: String, val probability: Double, val because: Li
 class HabitModel(private val halfLifeDays: Double = 21.0, private val alpha: Double = 0.5, private val cap: Int = 1500) {
     private class Obs(val tool: String, val features: Map<String, String>, val at: Long)
     private val log = ArrayList<Obs>()
+    private val vetoes = ArrayList<Obs>()
+
+    /**
+     * "Not now": you turned a suggestion down. For [VETO_DAYS] days that tool is not suggested again at the same part of the day
+     * with the same charging state, and it counts against it everywhere a little (three in a month silence it until then).
+     */
+    fun veto(tool: String, s: Situation, at: Long) { vetoes += Obs(tool, s.features, at); if (vetoes.size > 200) vetoes.removeAt(0) }
+
+    private fun vetoed(tool: String, s: Situation, now: Long): Boolean {
+        val mine = vetoes.filter { it.tool == tool && now - it.at in 0..VETO_DAYS * 86_400_000L }
+        if (vetoes.count { it.tool == tool && now - it.at in 0..30 * 86_400_000L } >= 3) return true
+        return mine.any { v -> v.features["part"] == s.features["part"] && v.features["charging"] == s.features["charging"] }
+    }
 
     val size: Int get() = log.size
 
@@ -50,7 +64,7 @@ class HabitModel(private val halfLifeDays: Double = 21.0, private val alpha: Dou
         if (log.size > cap) log.subList(0, log.size - cap).clear()
     }
 
-    fun clear() = log.clear()
+    fun clear() { log.clear(); vetoes.clear() }
 
     private fun weight(at: Long, now: Long) = 0.5.pow(((now - at).coerceAtLeast(0)) / (halfLifeDays * 86_400_000.0))
 
@@ -105,20 +119,28 @@ class HabitModel(private val halfLifeDays: Double = 21.0, private val alpha: Dou
     fun suggest(s: Situation, now: Long, available: Collection<String>? = null, minEvidence: Double = 5.0, minProbability: Double = 0.45, minLead: Double = 1.5): Prediction? {
         val r = rank(s, now, available)
         val best = r.firstOrNull() ?: return null
+        // Turned down here lately: stay quiet rather than offer the runner-up.
+        if (vetoed(best.tool, s, now)) return null
         val evidence = log.filter { it.tool == best.tool }.sumOf { weight(it.at, now) }
         val lead = if (r.size > 1 && r[1].probability > 0) best.probability / r[1].probability else Double.MAX_VALUE
         return if (evidence >= minEvidence && best.probability >= minProbability && lead >= minLead) best else null
     }
 
-    fun toJson(): String = JSONArray().also { a -> log.forEach { o -> a.put(JSONObject().put("t", o.tool).put("at", o.at).put("f", JSONObject(o.features as Map<*, *>))) } }.toString()
+    fun toJson(): String = JSONArray().also { a ->
+        log.forEach { o -> a.put(JSONObject().put("t", o.tool).put("at", o.at).put("f", JSONObject(o.features as Map<*, *>))) }
+        vetoes.forEach { o -> a.put(JSONObject().put("t", o.tool).put("at", o.at).put("v", true).put("f", JSONObject(o.features as Map<*, *>))) }
+    }.toString()
 
     companion object {
+        const val VETO_DAYS = 14L
+
         fun fromJson(json: String, halfLifeDays: Double = 21.0): HabitModel = HabitModel(halfLifeDays).also { m ->
             runCatching {
                 val a = JSONArray(json)
                 for (i in 0 until a.length()) {
                     val o = a.getJSONObject(i); val f = o.getJSONObject("f")
-                    m.observe(o.getString("t"), Situation(f.keys().asSequence().associateWith { f.getString(it) }), o.getLong("at"))
+                    val s = Situation(f.keys().asSequence().associateWith { f.getString(it) })
+                    if (o.optBoolean("v")) m.veto(o.getString("t"), s, o.getLong("at")) else m.observe(o.getString("t"), s, o.getLong("at"))
                 }
             }
         }

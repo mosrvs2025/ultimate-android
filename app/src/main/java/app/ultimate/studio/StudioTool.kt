@@ -11,7 +11,7 @@ class StudioTool(private val manager: StudioManager) : Tool {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     override val id = "studio"
     override val title = "Studio"
-    override val tagline = "Turn your clips and music into a film. Offline."
+    override val tagline = "Edit videos: cut, add music, text and captions, then export. Offline."
     override val icon = Icons.Rounded.Movie
     // Picked files keep their access across restarts; files handed over by another tool keep it while the app is open.
     override val acceptedMimePrefixes = listOf("video/")
@@ -27,8 +27,8 @@ class StudioTool(private val manager: StudioManager) : Tool {
     override suspend fun refresh() = Unit
     @Composable override fun Screen(onExit: () -> Unit, launch: ToolLaunch) {
         androidx.compose.runtime.LaunchedEffect(launch) {
-            if (!launch.consumed && launch.uris.isNotEmpty()) { launch.consumed = true; manager.addVideos(launch.uris) }
+            if (!launch.consumed && launch.uris.isNotEmpty()) { launch.consumed = true; manager.startWith(launch.uris) }
         }
-        StudioScreen(manager, onExit)
+        StudioScreen(manager, onExit, launched = launch.uris.isNotEmpty())
     }
 }

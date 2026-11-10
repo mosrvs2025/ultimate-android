@@ -32,7 +32,7 @@ class AudioTool(private val app: UltimateApp) : Tool {
 
     override val id = "audio"
     override val title = "Video to audio"
-    override val tagline = "Video to MP3, plus audio cutting, converting, speed and joining"
+    override val tagline = "Pull the sound out of a video as MP3, plus cut, convert, speed up and join audio"
     override val icon: ImageVector = Icons.Rounded.GraphicEq
     override val acceptedMimePrefixes = listOf("video/", "audio/")
 

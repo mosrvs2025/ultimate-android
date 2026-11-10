@@ -3,6 +3,40 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 1.95.0
+- A floating palette in AR: hold both hands above your head and an arc of choices appears over your shoulders and moves with you. Point at one and keep your hand there; a ring fills and it is chosen. Effects normally, outfits when you are wearing one.
+- Energy blast has impact: sparks rush inward and rings close faster as you charge, colours pull apart at the edges, and letting go fires a beam with a flash and a shake.
+- Air swipes are easier and you can see them being read: a sweep at chest height of about two thirds of your shoulder width is enough, a bar at the top fills toward the side you sweep, and a ghost trail follows your hand.
+- Costumes follow your pose: the crown and shades tilt with your head, each boxing glove turns and sits along its forearm, and each trainer points where the foot points.
+- Smoother tracking: the body model now reads a small picture while the preview stays sharp, and when tracking falls behind the effects lighten (fewer sparks, no finger tracking) until it catches up.
+
+## 1.94.0
+- Studio opens clean: coming back asks "Pick up where you left off?" (Resume or New project), and videos you send to Studio from elsewhere always start a new project instead of joining the last one.
+- Edit in Studio: any video in the Library (from Squeeze or Studio) now has an Edit in Studio button that opens it straight in the editor.
+- Name your film: tap the title at the top of Studio (or File name in the Export sheet) to rename it. The name becomes the start of the exported file's name.
+- Export finished: when a render ends a clear box says so, with the file name, size and length, and Play and Share buttons.
+- Smaller exports: Studio now picks the video codec and bitrate from your clips instead of always using 8 Mbps H.264. A trimmed Squeeze (HEVC) video stays HEVC at about its own bitrate, so it should no longer come out bigger than the original. The render log says what was chosen.
+- Fewer export errors: if the encoder hits a runtime error, Studio retries once in a simpler way (no forced audio track, loop or custom fades) and records the reason, before giving up.
+- Smoother preview: scrubbing jumps to the nearest keyframe while you drag and lands on the exact frame when you stop, and the player is muted while the next clip loads so clips no longer overlap in sound.
+- Clearer tool descriptions: Studio is "Edit videos", Squeeze is "Make a video smaller", Video to audio is "Pull the sound out of a video".
+
+## 1.93.0
+- Work the AR camera from across the room: raise a hand and sweep it sideways to go to the next or previous effect, and hold both hands above your head to switch the swipe between effects and outfits. A big banner says what you picked.
+- Energy blast: bring both hands together to charge a ball of energy (the longer, the bigger), then throw them apart to fire it.
+- Outfits drawn on your body: tee and jeans, hoodie, summer shorts, suit, hero with a cape, ninja, armour and a gi. Swipe in the air to change them.
+- Neon body now also shows your eyes and mouth, and every finger when a hand is close enough to read.
+- Legs and feet are kept from further back (they are trusted at a lower score, and a small far-away body is no longer dropped), and the squat counter reacts sooner and shows when you are down.
+
+## 1.92.0
+- New in Playground: AR. The camera now tracks your whole body (on the phone, nothing saved) and draws on it live: a neon skeleton, light trails from your hands and feet, fire from your fingertips, sparks when your feet move, and a costume (crown, shades, boxing gloves, trainers) that follows you.
+- Coach: shows your elbow and knee angles on your body, counts squats, and tells you if your shoulders are level.
+- Ten looks for the picture: Vivid, Mono, Noir, Sepia, Warm, Cool, Night, Heat, Negative, or none. Flip between front and back camera with 🔄.
+
+## 1.91.0
+- Suggestions you can turn down: with "Learn my habits" on, the suggested tool on Home is now a clear card that says why ("Because: charging, evening") with a Not now button. Not now is remembered: the same tool isn't offered again at that time of day for two weeks, and three refusals in a month silence it.
+- Habits now also notice how the phone is carried (on a table, in your hand, walking), felt for two seconds when Home opens, so a suggestion can depend on it.
+- The insight card on Home shows "See ›" so it is clear it opens the records behind it.
+
 ## 1.90.2
 - Your money is read more carefully: a purchase that "didn't go through", was declined, blocked, cancelled or reversed no longer counts as spending, offers, balance notices and security alerts are ignored, and the same payment announced twice counts once. A failed payment shows as failed, not as money spent.
 - Your body says why a number is missing instead of a bare dash: resting heart rate, sleep and heart rate variability now show the latest from the last few days with how old it is, and when there is none it says whether Health Connect needs your permission or simply has no data. Tap it to fix it. Allowing only some kinds of health data now works too (before, one missing permission hid the whole group).
