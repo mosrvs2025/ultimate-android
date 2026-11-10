@@ -75,7 +75,10 @@ internal fun BodyCamera(front: Boolean, filter: FloatArray, body: MutableStateFl
             providerFuture.addListener({
                 val provider = providerFuture.get()
                 val preview = Preview.Builder().build().also { it.surfaceProvider = view.surfaceProvider }
-                val analysis = ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888).build()
+                // Tracking reads a small picture (about 480 by 640) while the preview stays at full quality: the models shrink it further anyway,
+                // and rotating and converting a big frame was most of the cost. It runs on its own thread, never the screen's.
+                @Suppress("DEPRECATION")
+                val analysis = ImageAnalysis.Builder().setTargetResolution(android.util.Size(480, 640)).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888).build()
                 analysis.setAnalyzer(executor) { proxy ->
                     runCatching {
                         val rot = proxy.imageInfo.rotationDegrees

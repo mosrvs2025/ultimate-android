@@ -1,5 +1,11 @@
 package app.ultimate.vision
 
+import app.ultimate.air.direction
+import app.ultimate.air.BlastShot
+import app.ultimate.air.ArcMenu
+import app.ultimate.air.Throttle
+import app.ultimate.air.Shake
+import app.ultimate.air.Dwell
 import app.ultimate.air.HAND_BONES
 import app.ultimate.air.Outfits
 import app.ultimate.air.Blasts
@@ -358,6 +364,14 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         val sparks = remember { Sparks() }
         val reps = remember { RepCounter() }
         val gestures = remember { BodyGestures() }
+        val dwell = remember { Dwell() }
+        val shake = remember { Shake() }
+        val throttle = remember { Throttle() }
+        // The floating palette: 0 hidden, 1 effects, 2 outfits. It hides itself a few seconds after the last time a hand was near it.
+        var palette by remember { mutableIntStateOf(0) }
+        var paletteAt by remember { mutableLongStateOf(0L) }
+        var lite by remember { mutableStateOf(false) }
+        var beam by remember { mutableStateOf<Pair<BlastShot, Long>?>(null) }
         val blasts = remember { Blasts() }
         val fingers by bodyHands.collectAsState()
         var outfit by remember { mutableIntStateOf(0) }
@@ -374,12 +388,36 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         LaunchedEffect(pose, effect) {
             val p = pose ?: return@LaunchedEffect
             val now = System.currentTimeMillis()
+            throttle.frame(now); lite = throttle.lite
+            val few = if (lite) 2 else 1
+            if (palette != 0 && now - paletteAt > 6000) { palette = 0; dwell.reset() }
+            if (palette != 0) {
+                val total = if (palette == 2) Outfits.all.size else BodyEffect.entries.size
+                val cur = if (palette == 2) outfit else effect.ordinal
+                val win = ArcMenu.window(cur, total)
+                val slots = ArcMenu.slots(p, front, win.size)
+                val unitN = Joints.scale(p)
+                if (slots != null && unitN != null) {
+                    val hands = listOf(BodyPose.L_INDEX, BodyPose.R_INDEX, BodyPose.L_WRIST, BodyPose.R_WRIST).mapNotNull { p.at(it, front) }
+                    val pick = dwell.feed(hands, slots, unitN * 0.45f, now)
+                    if (dwell.hover >= 0) paletteAt = now
+                    if (pick >= 0) {
+                        if (palette == 2) { outfit = win[pick]; banner = Outfits.all[outfit].label to now }
+                        else { effect = BodyEffect.entries[win[pick]]; swipeOutfits = effect == BodyEffect.Outfit; trails.clear(); sparks.all.clear(); banner = effect.label to now; if (effect == BodyEffect.Outfit) palette = 2 }
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); dwell.reset()
+                    }
+                }
+            }
+            gestures.swipeHand?.let { trails.add(99, it.first, it.second, now) }
+            if (effect == BodyEffect.Blast) gestures.chargeAt?.let { c -> sparks.implode(c.first, c.second, (2 + (gestures.charge * 6).toInt()) / few, 0.12f + 0.1f * gestures.charge) }
             gestures.feed(p, front, now).forEach { e ->
                 when (e) {
-                    is BodyGestures.Event.Fired -> if (effect == BodyEffect.Blast) { blasts.fire(e.shot); sparks.emit(e.shot.x, e.shot.y, 30, 0.6f, 200f); haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) }
+                    is BodyGestures.Event.Fired -> if (effect == BodyEffect.Blast) { blasts.fire(e.shot); sparks.emit(e.shot.x, e.shot.y, (30 + (e.shot.power * 60).toInt()) / few, 0.6f + e.shot.power, 200f); shake.kick(0.4f + 0.6f * e.shot.power, now); beam = e.shot to now; haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) }
                     is BodyGestures.Event.Did -> {
                         when (e.kind) {
-                            BodyGestures.Kind.Menu -> { swipeOutfits = !swipeOutfits; if (swipeOutfits) effect = BodyEffect.Outfit; banner = (if (swipeOutfits) "👕 Swipe to change outfit" else "✨ Swipe to change effect") to now }
+                            // Both hands up opens the floating palette: outfits when you're wearing one, effects otherwise. Again closes it.
+                            BodyGestures.Kind.Menu -> { palette = if (palette != 0) 0 else if (effect == BodyEffect.Outfit) 2 else 1; paletteAt = now; dwell.reset(); swipeOutfits = effect == BodyEffect.Outfit
+                                banner = (if (palette == 0) "Palette closed" else "Point at one and hold") to now }
                             else -> {
                                 val step = if (e.kind == BodyGestures.Kind.SwipeRight) 1 else -1
                                 if (swipeOutfits && effect == BodyEffect.Outfit) { outfit = (outfit + step + Outfits.all.size) % Outfits.all.size; banner = Outfits.all[outfit].label to now }
@@ -393,7 +431,7 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
             fun moved(i: Int, at: Pair<Float, Float>) = (lastAt.put(i, at)?.let { hypot(at.first - it.first, at.second - it.second) } ?: 0f)
             when (effect) {
                 BodyEffect.Trails -> (BodyPose.HANDS + BodyPose.FEET).forEach { i -> p.at(i, front)?.let { trails.add(i, it.first, it.second, now) } }
-                BodyEffect.Fire -> listOf(BodyPose.L_INDEX, BodyPose.R_INDEX).forEach { i -> p.at(i, front)?.let { sparks.emit(it.first, it.second, 4, moved(i, it) * 8f, 18f) } }
+                BodyEffect.Fire -> listOf(BodyPose.L_INDEX, BodyPose.R_INDEX).forEach { i -> p.at(i, front)?.let { sparks.emit(it.first, it.second, 4 / few, moved(i, it) * 8f, 18f) } }
                 BodyEffect.Kicks -> listOf(BodyPose.L_TOE, BodyPose.R_TOE).forEach { i -> p.at(i, front)?.let { val m = moved(i, it); if (m > 0.012f) sparks.emit(it.first, it.second, (m * 400).toInt().coerceIn(2, 14), m * 10f, 190f) } }
                 BodyEffect.Coach -> { if (reps.feed(Joints.knee(p), now)) repCount = reps.count; isDown = reps.isDown }
                 else -> Unit
@@ -401,14 +439,18 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         }
         Text(if (pose == null) "Step back so the camera sees you. Prop the phone up for your whole body, or point it at your hands or feet."
             else if (effect == BodyEffect.Blast) "Bring both hands together to charge, then throw them apart to fire."
-            else "No need to touch the phone: raise a hand and sweep it sideways for the next ${if (swipeOutfits) "outfit" else "effect"}. Hold both hands above your head to switch between effects and outfits.", style = MaterialTheme.typography.bodyMedium)
+            else "No need to touch the phone: raise a hand and sweep it sideways for the next ${if (swipeOutfits) "outfit" else "effect"} (the bar at the top shows it being read). Hold both hands above your head for the floating palette, then point at a choice and hold." + if (lite) " Running light to keep up." else "", style = MaterialTheme.typography.bodyMedium)
         Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
-            androidx.compose.runtime.key(front) { BodyCamera(front, CameraFilters.all[look].second, body, if (effect == BodyEffect.Neon) bodyHands else null) }
+            androidx.compose.runtime.key(front) { BodyCamera(front, CameraFilters.all[look].second, body, if (effect == BodyEffect.Neon && !lite) bodyHands else null) }
             Canvas(Modifier.fillMaxSize()) {
                 @Suppress("UNUSED_VARIABLE") val tick = frame
+                val nowMs = System.currentTimeMillis()
+                // An impact shakes the drawn effects (the camera picture itself stays still, so you don't lose your place).
+                val sh = shake.offset(nowMs); drawContext.transform.translate(sh.first * size.width, sh.second * size.height)
                 val p = pose
                 fun pt(i: Int) = p?.at(i, front)?.let { Offset(it.first * size.width, it.second * size.height) }
-                fun emoji(s: String, at: Offset, px: Float) = drawContext.canvas.nativeCanvas.drawText(s, at.x, at.y + px * 0.35f, android.graphics.Paint().apply { textSize = px; textAlign = android.graphics.Paint.Align.CENTER })
+                fun emoji(s: String, at: Offset, px: Float, turn: Float = 0f) { val c = drawContext.canvas.nativeCanvas; c.save(); c.rotate(turn, at.x, at.y); c.drawText(s, at.x, at.y + px * 0.35f, android.graphics.Paint().apply { textSize = px; textAlign = android.graphics.Paint.Align.CENTER }); c.restore() }
+                fun turnOf(a: Int, b: Int): Float? { val pa = pt(a); val pb = pt(b); return if (pa != null && pb != null) direction(pa.x to pa.y, pb.x to pb.y) else null }
                 val unit = (p?.let { Joints.scale(it) } ?: 0.2f) * size.width
                 when (effect) {
                     BodyEffect.Neon -> if (p != null) {
@@ -444,6 +486,23 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                         gestures.chargeAt?.let { c ->
                             val o = Offset((c.first) * size.width, c.second * size.height); val r = unit * (0.12f + 0.45f * gestures.charge)
                             drawCircle(Color(0xFF7FD3FF).copy(alpha = 0.35f), r * 1.6f, o); drawCircle(Color.White, r * (0.6f + 0.1f * kotlin.math.sin(frame / 40f)), o); drawCircle(Color(0xFF00E5FF), r, o, style = Stroke(unit * 0.04f))
+                            // Wind-up: rings closing in faster as it charges, and the colours pulling apart at the edges.
+                            val pulse = 1f - ((frame % (520 - (gestures.charge * 320).toLong()).coerceAtLeast(120)) / (520f - gestures.charge * 320f).coerceAtLeast(120f))
+                            drawCircle(Color.White.copy(alpha = 0.5f * (1f - pulse)), r * (1.2f + 2.2f * pulse), o, style = Stroke(unit * 0.02f))
+                            val split = unit * 0.05f * gestures.charge
+                            drawCircle(Color.Red.copy(alpha = 0.35f), r * 1.15f, o + Offset(-split, 0f), style = Stroke(unit * 0.02f)); drawCircle(Color.Blue.copy(alpha = 0.35f), r * 1.15f, o + Offset(split, 0f), style = Stroke(unit * 0.02f))
+                        }
+                        beam?.let { (s, at) ->
+                            val age = (nowMs - at) / 320f
+                            if (age in 0f..1f) {
+                                val from = Offset(s.x * size.width, s.y * size.height); val to = from + Offset(s.dx, s.dy) * (size.maxDimension * 1.4f)
+                                val wide = unit * (0.25f + 0.6f * s.power) * (1f - age)
+                                drawLine(Color.Red.copy(alpha = 0.35f * (1 - age)), from + Offset(-wide * 0.2f, 0f), to + Offset(-wide * 0.2f, 0f), strokeWidth = wide, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                drawLine(Color.Blue.copy(alpha = 0.35f * (1 - age)), from + Offset(wide * 0.2f, 0f), to + Offset(wide * 0.2f, 0f), strokeWidth = wide, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                drawLine(Color(0xFF7FD3FF).copy(alpha = 0.8f * (1 - age)), from, to, strokeWidth = wide, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                drawLine(Color.White.copy(alpha = 1 - age), from, to, strokeWidth = wide * 0.4f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                drawRect(Color.White.copy(alpha = 0.35f * (1 - age) * (1 - age)), Offset(-size.width, -size.height), androidx.compose.ui.geometry.Size(size.width * 3, size.height * 3))
+                            }
                         }
                         blasts.all.forEach { b ->
                             val o = Offset(b.x * size.width, b.y * size.height); val r = unit * (0.25f + 0.5f * b.power) * (1.3f - 0.3f * b.life)
@@ -471,10 +530,21 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                     BodyEffect.Costume -> if (p != null) {
                         val ears = pt(BodyPose.L_EAR) to pt(BodyPose.R_EAR)
                         val head = (ears.first?.let { l -> ears.second?.let { r -> (l - r).getDistance() } } ?: (unit * 0.45f))
-                        pt(BodyPose.NOSE)?.let { emoji("👑", it - Offset(0f, head * 1.35f), head * 1.3f); emoji("🕶️", it - Offset(0f, head * 0.2f), head * 1.25f) }
-                        BodyPose.HANDS.forEach { i -> pt(i)?.let { emoji("🥊", it, unit * 0.55f) } }
+                        // Everything is tied to the joints: the crown and shades tilt with your head, each glove turns and sits along its forearm
+                        // (and grows as that arm comes toward the camera), each shoe points where the foot points.
+                        val tilt = turnOf(BodyPose.R_EAR, BodyPose.L_EAR)?.let { if (front) it + 180f else it }?.let { ((it + 540f) % 360f) - 180f }?.coerceIn(-45f, 45f) ?: 0f
+                        pt(BodyPose.NOSE)?.let { n ->
+                            val up = Offset(kotlin.math.sin(Math.toRadians(tilt.toDouble())).toFloat(), -kotlin.math.cos(Math.toRadians(tilt.toDouble())).toFloat())
+                            emoji("👑", n + up * (head * 1.35f), head * 1.3f, tilt); emoji("🕶️", n + up * (head * 0.2f), head * 1.25f, tilt)
+                        }
+                        listOf(BodyPose.L_ELBOW to BodyPose.L_WRIST, BodyPose.R_ELBOW to BodyPose.R_WRIST).forEach { (el, wr) ->
+                            val w = pt(wr) ?: return@forEach; val e = pt(el)
+                            val fore = e?.let { (w - it).getDistance() } ?: unit
+                            val along = e?.let { (w - it) / fore.coerceAtLeast(1f) } ?: Offset.Zero
+                            emoji("🥊", w + along * (fore * 0.25f), (fore * 0.75f).coerceIn(unit * 0.35f, unit * 0.9f), (turnOf(el, wr) ?: -90f) + 90f)
+                        }
                         listOf(BodyPose.L_TOE to BodyPose.L_HEEL, BodyPose.R_TOE to BodyPose.R_HEEL).forEach { (toe, heel) ->
-                            val a = pt(toe); val b = pt(heel); if (a != null && b != null) emoji("👟", Offset((a.x + b.x) / 2, (a.y + b.y) / 2), unit * 0.5f)
+                            val a = pt(toe); val b = pt(heel); if (a != null && b != null) emoji("👟", Offset((a.x + b.x) / 2, (a.y + b.y) / 2), ((a - b).getDistance() * 1.6f).coerceIn(unit * 0.3f, unit * 0.8f), (turnOf(heel, toe) ?: 0f).let { if (kotlin.math.abs(it) > 90f) it + 180f else it })
                         }
                     }
                     BodyEffect.Coach -> if (p != null) {
@@ -483,6 +553,26 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                         fun label(a: Int, b: Int, c: Int) { val pa = pt(a); val pb = pt(b); val pc = pt(c); if (pa != null && pb != null && pc != null) drawContext.canvas.nativeCanvas.drawText("%.0f°".format(Joints.angle(pa.x to pa.y, pb.x to pb.y, pc.x to pc.y)), pb.x + 12f, pb.y, paint) }
                         label(BodyPose.L_SHOULDER, BodyPose.L_ELBOW, BodyPose.L_WRIST); label(BodyPose.R_SHOULDER, BodyPose.R_ELBOW, BodyPose.R_WRIST)
                         label(BodyPose.L_HIP, BodyPose.L_KNEE, BodyPose.L_ANKLE); label(BodyPose.R_HIP, BodyPose.R_KNEE, BodyPose.R_ANKLE)
+                    }
+                }
+                // The swipe being read: a ghost of the raised hand's path, and a meter that fills toward the side you're sweeping.
+                trails.lines(nowMs)[99]?.let { line -> for (i in 1 until line.size) drawLine(Color.White.copy(alpha = 0.5f * line[i].third.coerceIn(0f, 1f)), Offset(line[i - 1].first * size.width, line[i - 1].second * size.height), Offset(line[i].first * size.width, line[i].second * size.height), strokeWidth = unit * 0.08f, cap = androidx.compose.ui.graphics.StrokeCap.Round) }
+                if (kotlin.math.abs(gestures.swipeProgress) > 0.15f) {
+                    val w = size.width * 0.5f; val mid = Offset(size.width / 2, size.height * 0.06f); val full = kotlin.math.abs(gestures.swipeProgress) >= 1f
+                    drawLine(Color.White.copy(alpha = 0.3f), mid - Offset(w / 2, 0f), mid + Offset(w / 2, 0f), strokeWidth = 14f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    drawLine(if (full) Color(0xFF3DDC97) else Color.White, mid, mid + Offset(w / 2 * gestures.swipeProgress, 0f), strokeWidth = 14f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                }
+                // The floating palette: an arc of choices over your shoulders that moves with you. Point at one and hold; the ring fills, then it's chosen.
+                if (palette != 0 && p != null) {
+                    val total = if (palette == 2) Outfits.all.size else BodyEffect.entries.size
+                    val win = ArcMenu.window(if (palette == 2) outfit else effect.ordinal, total)
+                    ArcMenu.slots(p, front, win.size)?.forEachIndexed { i, s ->
+                        val o = Offset(s.first * size.width, s.second * size.height); val label = if (palette == 2) Outfits.all[win[i]].label else BodyEffect.entries[win[i]].label
+                        val current = win[i] == (if (palette == 2) outfit else effect.ordinal); val hot = dwell.hover == i; val r = unit * (if (hot) 0.42f else 0.34f)
+                        drawCircle(Color.Black.copy(alpha = 0.45f), r, o); drawCircle(if (current) Color(0xFF3DDC97) else Color.White.copy(alpha = 0.8f), r, o, style = Stroke(unit * 0.025f))
+                        if (hot) drawArc(Color(0xFF7FD3FF), -90f, 360f * dwell.progress, false, o - Offset(r, r), androidx.compose.ui.geometry.Size(r * 2, r * 2), style = Stroke(unit * 0.06f, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                        emoji(label.substringBefore(' '), o, r * 1.1f)
+                        if (hot) drawContext.canvas.nativeCanvas.drawText(label.substringAfter(' '), o.x, o.y - r - 10f, android.graphics.Paint().apply { color = android.graphics.Color.WHITE; textSize = 14.sp.toPx(); textAlign = android.graphics.Paint.Align.CENTER; isFakeBoldText = true; setShadowLayer(6f, 0f, 0f, android.graphics.Color.BLACK) })
                     }
                 }
                 sparks.all.forEach { s -> drawCircle(Color.hsv(s.hue % 360f, 0.9f, 1f).copy(alpha = s.life.coerceIn(0f, 1f)), unit * 0.035f * (0.5f + s.life), Offset(s.x * size.width, s.y * size.height)) }
@@ -497,7 +587,7 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
             androidx.compose.material3.FilledTonalIconButton({ front = !front; trails.clear() }, Modifier.align(Alignment.TopEnd).padding(8.dp)) { Text("🔄") }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            BodyEffect.entries.forEach { e -> FilterChip(effect == e, { effect = e; swipeOutfits = e == BodyEffect.Outfit; trails.clear(); sparks.all.clear() }, { Text(e.label) }) }
+            BodyEffect.entries.forEach { e -> FilterChip(effect == e, { effect = e; swipeOutfits = e == BodyEffect.Outfit; if (e == BodyEffect.Outfit) { palette = 2; paletteAt = System.currentTimeMillis() }; trails.clear(); sparks.all.clear() }, { Text(e.label) }) }
         }
         if (effect == BodyEffect.Outfit) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Outfits.all.forEachIndexed { i, o -> FilterChip(outfit == i, { outfit = i }, { Text(o.label) }) }

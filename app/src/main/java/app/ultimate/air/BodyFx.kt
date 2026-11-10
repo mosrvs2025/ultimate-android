@@ -111,6 +111,15 @@ class Sparks(seed: Long = 7, private val max: Int = 400) {
         }
     }
 
+    /** Sparks that start on a ring around ([x], [y]) and rush inward: energy being gathered. */
+    fun implode(x: Float, y: Float, n: Int, radius: Float, hue: Float = 190f) {
+        repeat(n) {
+            if (all.size >= max) all.removeAt(0)
+            val a = r.nextFloat() * 6.2832f; val px = x + kotlin.math.cos(a) * radius; val py = y + kotlin.math.sin(a) * radius
+            all += P(px, py, (x - px) * 2.4f, (y - py) * 2.4f + 0.3f, 0.45f, hue + r.nextFloat() * 40f)
+        }
+    }
+
     /** Moves everything on by [dt] seconds: gravity pulls down, life runs out in about a second. */
     fun step(dt: Float) {
         val it = all.iterator()
@@ -161,19 +170,22 @@ data class BlastShot(val x: Float, val y: Float, val dx: Float, val dy: Float, v
 
 /**
  * Whole-body gestures you can do from across the room, so the phone can be worked without touching it:
- *  - **Swipe**: raise a hand above your shoulder and sweep it sideways. Next or previous.
+ *  - **Swipe**: raise a hand to chest height or higher and sweep it sideways (0.7 shoulder widths is enough). Next or previous.
  *  - **Menu**: hold both hands above your head for a moment. Switches what the swipe changes.
  *  - **Blast**: bring both hands together in front of you to charge (the longer, the bigger), then throw them apart to fire.
  * Distances are measured in shoulder widths, so it works the same near or far. Each gesture has a pause after it so one
  * movement is one command. Pure, so it is tested.
  */
-class BodyGestures(private val swipeWidths: Float = 1.1f, private val swipeMs: Long = 450, private val menuHoldMs: Long = 600, private val chargeMs: Long = 1200) {
+class BodyGestures(private val swipeWidths: Float = 0.7f, private val swipeMs: Long = 600, private val menuHoldMs: Long = 600, private val chargeMs: Long = 1200) {
     enum class Kind { SwipeLeft, SwipeRight, Menu }
     sealed interface Event { data class Did(val kind: Kind) : Event; data class Fired(val shot: BlastShot) : Event }
 
     /** How charged the blast is right now (0 when your hands aren't together), and where it sits. */
     var charge = 0f; private set
     var chargeAt: Pair<Float, Float>? = null; private set
+    /** How far the raised hand has got toward a swipe, -1 (left) to 1 (right), and where that hand is: for a meter, so you can see a swipe being read. */
+    var swipeProgress = 0f; private set
+    var swipeHand: Pair<Float, Float>? = null; private set
 
     private val track = HashMap<Int, ArrayDeque<Triple<Float, Float, Long>>>()
     private var quietUntil = 0L
@@ -212,11 +224,13 @@ class BodyGestures(private val swipeWidths: Float = 1.1f, private val swipeMs: L
         } else { bothUpSince = -1; menuArmed = true }
 
         // Swipe: one raised hand moving sideways fast. Not while charging or holding the menu pose.
+        swipeProgress = 0f; swipeHand = null
         for ((key, w, sh) in listOf(Triple(BodyPose.L_WRIST, lw, ls), Triple(BodyPose.R_WRIST, rw, rs))) {
             val q = track.getOrPut(key) { ArrayDeque() }
-            if (w == null || w.second > sh.second || together || bothUp) { q.clear(); continue }
+            if (w == null || w.second > sh.second + unit * 0.35f || together || bothUp) { q.clear(); continue }
             q.addLast(Triple(w.first, w.second, t)); while (q.isNotEmpty() && t - q.first().third > swipeMs) q.removeFirst()
             val first = q.first(); val dx = w.first - first.first; val dy = w.second - first.second
+            if (abs(dx) / (unit * swipeWidths) > abs(swipeProgress)) { swipeProgress = (dx / (unit * swipeWidths)).coerceIn(-1f, 1f); swipeHand = w }
             if (t >= quietUntil && abs(dx) > unit * swipeWidths && abs(dx) > abs(dy) * 1.5f) {
                 out += Event.Did(if (dx > 0) Kind.SwipeRight else Kind.SwipeLeft); quietUntil = t + 800; track.values.forEach { it.clear() }
             }
@@ -224,7 +238,7 @@ class BodyGestures(private val swipeWidths: Float = 1.1f, private val swipeMs: L
         return out
     }
 
-    fun reset() { track.clear(); bothUpSince = -1; togetherSince = -1; charge = 0f; chargeAt = null }
+    fun reset() { track.clear(); bothUpSince = -1; togetherSince = -1; charge = 0f; chargeAt = null; swipeProgress = 0f; swipeHand = null }
 }
 
 /** Energy balls in flight: they fly straight, grow a little and fade. Pure, so it is tested. */
@@ -256,5 +270,78 @@ object Outfits {
         val lh = p.at(BodyPose.L_HIP, mirror) ?: return null; val rh = p.at(BodyPose.R_HIP, mirror) ?: return null
         fun out(a: Pair<Float, Float>, b: Pair<Float, Float>) = (a.first + (a.first - b.first) * widen) to (a.second + (a.second - b.second) * widen * 0.2f)
         return listOf(out(ls, rs), out(rs, ls), out(rh, lh), out(lh, rh))
+    }
+}
+
+/** Which way the line from [a] to [b] points on screen, in degrees (0 is right, 90 is down): what a glove or shoe is turned by. */
+fun direction(a: Pair<Float, Float>, b: Pair<Float, Float>): Float = Math.toDegrees(atan2((b.second - a.second).toDouble(), (b.first - a.first).toDouble())).toFloat()
+
+/**
+ * A palette that floats in an arc over your shoulders and moves with you, so choices are within reach of your hands wherever
+ * you stand. It shows a few choices either side of the current one. Pure, so it is tested.
+ */
+object ArcMenu {
+    const val SHOWN = 5
+    /** Which choices are shown (indices into the full list, wrapping), with the current one in the middle. */
+    fun window(current: Int, total: Int): List<Int> = if (total <= 0) emptyList() else (0 until minOf(SHOWN, total)).map { ((current - minOf(SHOWN, total) / 2 + it) % total + total) % total }
+
+    /** Where each of [n] slots sits: on an arc above the shoulders, left to right, 1.9 shoulder widths out. Null when shoulders aren't seen. */
+    fun slots(p: BodyPose, mirror: Boolean, n: Int): List<Pair<Float, Float>>? {
+        val unit = Joints.scale(p) ?: return null
+        val l = p.at(BodyPose.L_SHOULDER, mirror)!!; val r = p.at(BodyPose.R_SHOULDER, mirror)!!
+        val cx = (l.first + r.first) / 2; val cy = (l.second + r.second) / 2
+        if (n == 1) return listOf(cx to cy - unit * 1.9f)
+        return (0 until n).map { i ->
+            val a = Math.toRadians(200.0 + 140.0 * i / (n - 1))
+            (cx + (unit * 1.9f * kotlin.math.cos(a)).toFloat()) to (cy + (unit * 1.9f * kotlin.math.sin(a)).toFloat())
+        }
+    }
+}
+
+/** Point at something and keep your hand there to choose it: no pinch needed, so it works from far away. Pure, so it is tested. */
+class Dwell(private val holdMs: Long = 700) {
+    var hover = -1; private set
+    var progress = 0f; private set
+    private var since = 0L; private var armed = true
+
+    /** [pointers] are your hands; [slots] the choices; a hand within [reach] of a slot hovers it. Returns the chosen slot once, else -1. */
+    fun feed(pointers: List<Pair<Float, Float>>, slots: List<Pair<Float, Float>>, reach: Float, t: Long): Int {
+        val over = slots.indices.minByOrNull { i -> pointers.minOfOrNull { hypot(it.first - slots[i].first, it.second - slots[i].second) } ?: Float.MAX_VALUE }
+            ?.takeIf { i -> pointers.any { hypot(it.first - slots[i].first, it.second - slots[i].second) <= reach } } ?: -1
+        if (over != hover) { hover = over; since = t; armed = true }
+        if (over < 0) { progress = 0f; return -1 }
+        progress = ((t - since).toFloat() / holdMs).coerceIn(0f, 1f)
+        if (armed && progress >= 1f) { armed = false; return over }
+        return -1
+    }
+    fun reset() { hover = -1; progress = 0f; armed = true }
+}
+
+/** A short, fading shake of the picture for an impact. The same kick always shakes the same way. Pure, so it is tested. */
+class Shake(private val ms: Long = 350) {
+    private var at = Long.MIN_VALUE / 2; private var power = 0f
+    fun kick(p: Float, t: Long) { power = p.coerceIn(0f, 1f); at = t }
+    /** How far to shift the picture now, as a fraction of its size (x, y). Zero when nothing is shaking. */
+    fun offset(t: Long): Pair<Float, Float> {
+        val age = t - at
+        if (age !in 0..ms) return 0f to 0f
+        val k = power * (1f - age.toFloat() / ms) * 0.03f
+        return (k * kotlin.math.sin(age / 11f)) to (k * kotlin.math.cos(age / 7f))
+    }
+}
+
+/**
+ * Watches how fast body tracking is really arriving and says when to lighten the load (fewer sparks, no finger tracking) so
+ * the hands stay responsive. It switches down below [low] updates a second and back up only above [high], so it doesn't flap.
+ * Pure, so it is tested.
+ */
+class Throttle(private val low: Float = 10f, private val high: Float = 18f) {
+    var fps = 30f; private set
+    var lite = false; private set
+    private var last = -1L
+    fun frame(t: Long) {
+        if (last >= 0 && t > last) fps = fps * 0.85f + (1000f / (t - last)).coerceAtMost(60f) * 0.15f
+        last = t
+        if (!lite && fps < low) lite = true else if (lite && fps > high) lite = false
     }
 }

@@ -175,3 +175,64 @@ class BodyGesturesTest {
         assertEquals(21, 1 + app.ultimate.air.HAND_BONES.flatMap { listOf(it.first, it.second) }.max())
     }
 }
+
+class SpatialUiTest {
+    private val B = app.ultimate.air.BodyPose
+    private fun pose(): app.ultimate.air.BodyPose {
+        val pts = MutableList(33) { Triple(0.5f, 0.5f, 0f) }
+        pts[B.L_SHOULDER] = Triple(0.6f, 0.5f, 0.9f); pts[B.R_SHOULDER] = Triple(0.4f, 0.5f, 0.9f)
+        return app.ultimate.air.BodyPose(pts, 0)
+    }
+
+    @Test fun thePaletteShowsFiveAroundTheCurrentChoiceAndWraps() {
+        assertEquals(listOf(6, 7, 0, 1, 2), app.ultimate.air.ArcMenu.window(0, 8))
+        assertEquals(listOf(2, 3, 4, 5, 6), app.ultimate.air.ArcMenu.window(4, 8))
+        assertEquals(listOf(2, 0, 1), app.ultimate.air.ArcMenu.window(0, 3)); assertTrue(app.ultimate.air.ArcMenu.window(0, 0).isEmpty())
+    }
+
+    @Test fun theArcSitsAboveTheShouldersLeftToRightAndFollowsTheBody() {
+        val s = app.ultimate.air.ArcMenu.slots(pose(), false, 5)!!
+        assertEquals(5, s.size); assertTrue("all above the shoulders", s.all { it.second < 0.5f })
+        assertTrue("left to right", s.zipWithNext().all { (a, b) -> a.first < b.first }); assertEquals("the middle one is straight overhead", 0.5f, s[2].first, 0.01f)
+        assertEquals(0.38f, 0.5f - s[2].second, 0.01f)
+        assertNull(app.ultimate.air.ArcMenu.slots(app.ultimate.air.BodyPose(MutableList(33) { Triple(0.5f, 0.5f, 0f) }, 0), false, 5))
+    }
+
+    @Test fun pointingAndHoldingChoosesOnceAndPassingThroughDoesNot() {
+        val d = app.ultimate.air.Dwell(); val slots = listOf(0.2f to 0.2f, 0.5f to 0.1f, 0.8f to 0.2f)
+        assertEquals(-1, d.feed(listOf(0.5f to 0.6f), slots, 0.08f, 0)); assertEquals(-1, d.hover)
+        assertEquals(-1, d.feed(listOf(0.21f to 0.22f), slots, 0.08f, 100)); assertEquals(0, d.hover)
+        assertEquals("moved on before the hold was up", -1, d.feed(listOf(0.5f to 0.12f), slots, 0.08f, 400)); assertEquals(1, d.hover)
+        assertEquals(-1, d.feed(listOf(0.5f to 0.12f), slots, 0.08f, 800)); assertEquals(0.57f, d.progress, 0.02f)
+        assertEquals(1, d.feed(listOf(0.5f to 0.12f), slots, 0.08f, 1150))
+        assertEquals("only once while it stays there", -1, d.feed(listOf(0.5f to 0.12f), slots, 0.08f, 2500))
+        assertEquals("either hand can point", 2, d.feed(listOf(0.5f to 0.9f, 0.8f to 0.2f), slots, 0.08f, 3000).let { d.feed(listOf(0.5f to 0.9f, 0.8f to 0.2f), slots, 0.08f, 3800) })
+    }
+
+    @Test fun aLooserSweepAtChestHeightNowCountsAndTheMeterShowsItBuilding() {
+        val g = app.ultimate.air.BodyGestures(); var t = 0L; val seen = ArrayList<Float>(); var swipes = 0
+        fun p(x: Float): app.ultimate.air.BodyPose { val pts = MutableList(33) { Triple(0.5f, 0.5f, 0f) }
+            pts[B.NOSE] = Triple(0.5f, 0.3f, 0.9f); pts[B.L_SHOULDER] = Triple(0.6f, 0.4f, 0.9f); pts[B.R_SHOULDER] = Triple(0.4f, 0.4f, 0.9f); pts[B.L_WRIST] = Triple(x, 0.45f, 0.9f); return app.ultimate.air.BodyPose(pts, 0) }
+        for (i in 0..6) { swipes += g.feed(p(0.5f + i * 0.025f), false, t).size; seen += g.swipeProgress; t += 60 }
+        assertEquals("0.15 across at chest height (below the shoulder line) is a swipe now", 1, swipes)
+        assertTrue("the meter climbed on the way: $seen", seen.take(5).zipWithNext().all { (a, b) -> b >= a } && seen[3] > 0.4f)
+    }
+
+    @Test fun impactsShakeThenSettleAndSlowTrackingSwitchesToLightAndBack() {
+        val s = app.ultimate.air.Shake(); assertEquals(0f to 0f, s.offset(100)); s.kick(1f, 1000)
+        val early = s.offset(1030); val late = s.offset(1300)
+        assertTrue(kotlin.math.hypot(early.first, early.second) > kotlin.math.hypot(late.first, late.second)); assertEquals(0f to 0f, s.offset(1400))
+        val th = app.ultimate.air.Throttle(); var t = 0L
+        repeat(40) { th.frame(t); t += 33 }; assertFalse(th.lite)
+        repeat(40) { th.frame(t); t += 160 }; assertTrue("about 6 a second is too slow", th.lite)
+        repeat(8) { th.frame(t); t += 70 }; assertTrue("14 a second is not yet enough to switch back", th.lite)
+        repeat(60) { th.frame(t); t += 40 }; assertFalse(th.lite)
+    }
+
+    @Test fun glovesAndShoesTurnWithTheLimbAndImplodingSparksHeadInward() {
+        assertEquals(0f, app.ultimate.air.direction(0f to 0f, 1f to 0f), 0.1f); assertEquals(90f, app.ultimate.air.direction(0f to 0f, 0f to 1f), 0.1f); assertEquals(-90f, app.ultimate.air.direction(0f to 1f, 0f to 0f), 0.1f)
+        val sp = app.ultimate.air.Sparks(seed = 2); sp.implode(0.5f, 0.5f, 20, 0.2f)
+        val before = sp.all.map { kotlin.math.hypot(it.x - 0.5f, it.y - 0.5f) }.average(); sp.step(0.1f)
+        assertTrue(sp.all.map { kotlin.math.hypot(it.x - 0.5f, it.y - 0.5f) }.average() < before)
+    }
+}

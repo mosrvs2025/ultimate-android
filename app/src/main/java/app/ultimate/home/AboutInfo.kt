@@ -62,6 +62,13 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.95.0", listOf(
+            "A floating palette in AR: hold both hands above your head and an arc of choices appears over your shoulders and moves with you. Point at one and keep your hand there; a ring fills and it is chosen. Effects normally, outfits when you are wearing one.",
+            "Energy blast has impact: sparks rush inward and rings close faster as you charge, colours pull apart at the edges, and letting go fires a beam with a flash and a shake.",
+            "Air swipes are easier and you can see them being read: a sweep at chest height of about two thirds of your shoulder width is enough, a bar at the top fills toward the side you sweep, and a ghost trail follows your hand.",
+            "Costumes follow your pose: the crown and shades tilt with your head, each boxing glove turns and sits along its forearm, and each trainer points where the foot points.",
+            "Smoother tracking: the body model now reads a small picture while the preview stays sharp, and when tracking falls behind the effects lighten (fewer sparks, no finger tracking) until it catches up.",
+        ), tries = listOf("playground")),
         Entry("1.94.0", listOf(
             "Studio opens clean: coming back asks \"Pick up where you left off?\" (Resume or New project), and videos you send to Studio from elsewhere always start a new project instead of joining the last one.",
             "Edit in Studio: any video in the Library (from Squeeze or Studio) now has an Edit in Studio button that opens it straight in the editor.",
