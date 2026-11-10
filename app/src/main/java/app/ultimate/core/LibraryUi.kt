@@ -126,6 +126,15 @@ fun LibraryDetailSheet(item: LibraryItem, tool: Tool, onDismiss: () -> Unit) {
                     Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Rename")
                 }
             }
+            // Videos can go straight into the editor as a new project; no hunting through Create.
+            if (item.mimeType.startsWith("video/") && item.uri != null && tool.id != "studio") {
+                val host = remember { context.applicationContext as? app.ultimate.UltimateApp }
+                val studio = remember { host?.tools?.firstOrNull { it.id == "studio" } }
+                if (studio != null) FilledTonalButton(
+                    { onDismiss(); host?.shell?.open(studio, ToolLaunch(uris = listOf(Uri.parse(item.uri)))) },
+                    Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp),
+                ) { Icon(Icons.Rounded.Edit, null); Spacer(Modifier.width(8.dp)); Text("Edit in Studio") }
+            }
             item.uri?.let { SendTo(Uri.parse(it), item.mimeType, tool.id, onSent = onDismiss) }
             if (item.mimeType.startsWith("text/") && item.uri != null) TextPreview(item.uri)
             if ((item.mimeType.startsWith("audio/") || item.mimeType.startsWith("video/")) && item.uri != null) TranscriptSection(item.uri)

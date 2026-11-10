@@ -32,7 +32,7 @@ class SqueezeTool(private val app: UltimateApp) : Tool {
 
     override val id = "squeeze"
     override val title = "Squeeze"
-    override val tagline = "Shrink videos to a fraction of the size"
+    override val tagline = "Make a video smaller to save space or send it, without editing it"
     override val icon: ImageVector = Icons.Rounded.Compress
     override val acceptedMimePrefixes = listOf("video/")
 

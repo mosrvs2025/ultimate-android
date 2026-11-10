@@ -1,5 +1,6 @@
 package app.ultimate.studio
 
+import app.ultimate.insights.trackProblem
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
@@ -25,7 +26,18 @@ class StudioRenderer(private val context: Context) {
         var pending: Uri? = null
         var published = false
         try {
-            val result = render(project, temp, progress)
+            val plan = withContext(Dispatchers.IO) { ExportPlanner.plan(project.clips.map { ExportPlanner.probe(context, it) }, project.shortSide) }
+            detail("Video: ${if (plan.mime == MimeTypes.VIDEO_H265) "HEVC" else "H.264"} at ${plan.bitrate / 1000} kbps, ${plan.why}")
+            // A runtime error from the encoder pipeline is often down to one unusual piece (a forced audio track, a loop, custom fades),
+            // so one retry is made in the plainest form before giving up. The reason goes to the render log and the problem report.
+            val result = try { render(project, temp, progress, plan, safe = false) } catch (e: androidx.media3.transformer.ExportException) {
+                if (e.errorCode == androidx.media3.transformer.ExportException.ERROR_CODE_FAILED_RUNTIME_CHECK || e.errorCode == androidx.media3.transformer.ExportException.ERROR_CODE_ENCODING_FAILED || e.errorCode == androidx.media3.transformer.ExportException.ERROR_CODE_ENCODER_INIT_FAILED) {
+                    detail("The first try failed (${e.errorCodeName}); trying again in a simpler way")
+                    context.trackProblem("Studio export", "${e.errorCodeName}: retried")
+                    temp.delete(); progress(0)
+                    render(project, temp, progress, ExportPlan(MimeTypes.VIDEO_H264, plan.bitrate, "retry"), safe = true)
+                } else throw e
+            }
             detail("Encoded by ${result.videoEncoderName}; ${result.width}×${result.height}; ${result.videoFrameCount} frames")
             currentCoroutineContext().ensureActive()
             val displayName = "${project.name.replace(Regex("[^\\p{L}\\p{N} _-]"), "").take(64).ifBlank { "Studio" }}-${System.currentTimeMillis()}.mp4"
@@ -61,17 +73,17 @@ class StudioRenderer(private val context: Context) {
             }
         }
     }
-    private suspend fun render(project: StudioProject, file: File, progress: (Int) -> Unit): ExportResult = withContext(Dispatchers.Main.immediate) {
+    private suspend fun render(project: StudioProject, file: File, progress: (Int) -> Unit, plan: ExportPlan, safe: Boolean): ExportResult = withContext(Dispatchers.Main.immediate) {
         val videos = project.clips.map { c -> EditedMediaItem.Builder(StudioEffects.mediaItem(c))
             .setRemoveAudio(c.volume == 0f).setEffects(StudioEffects.effects(c, project)).build() }
         val sequences = mutableListOf(EditedMediaItemSequence.Builder(videos).build())
         project.music?.let { m ->
             val item = MediaItem.Builder().setUri(m.uri).setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionMs(m.startMs).setEndPositionMs(m.durationMs).build()).build()
             val music = EditedMediaItem.Builder(item).setRemoveVideo(true).setEffects(Effects(StudioEffects.audio(1f, m.volume), emptyList())).build()
-            sequences += EditedMediaItemSequence.Builder(music).setIsLooping(true).build()
+            sequences += EditedMediaItemSequence.Builder(music).setIsLooping(!safe).build()
         }
-        val fades = if (project.fadeInMs > 0 || project.fadeOutMs > 0) listOf<androidx.media3.common.audio.AudioProcessor>(FadeProcessor(project.fadeInMs, project.fadeOutMs, project.durationMs)) else emptyList()
-        val composition = Composition.Builder(sequences).experimentalSetForceAudioTrack(true).setEffects(Effects(fades, emptyList()))
+        val fades = if (!safe && (project.fadeInMs > 0 || project.fadeOutMs > 0)) listOf<androidx.media3.common.audio.AudioProcessor>(FadeProcessor(project.fadeInMs, project.fadeOutMs, project.durationMs)) else emptyList()
+        val composition = Composition.Builder(sequences).experimentalSetForceAudioTrack(!safe).setEffects(Effects(fades, emptyList()))
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL).build()
         val handler = Handler(Looper.getMainLooper())
         val holder = ProgressHolder()
@@ -80,8 +92,8 @@ class StudioRenderer(private val context: Context) {
         try {
             suspendCancellableCoroutine { continuation ->
                 val encoder = DefaultEncoderFactory.Builder(context).setEnableFallback(true)
-                    .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(if (project.shortSide == 1080) 8_000_000 else 3_500_000).build()).build()
-                val worker = Transformer.Builder(context).setVideoMimeType(MimeTypes.VIDEO_H264).setAudioMimeType(MimeTypes.AUDIO_AAC)
+                    .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(plan.bitrate).build()).build()
+                val worker = Transformer.Builder(context).setVideoMimeType(plan.mime).setAudioMimeType(MimeTypes.AUDIO_AAC)
                     .setEncoderFactory(encoder).addListener(object : Transformer.Listener {
                         override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                             if (continuation.isActive) continuation.resume(exportResult)

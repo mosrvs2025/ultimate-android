@@ -111,6 +111,29 @@ class StudioManager(private val context: Context, private val hub: WorkHub) : Wo
         }
     }
     fun newProject() = open(StudioProject())
+
+    /** Renames the film (the name is also the start of the exported file's name). A blank name goes back to "Untitled film". */
+    fun rename(name: String) { val n = name.trim().take(60).ifBlank { "Untitled film" }; edit { it.copy(name = n) } }
+
+    /**
+     * Videos sent here from elsewhere (Library "Edit", Share) go into a clean new project, never onto whatever was last open.
+     * The previous project is saved first and stays in Projects. An empty current project is simply used.
+     */
+    fun startWith(uris: List<Uri>) {
+        if (loading.value || work.value.active || uris.isEmpty()) return
+        val current = project.value
+        if (current.clips.isEmpty()) { addVideos(uris); return }
+        loading.value = true
+        scope.launch {
+            try {
+                saveJob?.cancel(); store.save(current)
+                projects.update { listOf(current) + it.filterNot { old -> old.id == current.id } }
+                history.clear(); apply(StudioProject()); selected.value = null
+            } catch (e: Exception) { error.value = "Could not save the current project: ${e.message}" }
+            finally { loading.value = false }
+            addVideos(uris)
+        }
+    }
     fun addVideos(uris: List<Uri>) {
         if (loading.value || work.value.active || uris.isEmpty()) return
         loading.value = true; error.value = null

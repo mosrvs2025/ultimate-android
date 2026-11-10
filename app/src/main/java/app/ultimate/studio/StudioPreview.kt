@@ -97,12 +97,18 @@ fun StudioPreview(
         // Typing a title changes the picture on every key; wait for a pause before rebuilding it.
         if (loadedId == clip.id) delay(250)
         val at = Timeline.locate(current, playhead)?.second ?: 0L
+        // Silence the player while the next clip loads, so the end of the last one and the start of this one never overlap (the echo).
+        video.volume = 0f
+        video.pause()
         video.setVideoEffects(StudioEffects.video(clip, current, false))
         video.setMediaItem(StudioEffects.mediaItem(clip), (at * clip.speed).toLong())
         video.prepare()
-        video.playWhenReady = playing
         loadedId = clip.id
         reported = playhead
+        var waited = 0
+        while (video.playbackState != Player.STATE_READY && waited < 1500) { delay(30); waited += 30 }
+        video.volume = clip.volume.coerceIn(0f, 1f)
+        video.playWhenReady = playing
     }
     LaunchedEffect(clip?.speed) { clip?.let { video.playbackParameters = PlaybackParameters(it.speed, 1f) } }
     LaunchedEffect(clip?.volume) { clip?.let { video.volume = it.volume.coerceIn(0f, 1f) } }
@@ -110,8 +116,12 @@ fun StudioPreview(
     // A playhead that moved without playback (scrubbing, a tapped clip, undo) is a seek within the loaded clip.
     LaunchedEffect(playheadMs, loadedId) {
         if (clip != null && loadedId == clip.id && (!playing || abs(playheadMs - reported) > 300)) {
+            // While the playhead is being dragged, jump to the nearest keyframe (fast, so the picture follows the finger); once it
+            // settles, land on the exact frame.
+            video.setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
             video.seekTo((local * clip.speed).toLong())
             reported = playheadMs
+            if (!playing) { delay(180); video.setSeekParameters(androidx.media3.exoplayer.SeekParameters.EXACT); video.seekTo((local * clip.speed).toLong()) }
         }
     }
 

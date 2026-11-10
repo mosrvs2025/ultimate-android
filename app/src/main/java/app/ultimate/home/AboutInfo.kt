@@ -62,6 +62,16 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.94.0", listOf(
+            "Studio opens clean: coming back asks \"Pick up where you left off?\" (Resume or New project), and videos you send to Studio from elsewhere always start a new project instead of joining the last one.",
+            "Edit in Studio: any video in the Library (from Squeeze or Studio) now has an Edit in Studio button that opens it straight in the editor.",
+            "Name your film: tap the title at the top of Studio (or File name in the Export sheet) to rename it. The name becomes the start of the exported file's name.",
+            "Export finished: when a render ends a clear box says so, with the file name, size and length, and Play and Share buttons.",
+            "Smaller exports: Studio now picks the video codec and bitrate from your clips instead of always using 8 Mbps H.264. A trimmed Squeeze (HEVC) video stays HEVC at about its own bitrate, so it should no longer come out bigger than the original. The render log says what was chosen.",
+            "Fewer export errors: if the encoder hits a runtime error, Studio retries once in a simpler way (no forced audio track, loop or custom fades) and records the reason, before giving up.",
+            "Smoother preview: scrubbing jumps to the nearest keyframe while you drag and lands on the exact frame when you stop, and the player is muted while the next clip loads so clips no longer overlap in sound.",
+            "Clearer tool descriptions: Studio is \"Edit videos\", Squeeze is \"Make a video smaller\", Video to audio is \"Pull the sound out of a video\".",
+        ), tries = listOf("studio")),
         Entry("1.93.0", listOf(
             "Work the AR camera from across the room: raise a hand and sweep it sideways to go to the next or previous effect, and hold both hands above your head to switch the swipe between effects and outfits. A big banner says what you picked.",
             "Energy blast: bring both hands together to charge a ball of energy (the longer, the bigger), then throw them apart to fire it.",
