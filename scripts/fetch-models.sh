@@ -16,4 +16,8 @@ echo "gesture model: $(du -h "$g" | cut -f1)"
 fm=app/src/vision/assets/face_landmarker.task
 [ -s "$fm" ] || curl -fsSL "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task" -o "$fm"
 echo "face model: $(du -h "$fm" | cut -f1)"
+# - MediaPipe Pose Landmarker, lite (Apache-2.0): whole-body tracking for Playground's AR effects.
+pm=app/src/vision/assets/pose_landmarker_lite.task
+[ -s "$pm" ] || curl -fsSL "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task" -o "$pm"
+echo "pose model: $(du -h "$pm" | cut -f1)"
 ./scripts/fetch-needle.sh

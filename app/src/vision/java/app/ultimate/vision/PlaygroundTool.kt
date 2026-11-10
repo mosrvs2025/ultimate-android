@@ -1,5 +1,14 @@
 package app.ultimate.vision
 
+import app.ultimate.air.Trails
+import app.ultimate.air.Sparks
+import app.ultimate.air.RepCounter
+import app.ultimate.air.Joints
+import app.ultimate.air.CameraFilters
+import app.ultimate.air.BodyEffect
+import app.ultimate.air.BodyPose
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.material3.FilterChip
 import android.Manifest
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -108,7 +117,7 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         var allowed by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) }
         val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed = it }
         // "call" opens straight into hands-free calling (from the call-me hand shape in Air control).
-        var mode by remember { mutableIntStateOf(if (launch.query == "call" && context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEPHONY)) 3 else 0) }
+        var mode by remember { mutableIntStateOf(if (launch.query == "call" && context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEPHONY)) 4 else 0) }
         val view = LocalView.current
         DisposableEffect(Unit) { view.keepScreenOn = true; onDispose { view.keepScreenOn = false } }
         var ring by remember { mutableStateOf(false) }
@@ -123,14 +132,15 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(4.dp)) {
                     // Calling only on devices that can make calls (not on Wi-Fi tablets).
                     val canCall = remember { context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEPHONY) }
-                    (if (canCall) listOf("🎹 Piano", "✏️ Draw", "😎 Face", "📞 Call") else listOf("🎹 Piano", "✏️ Draw", "😎 Face")).forEachIndexed { i, label ->
+                    (if (canCall) listOf("🎹 Piano", "✏️ Draw", "😎 Face", "🪄 AR", "📞 Call") else listOf("🎹 Piano", "✏️ Draw", "😎 Face", "🪄 AR")).forEachIndexed { i, label ->
                         Text(label, Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(if (mode == i) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                             .clickable { mode = i; hand.value = null; face.value = null }.padding(vertical = 10.dp),
+                            maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = if (mode == i) FontWeight.SemiBold else null)
                     }
                 }
                 DarkHint(ring) { ring = !ring }
-                when (mode) { 0 -> Piano(); 1 -> Draw(); 2 -> FaceFun(); else -> FaceCall() }
+                when (mode) { 0 -> Piano(); 1 -> Draw(); 2 -> FaceFun(); 3 -> BodyAr(); else -> FaceCall() }
             }
         }
         RingLight(ring)
@@ -325,6 +335,101 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                         style = if (i == at) MaterialTheme.typography.titleLarge else MaterialTheme.typography.bodyLarge, fontWeight = if (i == at) FontWeight.Bold else null)
                 }
             }
+        }
+    }
+
+    private val body = MutableStateFlow<BodyPose?>(null)
+
+    /** AR for your whole body: looks for the picture, and effects that follow your hands, feet and limbs. */
+    @Composable
+    private fun ColumnScope.BodyAr() {
+        val context = LocalContext.current
+        if (!remember { hasPoseModel(context) }) { Text("Body tracking isn't in this build.", style = MaterialTheme.typography.bodyMedium); return }
+        val pose by body.collectAsState()
+        var front by remember { mutableStateOf(true) }
+        var effect by remember { mutableStateOf(BodyEffect.Neon) }
+        var look by remember { mutableIntStateOf(0) }
+        val trails = remember { Trails() }
+        val sparks = remember { Sparks() }
+        val reps = remember { RepCounter() }
+        var repCount by remember { mutableIntStateOf(0) }
+        val lastAt = remember { HashMap<Int, Pair<Float, Float>>() }
+        var frame by remember { mutableLongStateOf(0L) }
+        // One clock for the effects: sparks fall and trails fade even while you stand still.
+        LaunchedEffect(Unit) { var prev = 0L; while (true) { androidx.compose.runtime.withFrameMillis { t -> if (prev != 0L) sparks.step(((t - prev) / 1000f).coerceAtMost(0.1f)); prev = t; frame = t } } }
+        LaunchedEffect(pose, effect) {
+            val p = pose ?: return@LaunchedEffect
+            val now = System.currentTimeMillis()
+            fun moved(i: Int, at: Pair<Float, Float>) = (lastAt.put(i, at)?.let { hypot(at.first - it.first, at.second - it.second) } ?: 0f)
+            when (effect) {
+                BodyEffect.Trails -> (BodyPose.HANDS + BodyPose.FEET).forEach { i -> p.at(i, front)?.let { trails.add(i, it.first, it.second, now) } }
+                BodyEffect.Fire -> listOf(BodyPose.L_INDEX, BodyPose.R_INDEX).forEach { i -> p.at(i, front)?.let { sparks.emit(it.first, it.second, 4, moved(i, it) * 8f, 18f) } }
+                BodyEffect.Kicks -> listOf(BodyPose.L_TOE, BodyPose.R_TOE).forEach { i -> p.at(i, front)?.let { val m = moved(i, it); if (m > 0.012f) sparks.emit(it.first, it.second, (m * 400).toInt().coerceIn(2, 14), m * 10f, 190f) } }
+                BodyEffect.Coach -> if (reps.feed(Joints.knee(p), now)) repCount = reps.count
+                else -> Unit
+            }
+        }
+        Text(if (pose == null) "Step back so the camera sees you. Prop the phone up for your whole body, or point it at your hands or feet." else "${effect.label.drop(2).trim()}: ${effect.parts}.", style = MaterialTheme.typography.bodyMedium)
+        Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
+            androidx.compose.runtime.key(front) { BodyCamera(front, CameraFilters.all[look].second, body) }
+            Canvas(Modifier.fillMaxSize()) {
+                @Suppress("UNUSED_VARIABLE") val tick = frame
+                val p = pose
+                fun pt(i: Int) = p?.at(i, front)?.let { Offset(it.first * size.width, it.second * size.height) }
+                fun emoji(s: String, at: Offset, px: Float) = drawContext.canvas.nativeCanvas.drawText(s, at.x, at.y + px * 0.35f, android.graphics.Paint().apply { textSize = px; textAlign = android.graphics.Paint.Align.CENTER })
+                val unit = (p?.let { Joints.scale(it) } ?: 0.2f) * size.width
+                when (effect) {
+                    BodyEffect.Neon -> if (p != null) {
+                        BodyPose.BONES.forEachIndexed { n, (a, b) ->
+                            val pa = pt(a); val pb = pt(b)
+                            if (pa != null && pb != null) {
+                                val c = Color.hsv((n * 37f + (frame / 12f)) % 360f, 0.85f, 1f)
+                                drawLine(c.copy(alpha = 0.25f), pa, pb, strokeWidth = unit * 0.16f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                drawLine(c, pa, pb, strokeWidth = unit * 0.05f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            }
+                        }
+                        pt(BodyPose.NOSE)?.let { drawCircle(Color.White, unit * 0.32f, it, style = Stroke(unit * 0.05f)) }
+                    }
+                    BodyEffect.Trails -> trails.lines(System.currentTimeMillis()).forEach { (key, line) ->
+                        val hue = if (key in BodyPose.HANDS) 285f else 170f
+                        for (i in 1 until line.size) {
+                            val a = line[i - 1]; val b = line[i]
+                            if (hypot(a.first - b.first, a.second - b.second) < 0.25f)
+                                drawLine(Color.hsv(hue, 0.7f, 1f).copy(alpha = b.third.coerceIn(0f, 1f)), Offset(a.first * size.width, a.second * size.height), Offset(b.first * size.width, b.second * size.height), strokeWidth = unit * 0.12f * b.third.coerceIn(0.1f, 1f), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                        }
+                    }
+                    BodyEffect.Fire, BodyEffect.Kicks -> Unit
+                    BodyEffect.Costume -> if (p != null) {
+                        val ears = pt(BodyPose.L_EAR) to pt(BodyPose.R_EAR)
+                        val head = (ears.first?.let { l -> ears.second?.let { r -> (l - r).getDistance() } } ?: (unit * 0.45f))
+                        pt(BodyPose.NOSE)?.let { emoji("👑", it - Offset(0f, head * 1.35f), head * 1.3f); emoji("🕶️", it - Offset(0f, head * 0.2f), head * 1.25f) }
+                        BodyPose.HANDS.forEach { i -> pt(i)?.let { emoji("🥊", it, unit * 0.55f) } }
+                        listOf(BodyPose.L_TOE to BodyPose.L_HEEL, BodyPose.R_TOE to BodyPose.R_HEEL).forEach { (toe, heel) ->
+                            val a = pt(toe); val b = pt(heel); if (a != null && b != null) emoji("👟", Offset((a.x + b.x) / 2, (a.y + b.y) / 2), unit * 0.5f)
+                        }
+                    }
+                    BodyEffect.Coach -> if (p != null) {
+                        BodyPose.BONES.forEach { (a, b) -> val pa = pt(a); val pb = pt(b); if (pa != null && pb != null) drawLine(Color.White.copy(alpha = 0.8f), pa, pb, strokeWidth = 4f) }
+                        val paint = android.graphics.Paint().apply { color = android.graphics.Color.WHITE; textSize = 15.sp.toPx(); isFakeBoldText = true; setShadowLayer(6f, 0f, 0f, android.graphics.Color.BLACK) }
+                        fun label(a: Int, b: Int, c: Int) { val pa = pt(a); val pb = pt(b); val pc = pt(c); if (pa != null && pb != null && pc != null) drawContext.canvas.nativeCanvas.drawText("%.0f°".format(Joints.angle(pa.x to pa.y, pb.x to pb.y, pc.x to pc.y)), pb.x + 12f, pb.y, paint) }
+                        label(BodyPose.L_SHOULDER, BodyPose.L_ELBOW, BodyPose.L_WRIST); label(BodyPose.R_SHOULDER, BodyPose.R_ELBOW, BodyPose.R_WRIST)
+                        label(BodyPose.L_HIP, BodyPose.L_KNEE, BodyPose.L_ANKLE); label(BodyPose.R_HIP, BodyPose.R_KNEE, BodyPose.R_ANKLE)
+                    }
+                }
+                sparks.all.forEach { s -> drawCircle(Color.hsv(s.hue % 360f, 0.9f, 1f).copy(alpha = s.life.coerceIn(0f, 1f)), unit * 0.035f * (0.5f + s.life), Offset(s.x * size.width, s.y * size.height)) }
+            }
+            if (effect == BodyEffect.Coach) Column(Modifier.align(Alignment.TopStart).padding(12.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Text("$repCount squats", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                pose?.let { Joints.shoulderTilt(it) }?.let { Text(if (it < 4f) "Shoulders level" else "Shoulders tilted %.0f°".format(it), color = Color.White, style = MaterialTheme.typography.labelMedium) }
+                Text("Reset", Modifier.clip(RoundedCornerShape(8.dp)).clickable { reps.reset(); repCount = 0 }.padding(vertical = 4.dp), color = Color(0xFF7FD3FF), style = MaterialTheme.typography.labelLarge)
+            }
+            androidx.compose.material3.FilledTonalIconButton({ front = !front; trails.clear() }, Modifier.align(Alignment.TopEnd).padding(8.dp)) { Text("🔄") }
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            BodyEffect.entries.forEach { e -> FilterChip(effect == e, { effect = e; trails.clear(); sparks.all.clear() }, { Text(e.label) }) }
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CameraFilters.all.forEachIndexed { i, (name, _) -> FilterChip(look == i, { look = i }, { Text(name) }) }
         }
     }
 

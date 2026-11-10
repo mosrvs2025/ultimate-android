@@ -62,6 +62,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.92.0", listOf(
+            "New in Playground: AR. The camera now tracks your whole body (on the phone, nothing saved) and draws on it live: a neon skeleton, light trails from your hands and feet, fire from your fingertips, sparks when your feet move, and a costume (crown, shades, boxing gloves, trainers) that follows you.",
+            "Coach: shows your elbow and knee angles on your body, counts squats, and tells you if your shoulders are level.",
+            "Ten looks for the picture: Vivid, Mono, Noir, Sepia, Warm, Cool, Night, Heat, Negative, or none. Flip between front and back camera with 🔄.",
+        ), tries = listOf("playground")),
         Entry("1.91.0", listOf(
             "Suggestions you can turn down: with \"Learn my habits\" on, the suggested tool on Home is now a clear card that says why (\"Because: charging, evening\") with a Not now button. Not now is remembered: the same tool isn't offered again at that time of day for two weeks, and three refusals in a month silence it.",
             "Habits now also notice how the phone is carried (on a table, in your hand, walking), felt for two seconds when Home opens, so a suggestion can depend on it.",

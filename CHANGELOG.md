@@ -3,6 +3,11 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 1.92.0
+- New in Playground: AR. The camera now tracks your whole body (on the phone, nothing saved) and draws on it live: a neon skeleton, light trails from your hands and feet, fire from your fingertips, sparks when your feet move, and a costume (crown, shades, boxing gloves, trainers) that follows you.
+- Coach: shows your elbow and knee angles on your body, counts squats, and tells you if your shoulders are level.
+- Ten looks for the picture: Vivid, Mono, Noir, Sepia, Warm, Cool, Night, Heat, Negative, or none. Flip between front and back camera with 🔄.
+
 ## 1.91.0
 - Suggestions you can turn down: with "Learn my habits" on, the suggested tool on Home is now a clear card that says why ("Because: charging, evening") with a Not now button. Not now is remembered: the same tool isn't offered again at that time of day for two weeks, and three refusals in a month silence it.
 - Habits now also notice how the phone is carried (on a table, in your hand, walking), felt for two seconds when Home opens, so a suggestion can depend on it.
