@@ -1,5 +1,6 @@
 package app.ultimate.orb
 
+import androidx.compose.foundation.clickable
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -104,13 +105,34 @@ private fun OrbScreen(onExit: () -> Unit) {
                     } else OrbService.set(context, want)
                 })
             }
+            // Appear by itself when you leave the app, so it never has to be switched on first.
+            var auto by remember { mutableStateOf(OrbSettings.auto(context)) }
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Show it when I leave the app", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Press home or switch apps and the orb appears by itself. It hides while you are in Ultimate.", style = MaterialTheme.typography.bodySmall)
+                }
+                GooeySwitch(auto && allowed, { want -> auto = want; OrbSettings.setAuto(context, want); if (want && !Settings.canDrawOverlays(context)) context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))) })
+            }
+            // Where it rests after you move it.
+            var place by remember { mutableStateOf(OrbSettings.place(context)) }
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Where it rests", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                OrbMath.Place.entries.forEach { p ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { place = p; OrbSettings.setPlace(context, p) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.RadioButton(place == p, { place = p; OrbSettings.setPlace(context, p) })
+                        Column { Text(p.label, fontWeight = FontWeight.Medium); Text(p.blurb, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                }
+            }
             if (crashed) Text("The orb stopped unexpectedly last time, so it was turned off. Turn it on to try again.", color = MaterialTheme.colorScheme.error)
             if (!allowed) Button({ context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))) }) { Text("Allow display over other apps") }
             Text("How it works", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             listOf(
                 "Tap" to "Your tools bloom out around it. The ones you use most come first.",
-                "Drag" to "Put it anywhere; it springs to the nearest edge.",
+                "Drag" to "Put it anywhere. Where it rests is your choice above.",
                 "Drag to ✕" to "Puts it away. Turn it back on here.",
+                "Media and quick" to "A petal with play, skip, volume and a few shortcuts (torch, Internet, sound, display).",
                 "Drop text on it" to "Keeps it in your clipboard history and copies it.",
                 "While working" to "It breathes, with a ring showing progress. A card peeks out when the job is done; tap the card to open it.",
             ).forEach { (k, v) ->

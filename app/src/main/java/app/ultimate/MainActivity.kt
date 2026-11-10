@@ -23,7 +23,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStart() { super.onStart(); ultimate.inApp.value = true }
-    override fun onStop() { ultimate.inApp.value = false; super.onStop() }
+    override fun onStop() { ultimate.inApp.value = false; app.ultimate.orb.OrbSettings.onLeftApp(this); super.onStop() }
 
     // Android lets an app read the clipboard only while it has focus, so each return to Ultimate keeps whatever was copied.
     override fun onWindowFocusChanged(hasFocus: Boolean) {

@@ -15,6 +15,23 @@ object OrbMath {
         return sx to sy
     }
 
+    /** How the orb comes to rest after a drag: always to the nearer side edge, only when close to an edge, or wherever it is let go. */
+    enum class Place(val label: String, val blurb: String) {
+        Edge("Snap to edge", "Springs to the nearest side"),
+        Soft("Soft edges", "Sticks to a side only when you let go close to it"),
+        Free("Anywhere", "Stays exactly where you let go"),
+    }
+
+    /** Where the orb (top-left corner) ends up under [mode]. [resist] is how near an edge counts as close, for [Place.Soft]. */
+    fun place(mode: Place, x: Int, y: Int, orb: Int, screenW: Int, screenH: Int, margin: Int, topInset: Int, bottomInset: Int, resist: Int): Pair<Int, Int> {
+        if (mode == Place.Edge) return snap(x, y, orb, screenW, screenH, margin, topInset, bottomInset)
+        val minX = margin; val maxX = (screenW - orb - margin).coerceAtLeast(minX)
+        val minY = topInset + margin; val maxY = (screenH - bottomInset - orb - margin).coerceAtLeast(minY)
+        var px = x.coerceIn(minX, maxX); val py = y.coerceIn(minY, maxY)
+        if (mode == Place.Soft) { if (px - minX <= resist) px = minX else if (maxX - px <= resist) px = maxX }
+        return px to py
+    }
+
     /**
      * Centers for [count] actions on an arc around the orb at ([cx], [cy]), opening toward the middle of the screen so none
      * fall off the edge it rests on. Near the top or bottom the arc turns down or up. Every center stays [pad] inside the screen.

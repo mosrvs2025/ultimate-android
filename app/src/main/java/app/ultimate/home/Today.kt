@@ -235,7 +235,7 @@ fun TodayDashboard(app: UltimateApp) {
                 Modifier.fillMaxWidth().appear("n-${n.id}", seen, i + 5).pressScale(0.98f).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.tertiaryContainer)
                     .clickable {
                         app.insights.count("home.nudge.${n.id}")
-                        if (n.id == "update") UpdateWatcher.find(app)?.let { context.startActivity(Intent(context, UpdateInstallActivity::class.java).putExtra("path", it.file.path)) }
+                        if (n.id == "update") context.startActivity(Intent(context, UpdateInstallActivity::class.java))
                         else n.toolId?.let(::open)
                     }.padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
