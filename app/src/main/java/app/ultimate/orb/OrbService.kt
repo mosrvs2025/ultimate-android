@@ -1,5 +1,7 @@
 package app.ultimate.orb
 
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.ui.draw.drawBehind
 import app.ultimate.home.HomeLayout
 
 import android.animation.ValueAnimator
@@ -244,7 +246,7 @@ class OrbService : Service() {
         frame.contentDescription = "Ultimate orb. Tap for tools, drag to move."
         wm.addView(frame, orbParams)
         orbView = frame
-        val (sx, sy) = OrbMath.snap(orbParams.x, orbParams.y, orbPx, sw, sh, (6 * density).toInt(), statusBar(), navBar())
+        val (sx, sy) = OrbMath.place(OrbSettings.place(this), orbParams.x, orbParams.y, orbPx, sw, sh, (6 * density).toInt(), statusBar(), navBar(), (28 * density).toInt())
         orbParams.x = sx; orbParams.y = sy; wm.updateViewLayout(frame, orbParams)
     }
 
@@ -287,7 +289,7 @@ class OrbService : Service() {
 
     private fun snapToEdge(v: View) {
         val (sw, sh) = screen()
-        val (sx, sy) = OrbMath.snap(orbParams.x, orbParams.y, orbPx, sw, sh, (6 * density).toInt(), statusBar(), navBar())
+        val (sx, sy) = OrbMath.place(OrbSettings.place(this), orbParams.x, orbParams.y, orbPx, sw, sh, (6 * density).toInt(), statusBar(), navBar(), (28 * density).toInt())
         val fromX = orbParams.x; val fromY = orbParams.y
         ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 420; interpolator = OvershootInterpolator(1.6f)
@@ -298,6 +300,23 @@ class OrbService : Service() {
             }
         }.start()
         prefs.edit().putInt("x", sx).putInt("y", sy).apply()
+    }
+
+    private var torchOn = false
+    /** The media and quick row: keys go out as media buttons (any player listens), the rest open the system's own small panels. */
+    private fun quick(key: String) {
+        val audio = getSystemService(android.media.AudioManager::class.java)
+        fun key(code: Int) { audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, code)); audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, code)) }
+        fun panel(action: String) { bloomClose?.invoke(); runCatching { startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+        when (key) {
+            "prev" -> key(android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS); "next" -> key(android.view.KeyEvent.KEYCODE_MEDIA_NEXT); "playpause" -> key(android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+            "volup" -> audio.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_RAISE, android.media.AudioManager.FLAG_SHOW_UI)
+            "voldown" -> audio.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_LOWER, android.media.AudioManager.FLAG_SHOW_UI)
+            "torch" -> runCatching { val cm = getSystemService(android.hardware.camera2.CameraManager::class.java); val id = cm.cameraIdList.first { cm.getCameraCharacteristics(it).get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true }; torchOn = !torchOn; cm.setTorchMode(id, torchOn) }
+            "internet" -> panel(android.provider.Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
+            "sound" -> panel(android.provider.Settings.Panel.ACTION_VOLUME)
+            "brightness" -> panel(android.provider.Settings.ACTION_DISPLAY_SETTINGS)
+        }
     }
 
     private fun putAway() {
@@ -377,6 +396,7 @@ class OrbService : Service() {
             OrbAction("storage", "Storage", tools.firstOrNull { it.id == "storage" }?.icon ?: Icons.Rounded.AutoAwesome, "storage"),
             OrbAction("send", "Computer", tools.firstOrNull { it.id == "send" }?.icon ?: Icons.Rounded.AutoAwesome, "send"),
             OrbAction("inbox", "Notifications", tools.firstOrNull { it.id == "inbox" }?.icon ?: Icons.Rounded.AutoAwesome, "inbox"),
+            OrbAction("media", "Media and quick", Icons.Rounded.MusicNote, null),
             OrbAction("cleanup", "Clean up", tools.firstOrNull { it.id == "cleanup" }?.icon ?: Icons.Rounded.AutoAwesome, "cleanup"),
         ).filter { it.toolId == null || it.toolId in ids }
         // Home stays first. Tools you pinned (hold one in More) come next, in the order you pinned them; without pins the
@@ -413,7 +433,7 @@ class OrbService : Service() {
             scope.launch { delay(230); runCatching { wm.removeView(view) }; bloomView = null; bloomClose = null; orbView?.visibility = if (app?.inApp?.value == true) View.GONE else View.VISIBLE; then?.invoke() }
         }
         view = compose {
-            Bloom(open.value, cx, cy, list, spots, orbPx, origin, everything(), pinned.value, glance, app,
+            Bloom(open.value, cx, cy, list, spots, orbPx, origin, everything(), pinned.value, glance, app, onQuick = { quick(it) }, nowPlaying = { OrbMedia.nowPlaying(this@OrbService) },
                 onKeyboard = { on -> runCatching { (view.layoutParams as WindowManager.LayoutParams).apply { flags = if (on) flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv() else flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE }.also { wm.updateViewLayout(view, it) } } },
                 onOpenTool = { id -> close { launch(id) } },
                 onOpenNote = { n -> close { openNote(n) } }, onCopy = { copy(it) },
@@ -554,7 +574,7 @@ private fun OrbFace(progress: MutableStateFlow<Float?>, busy: MutableStateFlow<B
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow)) }
     Box(Modifier.fillMaxSize().padding(4.dp).graphicsLayer { scaleX = scale * breath * appear.value; scaleY = scale * breath * appear.value }, contentAlignment = Alignment.Center) {
-        Box(Modifier.fillMaxSize().shadow(10.dp, CircleShape).clip(CircleShape).background(ORB_BRUSH), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().softShadow().clip(CircleShape).background(ORB_BRUSH), contentAlignment = Alignment.Center) {
             // Idle it wears its own mark; at work it shows what it is working on (a video being squeezed, a song being cut)
             // with the percentage under it.
             androidx.compose.animation.Crossfade(if (overTarget) "x" else if (working && jobIcon != null) "job" else "idle", label = "face") { face ->
@@ -594,22 +614,33 @@ private fun DismissTarget(near: MutableStateFlow<Boolean>) {
     }
 }
 
+/**
+ * A soft dark halo drawn inside the view's own bounds. Android's elevation shadow reaches outside the view, and an overlay
+ * window is only a little bigger than the orb, so the window's edge cut it off in a hard square. This stays inside, so no box shows.
+ */
+private fun Modifier.softShadow(corner: androidx.compose.ui.unit.Dp? = null): Modifier = if (corner != null) this else this.drawBehind {
+    // Faint wide rings first, darker ones nearer the edge, all within 4dp (the orb's own padding), so nothing reaches the window's edge.
+    val c = Offset(size.width / 2, size.height / 2)
+    repeat(4) { i -> drawCircle(Color.Black.copy(alpha = 0.05f + 0.05f * i), size.minDimension / 2 + (3 - i) * 1.1.dp.toPx(), c) }
+}
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun Bloom(
     shown: Boolean, cx: Float, cy: Float, actions: List<OrbAction>, spots: List<Pair<Float, Float>>, orbPx: Int,
-    windowOrigin: MutableStateFlow<IntOffset>, all: List<OrbAction>, pinned: Set<String>, glance: OrbGlance, app: UltimateApp?,
+    windowOrigin: MutableStateFlow<IntOffset>, all: List<OrbAction>, pinned: Set<String>, glance: OrbGlance, app: UltimateApp?, onQuick: (String) -> Unit, nowPlaying: () -> String?,
     onKeyboard: (Boolean) -> Unit, onOpenTool: (String?) -> Unit, onOpenNote: (GlanceNote) -> Unit, onCopy: (String) -> Unit, onPin: (String) -> Unit, onPick: (OrbAction) -> Unit, onClose: () -> Unit,
 ) {
     // More swaps the petals for a drawer of every tool; tapping outside the drawer goes back to the petals.
     var more by remember { mutableStateOf(false) }
+    var media by remember { mutableStateOf(false) }
     LaunchedEffect(more) { onKeyboard(more) }
-    val open = shown && !more
+    val open = shown && !more && !media
     val scrim by animateFloatAsState(if (shown) (if (more) 0.6f else 0.42f) else 0f, tween(220), label = "scrim")
     val d = LocalDensity.current
     val origin by windowOrigin.collectAsState()
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = scrim))
-        .clickable(remember { MutableInteractionSource() }, indication = null) { if (more) more = false else onClose() }) {
+        .clickable(remember { MutableInteractionSource() }, indication = null) { if (more) more = false else if (media) media = false else onClose() }) {
         // Each petal flies out from the orb on a spring, a beat after the one before; closing pulls them back in.
         val motion = motionOn()
         val ts = remember(actions.size) { List(actions.size) { Animatable(if (motion) 0f else 1f) } }
@@ -637,12 +668,34 @@ private fun Bloom(
             Row(
                 Modifier.offset { IntOffset((x - w / 2).roundToInt(), (y - h / 2).roundToInt()) }.size(PILL_W.dp, 46.dp)
                     .graphicsLayer { alpha = ((t.value - 0.4f) / 0.6f).coerceIn(0f, 1f) }
-                    .clip(RoundedCornerShape(50)).clickable(enabled = open) { if (a.key == "more") more = true else onPick(a) }.padding(horizontal = 14.dp),
+                    .clip(RoundedCornerShape(50)).clickable(enabled = open) { if (a.key == "more") more = true else if (a.key == "media") media = true else onPick(a) }.padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(a.icon, null, tint = if (a.key == "more") Color(0xFFB9C2FF) else Color.White, modifier = Modifier.size(22.dp))
                 Spacer(Modifier.width(12.dp))
                 Text(a.label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        // Media and quick controls: play, skip, volume and a few phone shortcuts, without leaving what you are doing.
+        androidx.compose.animation.AnimatedVisibility(
+            media && shown, Modifier.align(Alignment.BottomCenter),
+            enter = androidx.compose.animation.slideInVertically { it / 2 } + androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.slideOutVertically { it / 2 } + androidx.compose.animation.fadeOut(),
+        ) {
+            var title by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(media) { while (media) { title = nowPlaying(); delay(1500) } }
+            Column(Modifier.padding(12.dp).fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(PETAL).clickable(remember { MutableInteractionSource() }, indication = null) {}.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(title ?: "Nothing is playing", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                    listOf("prev" to "⏮", "playpause" to "⏯", "next" to "⏭", "voldown" to "🔉", "volup" to "🔊").forEach { (k, g) ->
+                        Text(g, fontSize = 26.sp, modifier = Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { onQuick(k) }.padding(horizontal = 14.dp, vertical = 10.dp))
+                    }
+                }
+                Text("Quick", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    listOf("torch" to "🔦 Torch", "internet" to "📶 Internet", "sound" to "🔔 Sound", "brightness" to "☀ Display").forEach { (k, g) ->
+                        Text(g, color = Color.White, fontSize = 13.sp, modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.12f)).clickable { onQuick(k) }.padding(horizontal = 12.dp, vertical = 8.dp))
+                    }
+                }
             }
         }
         androidx.compose.animation.AnimatedVisibility(
@@ -721,7 +774,7 @@ private fun Bloom(
         // The orb stays where it was, turning into a close button.
         val spin by animateFloatAsState(if (open) 135f else 0f, spring(Spring.DampingRatioMediumBouncy), label = "spin")
         Box(Modifier.offset { IntOffset((cx - orbPx / 2f - origin.x).roundToInt(), (cy - orbPx / 2f - origin.y).roundToInt()) }.size(with(d) { orbPx.toDp() }).padding(4.dp)
-            .shadow(10.dp, CircleShape).clip(CircleShape).background(ORB_BRUSH).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
+            .softShadow().clip(CircleShape).background(ORB_BRUSH).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
             Icon(Icons.Rounded.Close, "Close", Modifier.size(26.dp).graphicsLayer { rotationZ = spin - 135f }, tint = Color.White)
         }
     }
@@ -772,7 +825,7 @@ private fun PeekCard(peek: MutableStateFlow<Pair<String, String?>?>, fromLeft: B
     if (now != null) shown = now
     val t by animateFloatAsState(if (now != null) 1f else 0f, spring(0.6f, 300f), label = "peek")
     Row(Modifier.graphicsLayer { alpha = t; translationX = (1 - t) * (if (fromLeft) -60f else 60f) * density; scaleX = 0.85f + 0.15f * t; scaleY = 0.85f + 0.15f * t }
-        .widthIn(max = 240.dp).shadow(8.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(Color(0xFF26262C))
+        .widthIn(max = 240.dp).softShadow(16.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF26262C))
         .clickable { onOpen(shown?.second) }.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(ORB_BRUSH)); Spacer(Modifier.width(10.dp))
         Text(shown?.first.orEmpty(), color = Color.White, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)

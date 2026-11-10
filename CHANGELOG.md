@@ -3,6 +3,12 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 1.97.0
+- The orb can appear by itself: Floating orb now has Show it when I leave the app. Press home or switch apps and it shows up, no need to switch it on first. It still hides while you are in Ultimate.
+- No more square around the orb: the orb's shadow was being cut off by its overlay window, which showed a hard-edged box during taps and the opening animation. It now has a soft halo that stays inside.
+- Place it where you like: choose Snap to edge (as before), Soft edges (it sticks to a side only if you let go close to it) or Anywhere (it stays exactly where you drop it).
+- A Media and quick petal in the bloom: play and pause, skip, volume, what is playing (when notification access is on), and shortcuts for the torch, Internet, sound and display, without leaving what you are doing.
+
 ## 1.96.0
 - A deeper Health screen: This week vs last cards for steps, sleep, resting heart rate, HRV and active calories, each with the change, an arrow coloured by whether that is the good way, last week's number and a two-week line.
 - Steps goal: the last seven days as bars against 8,000 steps, green on the days you hit it, with your streak. Tap a day for its count.
