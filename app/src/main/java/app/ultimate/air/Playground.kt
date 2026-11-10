@@ -40,8 +40,10 @@ class DeskPiano(val keys: Int = 8, private val left: Float = 0.06f, private val 
             val desk = pads?.getOrNull(i)?.second ?: l
             val speed = if (lastY[i].isNaN()) 0f else t.second - lastY[i]
             lastY[i] = t.second
-            if (t.second < desk - lift) armed[i] = true
-            else if (armed[i] && t.second >= desk - lift * 0.3f && speed >= minSpeed) {
+            // The thumb moves less up and down than the fingers (it swings sideways), so it gets half the lift and speed to count.
+            val k = if (i == 0) 0.5f else 1f
+            if (t.second < desk - lift * k) armed[i] = true
+            else if (armed[i] && t.second >= desk - lift * 0.3f * k && speed >= minSpeed * k) {
                 armed[i] = false
                 (if (pads != null) i else keyAt(t.first))?.let(out::add)
             }
@@ -178,8 +180,16 @@ class FaceNavigator(private val margin: Float = 0.18f, private val nodMargin: Fl
  * [feed] takes a colour sampler over the picture (0..1 coordinates) and the face mesh points; returns 0..1.
  * Pure, so it is tested.
  */
-class TongueDetector(private val span: Float = 0.06f) {
+class TongueDetector(private val span: Float = 0.06f, private val openAt: Float = 0.05f) {
     private var base: Float? = null
+    private var smooth = 0f
+
+    /** How far the mouth is open, as a fraction of the face's height (inner lips, then forehead to chin). 0 when the mesh isn't whole. */
+    fun mouthOpen(points: List<Pair<Float, Float>>): Float {
+        if (points.size < 400) return 0f
+        val h = hypot(points[10].first - points[152].first, points[10].second - points[152].second).coerceAtLeast(1e-3f)
+        return hypot(points[13].first - points[14].first, points[13].second - points[14].second) / h
+    }
 
     fun feed(points: List<Pair<Float, Float>>, rgb: (Float, Float) -> Int): Float {
         if (points.size < 400) return 0f
@@ -191,10 +201,18 @@ class TongueDetector(private val span: Float = 0.06f) {
         val region = listOf(0.2f, 0.4f).flatMap { t -> val c = lerp(lip, chin, t); listOf(-w, 0f, w).map { dx -> red(c.first + dx, c.second) } }.average().toFloat()
         val skin = listOf(points[50], points[280], lerp(lip, chin, 0.85f)).map { red(it.first, it.second) }.average().toFloat()
         val d = region - skin
-        val b = base ?: d.also { base = it }
-        val level = ((d - b) / span).coerceIn(0f, 1f)
-        // Learn the resting difference only while the tongue is clearly in.
-        if (level < 0.3f) base = b + 0.03f * (d - b)
-        return level
+        // A tongue needs an open mouth. With the mouth shut the strip is only skin, so that is when the resting difference is
+        // learned (quickly), and nothing is reported. Learning it from whatever the first frame happened to show, and never again
+        // while the reading was high, left some faces stuck on "tongue out" for good.
+        if (mouthOpen(points) < openAt) {
+            base = base?.let { it + 0.15f * (d - it) } ?: d
+            smooth *= 0.5f
+            return 0f
+        }
+        val b = base ?: return 0f
+        val raw = ((d - b) / span).coerceIn(0f, 1f)
+        // Smoothed, so one odd frame can't flash it.
+        smooth += 0.4f * (raw - smooth)
+        return if (smooth < 0.35f) 0f else smooth
     }
 }

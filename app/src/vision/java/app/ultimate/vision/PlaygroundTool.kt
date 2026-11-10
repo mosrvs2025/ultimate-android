@@ -1,5 +1,6 @@
 package app.ultimate.vision
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import app.ultimate.air.direction
 import app.ultimate.air.BlastShot
 import app.ultimate.air.ArcMenu
@@ -139,12 +140,13 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                     Button({ ask.launch(Manifest.permission.CAMERA) }) { Text("Allow the camera") }
                     return@Column
                 }
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(4.dp)) {
+                // Five tabs no longer fit across a phone, so the row scrolls and each tab keeps its full width instead of being squeezed.
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).horizontalScroll(rememberScrollState()).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     // Calling only on devices that can make calls (not on Wi-Fi tablets).
                     val canCall = remember { context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEPHONY) }
                     (if (canCall) listOf("🎹 Piano", "✏️ Draw", "😎 Face", "🪄 AR", "📞 Call") else listOf("🎹 Piano", "✏️ Draw", "😎 Face", "🪄 AR")).forEachIndexed { i, label ->
-                        Text(label, Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(if (mode == i) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                            .clickable { mode = i; hand.value = null; face.value = null }.padding(vertical = 10.dp),
+                        Text(label, Modifier.clip(RoundedCornerShape(16.dp)).background(if (mode == i) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                            .clickable { mode = i; hand.value = null; face.value = null }.padding(horizontal = 18.dp, vertical = 10.dp),
                             maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = if (mode == i) FontWeight.SemiBold else null)
                     }
@@ -175,8 +177,8 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
             piano.feed(DeskPiano.TIPS.map { x(h.points[it]) to h.points[it].second }).forEach { k -> synth.play(k); lit += k to System.currentTimeMillis(); haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove) }
             lit.removeAll { System.currentTimeMillis() - it.second > 250 }
         }
-        Text(if (line == null) "Point the camera down at your desk, rest all five fingertips on it, then tap Set the desk." else if (padMode) "Each finger has its own note right where it rests: tap a finger down to play it (thumb C, index D, middle E, ring F, little G)." else "Lift a finger and tap it down onto a key.",
-            style = MaterialTheme.typography.bodyMedium)
+        Text(if (line == null) "Point the camera down at your desk, rest all five fingertips on it, then tap Set the desk." else if (padMode) "Tap a finger down to play its note: thumb C, index D, middle E, ring F, little G." else "Lift a finger and tap it down onto a key.",
+            style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
             androidx.compose.runtime.key(front) { GestureCamera(front, hand) }
             Canvas(Modifier.fillMaxSize()) {
@@ -369,6 +371,7 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         val throttle = remember { Throttle() }
         // The floating palette: 0 hidden, 1 effects, 2 outfits. It hides itself a few seconds after the last time a hand was near it.
         var palette by remember { mutableIntStateOf(0) }
+        var paletteWin by remember { mutableStateOf<List<Int>>(emptyList()) }
         var paletteAt by remember { mutableLongStateOf(0L) }
         var lite by remember { mutableStateOf(false) }
         var beam by remember { mutableStateOf<Pair<BlastShot, Long>?>(null) }
@@ -385,27 +388,30 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         var frame by remember { mutableLongStateOf(0L) }
         // One clock for the effects: sparks fall and trails fade even while you stand still.
         LaunchedEffect(Unit) { var prev = 0L; while (true) { androidx.compose.runtime.withFrameMillis { t -> if (prev != 0L) { val dt = ((t - prev) / 1000f).coerceAtMost(0.1f); sparks.step(dt); blasts.step(dt) }; prev = t; frame = t } } }
+        fun choosePalette(win: List<Int>, pick: Int, now: Long) {
+            if (palette == 2) { outfit = win[pick]; banner = Outfits.all[outfit].label to now }
+            else { effect = BodyEffect.entries[win[pick]]; swipeOutfits = effect == BodyEffect.Outfit; trails.clear(); sparks.all.clear(); banner = effect.label to now; if (effect == BodyEffect.Outfit) palette = 2 }
+            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); dwell.reset(); paletteAt = now
+        }
+        // Where the palette's choices were last drawn on screen, so a tap on one can pick it as well as pointing.
+        val slotHit = remember { arrayOfNulls<Any>(1) }
         LaunchedEffect(pose, effect) {
             val p = pose ?: return@LaunchedEffect
             val now = System.currentTimeMillis()
             throttle.frame(now); lite = throttle.lite
             val few = if (lite) 2 else 1
-            if (palette != 0 && now - paletteAt > 6000) { palette = 0; dwell.reset() }
+            if (palette != 0 && now - paletteAt > 8000) { palette = 0; dwell.reset() }
             if (palette != 0) {
                 val total = if (palette == 2) Outfits.all.size else BodyEffect.entries.size
                 val cur = if (palette == 2) outfit else effect.ordinal
-                val win = ArcMenu.window(cur, total)
+                val win = ArcMenu.window(cur, total); paletteWin = win
                 val slots = ArcMenu.slots(p, front, win.size)
                 val unitN = Joints.scale(p)
                 if (slots != null && unitN != null) {
                     val hands = listOf(BodyPose.L_INDEX, BodyPose.R_INDEX, BodyPose.L_WRIST, BodyPose.R_WRIST).mapNotNull { p.at(it, front) }
-                    val pick = dwell.feed(hands, slots, unitN * 0.45f, now)
+                    val pick = dwell.feed(hands, slots, unitN * 0.55f, now)
                     if (dwell.hover >= 0) paletteAt = now
-                    if (pick >= 0) {
-                        if (palette == 2) { outfit = win[pick]; banner = Outfits.all[outfit].label to now }
-                        else { effect = BodyEffect.entries[win[pick]]; swipeOutfits = effect == BodyEffect.Outfit; trails.clear(); sparks.all.clear(); banner = effect.label to now; if (effect == BodyEffect.Outfit) palette = 2 }
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); dwell.reset()
-                    }
+                    if (pick >= 0) choosePalette(win, pick, now)
                 }
             }
             gestures.swipeHand?.let { trails.add(99, it.first, it.second, now) }
@@ -439,10 +445,15 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
         }
         Text(if (pose == null) "Step back so the camera sees you. Prop the phone up for your whole body, or point it at your hands or feet."
             else if (effect == BodyEffect.Blast) "Bring both hands together to charge, then throw them apart to fire."
-            else "No need to touch the phone: raise a hand and sweep it sideways for the next ${if (swipeOutfits) "outfit" else "effect"} (the bar at the top shows it being read). Hold both hands above your head for the floating palette, then point at a choice and hold." + if (lite) " Running light to keep up." else "", style = MaterialTheme.typography.bodyMedium)
+            else "Hold both hands above your head to turn gestures on: a palette appears, and for ten seconds you can sweep a raised hand to change ${if (swipeOutfits) "outfit" else "effect"}. Point at a choice and hold, or just tap it." + if (lite) " Running light to keep up." else "", style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
             androidx.compose.runtime.key(front) { BodyCamera(front, CameraFilters.all[look].second, body, if (effect == BodyEffect.Neon && !lite) bodyHands else null) }
-            Canvas(Modifier.fillMaxSize()) {
+            Canvas(Modifier.fillMaxSize().pointerInput(Unit) {
+                detectTapGestures { o ->
+                    @Suppress("UNCHECKED_CAST") val hits = slotHit[0] as? List<Triple<Offset, Float, Int>> ?: return@detectTapGestures
+                    hits.minByOrNull { (c, _, _) -> (c - o).getDistance() }?.takeIf { (c, r, _) -> (c - o).getDistance() <= r * 1.3f }?.let { (_, _, i) -> choosePalette(paletteWin, i, System.currentTimeMillis()) }
+                }
+            }) {
                 @Suppress("UNUSED_VARIABLE") val tick = frame
                 val nowMs = System.currentTimeMillis()
                 // An impact shakes the drawn effects (the camera picture itself stays still, so you don't lose your place).
@@ -566,15 +577,18 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
                 if (palette != 0 && p != null) {
                     val total = if (palette == 2) Outfits.all.size else BodyEffect.entries.size
                     val win = ArcMenu.window(if (palette == 2) outfit else effect.ordinal, total)
+                    val placed = ArrayList<Triple<Offset, Float, Int>>()
                     ArcMenu.slots(p, front, win.size)?.forEachIndexed { i, s ->
                         val o = Offset(s.first * size.width, s.second * size.height); val label = if (palette == 2) Outfits.all[win[i]].label else BodyEffect.entries[win[i]].label
                         val current = win[i] == (if (palette == 2) outfit else effect.ordinal); val hot = dwell.hover == i; val r = unit * (if (hot) 0.42f else 0.34f)
+                        placed += Triple(o, unit * 0.42f, i)
                         drawCircle(Color.Black.copy(alpha = 0.45f), r, o); drawCircle(if (current) Color(0xFF3DDC97) else Color.White.copy(alpha = 0.8f), r, o, style = Stroke(unit * 0.025f))
                         if (hot) drawArc(Color(0xFF7FD3FF), -90f, 360f * dwell.progress, false, o - Offset(r, r), androidx.compose.ui.geometry.Size(r * 2, r * 2), style = Stroke(unit * 0.06f, cap = androidx.compose.ui.graphics.StrokeCap.Round))
                         emoji(label.substringBefore(' '), o, r * 1.1f)
                         if (hot) drawContext.canvas.nativeCanvas.drawText(label.substringAfter(' '), o.x, o.y - r - 10f, android.graphics.Paint().apply { color = android.graphics.Color.WHITE; textSize = 14.sp.toPx(); textAlign = android.graphics.Paint.Align.CENTER; isFakeBoldText = true; setShadowLayer(6f, 0f, 0f, android.graphics.Color.BLACK) })
                     }
-                }
+                    slotHit[0] = placed
+                } else slotHit[0] = null
                 sparks.all.forEach { s -> drawCircle(Color.hsv(s.hue % 360f, 0.9f, 1f).copy(alpha = s.life.coerceIn(0f, 1f)), unit * 0.035f * (0.5f + s.life), Offset(s.x * size.width, s.y * size.height)) }
             }
             if (effect == BodyEffect.Coach) Column(Modifier.align(Alignment.TopStart).padding(12.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -584,6 +598,10 @@ class PlaygroundTool(private val app: UltimateApp) : Tool {
             }
             if (System.currentTimeMillis() - banner.second < 1800 && frame >= 0) Text(banner.first, Modifier.align(Alignment.Center).clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 22.dp, vertical = 14.dp),
                 color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            // Whether gestures are listening: on for ten seconds after both hands go up, so ordinary movement never changes anything.
+            if (frame >= 0) { val on = gestures.armed(System.currentTimeMillis())
+                Text(if (on) "🖐 Gestures on · ${gestures.armedLeft(System.currentTimeMillis()).toInt() + 1}s" else "Hands up to use gestures", Modifier.align(Alignment.BottomCenter).padding(8.dp).clip(RoundedCornerShape(50)).background((if (on) Color(0xFF1B7F4B) else Color.Black).copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp),
+                    color = Color.White, style = MaterialTheme.typography.labelMedium) }
             androidx.compose.material3.FilledTonalIconButton({ front = !front; trails.clear() }, Modifier.align(Alignment.TopEnd).padding(8.dp)) { Text("🔄") }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -63,16 +63,22 @@ object HealthDepth {
     fun worthDoing(days: List<HealthDay>, today: Long): List<String> = buildList {
         val w = weekly(days, today).associateBy { it.metric }
         val nights = nights(days, today)
+        // Low activity, said plainly and first: this is the thing most worth knowing, even when it hasn't changed from last week.
+        val weekSteps = days.filter { it.day in (today - 6)..today }.mapNotNull { it.steps }
+        if (weekSteps.size >= 3) {
+            val avg = weekSteps.average()
+            if (avg < 5000) add("Your activity is low: you're averaging ${"%,d".format(avg.roundToInt())} steps a day against a goal of 8,000. Adding one 15-minute walk a day is worth about 1,500 steps; two gets you past 5,000.")
+            else if (avg < 8000) add("You're averaging ${"%,d".format(avg.roundToInt())} steps a day, ${"%,d".format((8000 - avg).roundToInt())} short of 8,000. A walk after one meal would close most of the gap.")
+        }
         if (nights.size >= 4) {
             val avg = nights.map { it.total }.average()
             if (avg < 6 * 60) add("You've averaged ${HealthInsights.hm(avg.roundToInt())} of sleep over ${nights.size} nights. An earlier night, or a fixed bedtime, is the easiest lever.")
             val short = nights.count { it.total < 6 * 60 }; if (avg >= 6 * 60 && short >= 3) add("$short of your last ${nights.size} nights were under 6 hours, so your average hides some short ones.")
         }
-        w[Metric.Steps]?.let { s -> if (!s.flat && s.good == false) add("Steps are down ${(abs(s.pct) * 100).roundToInt()}% on last week (${"%,d".format(s.now.roundToInt())} a day). A 15-minute walk after a meal would close most of that.") }
+        w[Metric.Steps]?.let { s -> if (!s.flat && s.good == false && weekSteps.average().let { it.isNaN() || it >= 8000 }) add("Steps are down ${(abs(s.pct) * 100).roundToInt()}% on last week (${"%,d".format(s.now.roundToInt())} a day). A 15-minute walk after a meal would close most of that.") }
         w[Metric.RestingHr]?.let { r -> if (r.good == false && r.now - r.before >= 3) add("Resting heart rate is up about ${(r.now - r.before).roundToInt()} bpm on last week. That often follows poor sleep, stress, illness, alcohol or a hard week of training. Worth watching, and worth a doctor if it keeps climbing.") }
         w[Metric.Hrv]?.let { h -> if (h.good == false) add("Heart rate variability is lower than last week, a common sign you're run down. A lighter day or an early night helps.") }
         val g = stepGoal(days, today)
-        if (g.days.count { it.second != null } >= 4 && g.hit == 0) add("No day this week reached 8,000 steps. Try a smaller target first: 5,000 on most days.")
         if (g.streak >= 3) add("${g.streak} days in a row at 8,000 steps or more. Keep it going.")
         if (isEmpty() && w.isNotEmpty()) add("Nothing stands out this week. Steady is good.")
     }.take(4)

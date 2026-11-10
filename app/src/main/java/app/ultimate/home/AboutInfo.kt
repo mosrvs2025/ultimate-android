@@ -62,6 +62,15 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.98.0", listOf(
+            "Health says it plainly when your activity is low: \"Your activity is low: you're averaging 3,200 steps a day against a goal of 8,000\", with what a daily walk is worth, even when nothing changed from last week. Before, it said nothing was worth doing.",
+            "Tapping a day in the steps goal strip now shows that day's steps big, with its date and how close it came to the goal, and outlines the bar.",
+            "Food and water journal on the Health screen: note what you ate or drank (with an optional calorie guess), tap for each glass of water, and see how the week is going. It stays on the phone.",
+            "The tongue is no longer always \"out\": it needs an open mouth, learns your normal colour while your mouth is shut, and smooths over single frames.",
+            "Playground tabs scroll instead of squashing, and hints are shorter.",
+            "Desk piano: the thumb (C) now counts with a shorter tap than the fingers, since it moves less up and down.",
+            "AR gestures only listen when you turn them on: hold both hands above your head and they are on for ten seconds (a chip shows the countdown), each swipe keeps them on, and the swipe has to be longer and straighter. Reaching, waving or drinking no longer changes effects or starts the squat counter. The palette is also tappable, and point-and-hold takes half a second.",
+        ), tries = listOf("health", "playground")),
         Entry("1.97.1", listOf(
             "Updates install from the app again: tapping the update notification, Home's update suggestion or Install in About now opens a small screen that shows the copy progress and then opens Android's confirmation itself. Before, the app closed the moment it handed the file over and the answer arrived in the background, where newer Android refuses to show the confirmation, so it ended as \"Install cancelled\".",
             "Much less lag from updates: each downloaded APK is now read once (these builds are over 70 MB, and Home, About and every return to the app were re-reading up to 20 of them), only the six newest recent files are checked, and the file is copied in bigger pieces.",
