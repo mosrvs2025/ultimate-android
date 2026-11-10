@@ -62,6 +62,10 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.97.1", listOf(
+            "Updates install from the app again: tapping the update notification, Home's update suggestion or Install in About now opens a small screen that shows the copy progress and then opens Android's confirmation itself. Before, the app closed the moment it handed the file over and the answer arrived in the background, where newer Android refuses to show the confirmation, so it ended as \"Install cancelled\".",
+            "Much less lag from updates: each downloaded APK is now read once (these builds are over 70 MB, and Home, About and every return to the app were re-reading up to 20 of them), only the six newest recent files are checked, and the file is copied in bigger pieces.",
+        )),
         Entry("1.97.0", listOf(
             "The orb can appear by itself: Floating orb now has Show it when I leave the app. Press home or switch apps and it shows up, no need to switch it on first. It still hides while you are in Ultimate.",
             "No more square around the orb: the orb's shadow was being cut off by its overlay window, which showed a hard-edged box during taps and the opening animation. It now has a soft halo that stays inside.",

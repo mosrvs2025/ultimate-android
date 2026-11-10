@@ -33,7 +33,7 @@ class ApkInstaller(private val context: Context) {
         else Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
 
     /** Streams the APK(s) into an install session and hands it to Android, which shows its confirmation. Returns how many APKs. */
-    suspend fun install(uri: Uri, name: String): Int = withContext(Dispatchers.IO) {
+    suspend fun install(uri: Uri, name: String, resultTo: PendingIntent? = null, onProgress: (Float) -> Unit = {}): Int = withContext(Dispatchers.IO) {
         val installer = context.packageManager.packageInstaller
         // Every cancelled or unfinished install leaves a session behind, and Android refuses new ones after enough of them
         // ("Too many active sessions for UID"). Ours are never needed again, so clear them first.
@@ -56,12 +56,14 @@ class ApkInstaller(private val context: Context) {
                 }
                 check(count > 0) { "No APKs inside $name" }
             } else {
-                resolver.openInputStream(uri)!!.use { write(session, "base.apk", it, -1) }
+                val length = if (uri.scheme == "file") java.io.File(uri.path!!).length() else -1L
+                resolver.openInputStream(uri)!!.use { write(session, "base.apk", it, length, onProgress) }
                 count = 1
             }
             val status = Intent(context, InstallStatusActivity::class.java).setAction(InstallStatusActivity.ACTION)
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
-            session.commit(PendingIntent.getActivity(context, id, status, flags).intentSender)
+            // The in-app update asks for the answer by broadcast, so the screen that is already showing can open Android's confirmation itself.
+            session.commit((resultTo ?: PendingIntent.getActivity(context, id, status, flags)).intentSender)
             session.close()
             count
         } catch (e: Exception) {
@@ -77,8 +79,17 @@ class ApkInstaller(private val context: Context) {
         }.getOrDefault(0)
     }
 
-    private fun write(session: PackageInstaller.Session, name: String, input: InputStream, size: Long) {
-        session.openWrite(name, 0, size).use { out -> input.copyTo(out, 256 * 1024); session.fsync(out) }
+    private fun write(session: PackageInstaller.Session, name: String, input: InputStream, size: Long, onProgress: (Float) -> Unit = {}) {
+        session.openWrite(name, 0, size).use { out ->
+            // A big buffer: these builds are over 70 MB, and a small one made the copy crawl.
+            val buf = ByteArray(1024 * 1024); var done = 0L; var last = 0f
+            while (true) {
+                val n = input.read(buf); if (n < 0) break
+                out.write(buf, 0, n); done += n
+                if (size > 0) { val f = done.toFloat() / size; if (f - last >= 0.02f) { last = f; onProgress(f); session.setStagingProgress(f * 0.9f) } }
+            }
+            session.fsync(out)
+        }
     }
 }
 
