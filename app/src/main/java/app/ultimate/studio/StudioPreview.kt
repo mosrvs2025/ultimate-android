@@ -64,6 +64,8 @@ fun StudioPreview(
     val local = located?.second ?: 0L
     val current by rememberUpdatedState(project)
     val playhead by rememberUpdatedState(playheadMs)
+    // The live value of "playing": a clip that is still loading must start (or stay stopped) as the person has asked by the time it is ready.
+    val playingNow by rememberUpdatedState(playing)
     val report by rememberUpdatedState(onPlayhead)
     val ended by rememberUpdatedState(onEnded)
     val failed by rememberUpdatedState(onError)
@@ -98,17 +100,22 @@ fun StudioPreview(
         if (loadedId == clip.id) delay(250)
         val at = Timeline.locate(current, playhead)?.second ?: 0L
         // Silence the player while the next clip loads, so the end of the last one and the start of this one never overlap (the echo).
-        video.volume = 0f
-        video.pause()
+        // The very first clip has nothing before it to overlap with, so it is left alone and plays as soon as it can.
+        val switching = loadedId != null && loadedId != clip.id
+        if (switching) { video.volume = 0f; video.pause() }
         video.setVideoEffects(StudioEffects.video(clip, current, false))
         video.setMediaItem(StudioEffects.mediaItem(clip), (at * clip.speed).toLong())
         video.prepare()
         loadedId = clip.id
         reported = playhead
-        var waited = 0
-        while (video.playbackState != Player.STATE_READY && waited < 1500) { delay(30); waited += 30 }
-        video.volume = clip.volume.coerceIn(0f, 1f)
-        video.playWhenReady = playing
+        try {
+            var waited = 0
+            while (switching && video.playbackState != Player.STATE_READY && waited < 1200) { delay(30); waited += 30 }
+        } finally {
+            // Always give the sound back, even if this load is replaced by another before it finishes.
+            video.volume = clip.volume.coerceIn(0f, 1f)
+        }
+        video.playWhenReady = playingNow
     }
     LaunchedEffect(clip?.speed) { clip?.let { video.playbackParameters = PlaybackParameters(it.speed, 1f) } }
     LaunchedEffect(clip?.volume) { clip?.let { video.volume = it.volume.coerceIn(0f, 1f) } }

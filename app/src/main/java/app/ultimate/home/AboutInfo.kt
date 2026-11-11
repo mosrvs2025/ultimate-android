@@ -62,6 +62,10 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("2.0.0", listOf(
+            "Fixed: a clip you just imported into Studio wouldn't play. The preview muted itself while a clip loaded and, when it finished, set \"playing\" from an out-of-date value, so tapping Play during that moment (right after importing) was undone. It now follows what you asked for, and the first clip no longer waits at all.",
+            "Version numbers now go 2.0.0 and up, so they stop looking like they go backwards (1.100.0 is higher than 1.99.0 but reads like 1.10).",
+        ), tries = listOf("studio")),
         Entry("1.100.0", listOf(
             "Cut pauses: select a clip and tap Cut pauses. Studio listens to its sound on the phone, finds the silent stretches (judged against that recording's own background noise, with a little kept on each side so words aren't clipped) and cuts them out in one step. The status line says how many it cut; Undo puts them back.",
             "Split is always there now, in the main toolbar as well as with a clip selected, and it cuts the clip the playhead is on, so there is nothing to line up first.",
