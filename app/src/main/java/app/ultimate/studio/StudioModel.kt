@@ -29,6 +29,19 @@ data class StudioClip(
     /** Timed captions from speech, in the source file's milliseconds; shown with the clip's caption style. */
     val captions: List<app.ultimate.speech.Segment> = emptyList(),
 ) { val durationMs: Long get() = ((endMs - startMs) / speed.toDouble()).roundToLong() }
+/** What a layer shows: text you type, or one emoji sticker. */
+enum class LayerKind { Text, Sticker }
+
+/**
+ * Something that floats over the film on its own track, for a stretch of time, whatever the clips underneath are doing: a title,
+ * a caption, a sticker. [fx] and [fy] are where its centre is in the frame (0..1 across and down); [size] scales it (1 is a normal
+ * title); [color] is 0xRRGGBB and is ignored for stickers.
+ */
+data class StudioLayer(
+    val id: String = UUID.randomUUID().toString(), val kind: LayerKind, val text: String, val startMs: Long, val endMs: Long,
+    val fx: Float = 0.5f, val fy: Float = 0.5f, val size: Float = 1f, val color: Int = 0xFFFFFF,
+) { val durationMs get() = endMs - startMs }
+
 data class StudioMusic(val uri: String, val name: String, val durationMs: Long, val startMs: Long = 0, val volume: Float = 0.5f)
 data class StudioProject(
     val id: String = UUID.randomUUID().toString(), val name: String = "Untitled film",
@@ -38,6 +51,8 @@ data class StudioProject(
     val shortSide: Int = 720,
     /** Fades the whole film's sound in at the start and out at the end. */
     val fadeInMs: Long = 0, val fadeOutMs: Long = 0,
+    /** Overlay layers (text and stickers) over the whole film. */
+    val layers: List<StudioLayer> = emptyList(),
 ) {
     val durationMs get() = clips.sumOf { it.durationMs }
     val width get() = if (shape == CanvasShape.Landscape) even(shortSide * 16 / 9) else shortSide
@@ -45,6 +60,33 @@ data class StudioProject(
     private fun even(n: Int) = n / 2 * 2
 }
 data class StudioExport(val id: String, val name: String, val uri: String, val createdAt: Long, val durationMs: Long, val bytes: Long, val width: Int, val height: Int)
+
+object Layers {
+    const val MIN_MS = 300L
+    val STICKERS = listOf("🔥", "😂", "❤️", "⭐", "👑", "🎉", "💯", "✅", "😎", "👀", "🚀", "💥")
+
+    /** A new layer at [at]: three seconds long (shorter if the film ends sooner), near the lower third for text and centred for stickers. */
+    fun create(p: StudioProject, kind: LayerKind, text: String, at: Long): StudioLayer {
+        val total = p.durationMs.coerceAtLeast(MIN_MS)
+        val len = minOf(3000L, total)
+        val start = at.coerceIn(0, (total - len).coerceAtLeast(0))
+        return StudioLayer(kind = kind, text = text, startMs = start, endMs = start + len, fy = if (kind == LayerKind.Text) 0.78f else 0.5f, size = if (kind == LayerKind.Sticker) 1.6f else 1f)
+    }
+
+    /** Layers showing at [ms], in the order they were added (later ones on top). */
+    fun activeAt(p: StudioProject, ms: Long) = p.layers.filter { ms >= it.startMs && ms < it.endMs }
+
+    /** Keeps a layer inside the film, at least [MIN_MS] long, with its position and size in range. */
+    fun clamp(l: StudioLayer, total: Long): StudioLayer {
+        val t = total.coerceAtLeast(MIN_MS)
+        val s = l.startMs.coerceIn(0, t - MIN_MS)
+        val e = l.endMs.coerceIn(s + MIN_MS, t)
+        return l.copy(startMs = s, endMs = e, fx = l.fx.coerceIn(0f, 1f), fy = l.fy.coerceIn(0f, 1f), size = l.size.coerceIn(0.4f, 4f))
+    }
+
+    /** After the film gets shorter or longer, layers that no longer fit are pulled back inside it; layers entirely beyond the end are dropped. */
+    fun refit(p: StudioProject): List<StudioLayer> = p.layers.filter { it.startMs < p.durationMs - MIN_MS || p.durationMs <= MIN_MS }.map { clamp(it, p.durationMs) }
+}
 
 object Timeline {
     const val MIN_CLIP_MS = 100L
@@ -97,6 +139,22 @@ object Timeline {
         require(sourceAt - clip.startMs >= MIN_CLIP_MS && clip.endMs - sourceAt >= MIN_CLIP_MS) { "Move the playhead away from the clip edges" }
         return listOf(clip.copy(endMs = sourceAt), clip.copy(id = UUID.randomUUID().toString(), startMs = sourceAt))
     }
+
+    /**
+     * Takes the stretches in [removeMs] (milliseconds from the clip's in-point in the SOURCE, before speed) out of [clip], leaving the
+     * pieces between them as separate clips with the clip's settings. Pieces under [MIN_CLIP_MS] are dropped. A clip with nothing
+     * to remove comes back unchanged.
+     */
+    fun removeRanges(clip: StudioClip, removeMs: List<LongRange>): List<StudioClip> {
+        val cuts = removeMs.map { (clip.startMs + it.first).coerceAtLeast(clip.startMs)..(clip.startMs + it.last + 1).coerceAtMost(clip.endMs) }.filter { it.last - it.first > 0 }.sortedBy { it.first }
+        if (cuts.isEmpty()) return listOf(clip)
+        val pieces = ArrayList<LongRange>(); var at = clip.startMs
+        for (c in cuts) { if (c.first > at) pieces += at..c.first; at = maxOf(at, c.last) }
+        if (clip.endMs > at) pieces += at..clip.endMs
+        val kept = pieces.filter { it.last - it.first >= MIN_CLIP_MS }
+        return kept.mapIndexed { i, r -> clip.copy(id = if (i == 0) clip.id else UUID.randomUUID().toString(), startMs = r.first, endMs = r.last) }
+    }
+
     fun beatMs(index: Int, bpm: Int, offsetMs: Long = 0): Long {
         require(bpm in 30..300 && index >= 0)
         return offsetMs + (index * 60000.0 / bpm).roundToLong()

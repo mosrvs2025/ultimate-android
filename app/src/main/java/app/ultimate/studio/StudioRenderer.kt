@@ -83,7 +83,9 @@ class StudioRenderer(private val context: Context) {
             sequences += EditedMediaItemSequence.Builder(music).setIsLooping(!safe).build()
         }
         val fades = if (!safe && (project.fadeInMs > 0 || project.fadeOutMs > 0)) listOf<androidx.media3.common.audio.AudioProcessor>(FadeProcessor(project.fadeInMs, project.fadeOutMs, project.durationMs)) else emptyList()
-        val composition = Composition.Builder(sequences).experimentalSetForceAudioTrack(!safe).setEffects(Effects(fades, emptyList()))
+        // Text and sticker layers go on the whole film, each as a frame-sized overlay that is only visible during its own time span.
+        val layerFx = if (project.layers.isEmpty()) emptyList() else listOf<androidx.media3.common.Effect>(androidx.media3.effect.OverlayEffect(com.google.common.collect.ImmutableList.copyOf<androidx.media3.effect.TextureOverlay>(project.layers.map { TimedLayerOverlay(it, project.width, project.height) })))
+        val composition = Composition.Builder(sequences).experimentalSetForceAudioTrack(!safe).setEffects(Effects(fades, layerFx))
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL).build()
         val handler = Handler(Looper.getMainLooper())
         val holder = ProgressHolder()
