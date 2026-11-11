@@ -62,6 +62,10 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("1.99.0", listOf(
+            "Studio layers: a second track over your film for text and stickers. Layers button (or the new row under the clips): add text or an emoji sticker at the playhead, drag it on the picture to place it, drag its ends on the track (or the range slider) to choose when it shows, and set size, colour and top, middle or bottom. Layers are saved with the project, follow the film if you trim it, and are burned into the export.",
+            "Days tab: the summary chips (photos, screenshots, notifications, watched…) are now tappable. Tapping one filters the feed below, scrolls it into view, lights up its heading for a moment (\"Only photos · 12\") and gives a Show everything button. The chip you picked is outlined.",
+        ), tries = listOf("studio", "timeline")),
         Entry("1.98.0", listOf(
             "Health says it plainly when your activity is low: \"Your activity is low: you're averaging 3,200 steps a day against a goal of 8,000\", with what a daily walk is worth, even when nothing changed from last week. Before, it said nothing was worth doing.",
             "Tapping a day in the steps goal strip now shows that day's steps big, with its date and how close it came to the goal, and outlines the bar.",

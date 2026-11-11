@@ -75,7 +75,9 @@ class StudioManager(private val context: Context, private val hub: WorkHub) : Wo
     fun edit(change: (StudioProject) -> StudioProject) {
         if (loading.value || work.value.active) return
         try {
-            val before = project.value; val after = change(before)
+            val before = project.value; val changed = change(before)
+            // When the film's length changes, layers that no longer fit are pulled back inside it.
+            val after = if (changed.durationMs != before.durationMs && changed.layers.isNotEmpty()) changed.copy(layers = Layers.refit(changed)) else changed
             if (before == after) return
             history.record(before); apply(after.copy(updatedAt = System.currentTimeMillis()))
         } catch (e: Exception) { error.value = e.message ?: "Could not change project" }
@@ -111,6 +113,16 @@ class StudioManager(private val context: Context, private val hub: WorkHub) : Wo
         }
     }
     fun newProject() = open(StudioProject())
+
+    /** Adds a text or sticker layer at [at] and returns its id. */
+    fun addLayer(kind: LayerKind, text: String, at: Long): String? {
+        if (text.isBlank()) return null
+        val l = Layers.create(project.value, kind, text.trim(), at)
+        edit { it.copy(layers = it.layers + l) }
+        return l.id
+    }
+    fun updateLayer(id: String, change: (StudioLayer) -> StudioLayer) = edit { p -> p.copy(layers = p.layers.map { if (it.id == id) Layers.clamp(change(it), p.durationMs) else it }) }
+    fun removeLayer(id: String) = edit { p -> p.copy(layers = p.layers.filterNot { it.id == id }) }
 
     /** Renames the film (the name is also the start of the exported file's name). A blank name goes back to "Untitled film". */
     fun rename(name: String) { val n = name.trim().take(60).ifBlank { "Untitled film" }; edit { it.copy(name = n) } }

@@ -1,5 +1,6 @@
 package app.ultimate.timeline
 
+import androidx.compose.foundation.border
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -113,6 +114,11 @@ internal fun TimelineScreen(app: UltimateApp, initialQuery: String, onExit: () -
     // A stretch of hours dragged across on the chart (or one tapped), and "only the small hours" from a finding.
     var hours by remember { mutableStateOf<IntRange?>(null) }
     var late by remember { mutableStateOf(initialLate) }
+    // Tapping a summary chip filters the feed below it; the feed then scrolls into view and its heading flashes, so the change is obvious.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var flash by remember { mutableIntStateOf(0) }
+    val afterHeader = remember { intArrayOf(0) }
+    LaunchedEffect(flash) { if (flash > 0) { kotlinx.coroutines.delay(80); listState.animateScrollToItem((listState.layoutInfo.totalItemsCount - 1 - afterHeader[0]).coerceAtLeast(0)) } }
     var open by remember { mutableStateOf<Moment?>(null) }
     val list = all.orEmpty()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -121,7 +127,7 @@ internal fun TimelineScreen(app: UltimateApp, initialQuery: String, onExit: () -
     fun hourOf(at: Long) = java.util.Calendar.getInstance().apply { timeInMillis = at }.get(java.util.Calendar.HOUR_OF_DAY)
 
     TimeHost(!embedded, onExit) { pad ->
-        LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = if (embedded) 8.dp else 0.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(Modifier.padding(pad), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = if (embedded) 8.dp else 0.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (header != null) item { header() }
             item {
                 OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(28.dp),
@@ -177,13 +183,15 @@ internal fun TimelineScreen(app: UltimateApp, initialQuery: String, onExit: () -
             }
             item { DayStrip(TimelineMath.days(pool, 30, now), day) { day = it; hours = null } }
             val todays = TimelineMath.onDay(pool, day).distinctBy { it.uid }
-            item { DaySummary(todays, day, now) }
+            item { DaySummary(TimelineMath.onDay(list, day).distinctBy { it.uid }, day, now, only) { s -> only = if (only == s) null else s; hours = null; flash++ } }
             if (todays.isNotEmpty()) item { HourBars(TimelineMath.hours(todays), hours) { hours = it } }
             val shown = hours?.let { r -> todays.filter { hourOf(it.at) in r } } ?: todays
             hours?.let { r -> item { TextButton({ hours = null }) { Text("Showing ${clock(r.first)}–${clock(r.last + 1)} · show the whole day") } } }
+            item(key = "feed-heading") { FeedHeading(only, shown.size, flash) { only = null; flash++ } }
             if (shown.isEmpty()) item { Text("Nothing kept for this day.", Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             // Two records can share an id (a notification that was updated); a repeated key crashes a lazy list, so repeats get a suffix.
             val rows = run { val seen = HashMap<String, Int>(); shown.reversed().take(400).map { m -> val n = seen.merge(m.uid, 1, Int::plus)!!; (if (n == 1) "m-" + m.uid else "m-" + m.uid + "#" + n) to m } }
+            afterHeader[0] = if (shown.isEmpty()) 1 else rows.size
             items(rows, key = { it.first }) { (_, m) -> MomentRow(m, open == m, actions) { open = if (open == m) null else m } }
         }
     }
@@ -236,27 +244,45 @@ private fun DayStrip(days: List<DayCount>, selected: Long, onPick: (Long) -> Uni
 
 /** One line per kind for the chosen day. */
 @Composable
-private fun DaySummary(list: List<Moment>, day: Long, now: Long) {
+private fun DaySummary(list: List<Moment>, day: Long, now: Long, picked: Source? = null, onPick: (Source) -> Unit = {}) {
     val notes = list.count { it.source == Source.Notification }; val clips = list.count { it.source == Source.Clip }
     val watched = list.filter { it.source == Source.Watched }.sumOf { it.end - it.at }; val focus = list.filter { it.source == Source.Focus }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(app.ultimate.inbox.dayLabel(TimelineMath.startOf(day) + 3_600_000, now), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (notes > 0) Stat(Source.Notification, "$notes notifications")
-            if (watched > 0) Stat(Source.Watched, "${span(watched)} watched")
-            if (clips > 0) Stat(Source.Clip, "$clips copied")
-            if (focus.isNotEmpty()) Stat(Source.Focus, "${span(focus.sumOf { it.end - it.at })} focused")
-            list.count { it.source == Source.Photo }.takeIf { it > 0 }?.let { Stat(Source.Photo, "$it photos") }
-            list.count { it.source == Source.Screenshot }.takeIf { it > 0 }?.let { Stat(Source.Screenshot, "$it screenshots") }
-            list.count { it.source == Source.Install }.takeIf { it > 0 }?.let { Stat(Source.Install, "$it installed") }
-            list.filter { it.source == Source.Charge }.takeIf { it.isNotEmpty() }?.let { Stat(Source.Charge, "${span(it.sumOf { c -> c.end - c.at })} charging") }
+            if (notes > 0) Stat(Source.Notification, picked, onPick, "$notes notifications")
+            if (watched > 0) Stat(Source.Watched, picked, onPick, "${span(watched)} watched")
+            if (clips > 0) Stat(Source.Clip, picked, onPick, "$clips copied")
+            if (focus.isNotEmpty()) Stat(Source.Focus, picked, onPick, "${span(focus.sumOf { it.end - it.at })} focused")
+            list.count { it.source == Source.Photo }.takeIf { it > 0 }?.let { Stat(Source.Photo, picked, onPick, "$it photos") }
+            list.count { it.source == Source.Screenshot }.takeIf { it > 0 }?.let { Stat(Source.Screenshot, picked, onPick, "$it screenshots") }
+            list.count { it.source == Source.Install }.takeIf { it > 0 }?.let { Stat(Source.Install, picked, onPick, "$it installed") }
+            list.filter { it.source == Source.Charge }.takeIf { it.isNotEmpty() }?.let { Stat(Source.Charge, picked, onPick, "${span(it.sumOf { c -> c.end - c.at })} charging") }
         }
     }
 }
 
 @Composable
-private fun Stat(s: Source, text: String) = Row(Modifier.clip(RoundedCornerShape(50)).background(s.tint().copy(alpha = 0.14f)).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-    Icon(s.icon, null, Modifier.size(16.dp), tint = s.tint()); Spacer(Modifier.width(6.dp)); Text(text, style = MaterialTheme.typography.labelLarge)
+private fun Stat(s: Source, picked: Source?, onPick: (Source) -> Unit, text: String) {
+    val on = picked == s
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Row(Modifier.clip(RoundedCornerShape(50)).background(s.tint().copy(alpha = if (on) 0.4f else 0.14f)).then(if (on) Modifier.border(2.dp, s.tint(), RoundedCornerShape(50)) else Modifier)
+        .clickable { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove); onPick(s) }.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(s.icon, null, Modifier.size(16.dp), tint = s.tint()); Spacer(Modifier.width(6.dp)); Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = if (on) FontWeight.Bold else null)
+    }
+}
+
+/** The line above the feed: what it is showing and how many, with a way back. It lights up for a moment whenever the filter changes. */
+@Composable
+private fun FeedHeading(only: Source?, count: Int, flash: Int, onClear: () -> Unit) {
+    var lit by remember { mutableStateOf(false) }
+    LaunchedEffect(flash) { if (flash > 0) { lit = true; kotlinx.coroutines.delay(1100); lit = false } }
+    val bg by androidx.compose.animation.animateColorAsState(if (lit) (only?.tint() ?: MaterialTheme.colorScheme.primary).copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceContainerLow, tween(350), label = "feed-flash")
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(bg).padding(start = 14.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (only != null) { Icon(only.icon, null, Modifier.size(18.dp), tint = only.tint()); Spacer(Modifier.width(8.dp)) }
+        Text(if (only == null) "Everything · $count" else "Only ${only.label.lowercase()} · $count", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        if (only != null) androidx.compose.material3.TextButton(onClear) { Text("Show everything") }
+    }
 }
 
 private fun clock(h: Int) = "${if (h % 12 == 0) 12 else h % 12}${if (h % 24 < 12) "am" else "pm"}"

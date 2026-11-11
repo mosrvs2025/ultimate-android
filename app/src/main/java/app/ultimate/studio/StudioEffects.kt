@@ -167,3 +167,36 @@ class SpeechCaptions(private val c: StudioClip, p: StudioProject) : TextOverlay(
     }
     override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings = overlay
 }
+
+/** Draws layers into a transparent bitmap the size of the frame. Preview math and export share positions: centre at (fx, fy), height from [StudioLayer.size]. */
+object LayerBitmaps {
+    fun textPx(frameWidth: Int, l: StudioLayer) = frameWidth * 0.07f * l.size
+
+    fun render(l: StudioLayer, width: Int, height: Int): android.graphics.Bitmap {
+        val bmp = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        val px = textPx(width, l)
+        val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = px; textAlign = android.graphics.Paint.Align.CENTER; if (l.kind == LayerKind.Text) { color = 0xFF000000.toInt() or l.color; isFakeBoldText = true } }
+        val edge = android.graphics.Paint(fill).apply { style = android.graphics.Paint.Style.STROKE; strokeWidth = px * 0.12f; color = 0xCC000000.toInt(); strokeJoin = android.graphics.Paint.Join.ROUND }
+        // Lines are centred on the layer's position.
+        val lines = (if (l.kind == LayerKind.Text) l.text.lines() else listOf(l.text)).take(4)
+        val lineH = px * 1.15f
+        val top = l.fy * height - lineH * (lines.size - 1) / 2f + px * 0.35f
+        lines.forEachIndexed { i, s ->
+            val y = top + i * lineH
+            if (l.kind == LayerKind.Text) c.drawText(s, l.fx * width, y, edge)
+            c.drawText(s, l.fx * width, y, fill)
+        }
+        return bmp
+    }
+}
+
+/** A layer as an overlay on the finished film: visible only between its start and end on the output clock. */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+class TimedLayerOverlay(private val layer: StudioLayer, width: Int, height: Int) : androidx.media3.effect.BitmapOverlay() {
+    private val shown = LayerBitmaps.render(layer, width, height)
+    // Nothing to show: a transparent frame-sized picture, so the overlay's size never changes.
+    private val hidden = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+    override fun getBitmap(presentationTimeUs: Long): android.graphics.Bitmap = if (presentationTimeUs / 1000 in layer.startMs until layer.endMs) shown else hidden
+    override fun getOverlaySettings(presentationTimeUs: Long): androidx.media3.effect.OverlaySettings = androidx.media3.effect.OverlaySettings.Builder().build()
+}

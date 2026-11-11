@@ -25,6 +25,7 @@ object StudioJson {
             put("title", c.title); put("titlePosition", c.titlePosition); put("captionStyle", c.captionStyle.name); put("captionColor", c.captionColor)
             put("captions", JSONArray().apply { c.captions.forEach { put(JSONObject().put("s", it.startMs).put("e", it.endMs).put("t", it.text)) } })
         }) } })
+        put("layers", JSONArray().apply { p.layers.forEach { l -> put(JSONObject().put("id", l.id).put("kind", l.kind.name).put("text", l.text).put("s", l.startMs).put("e", l.endMs).put("x", l.fx.toDouble()).put("y", l.fy.toDouble()).put("size", l.size.toDouble()).put("color", l.color)) } })
         p.music?.let { m -> put("music", JSONObject().apply { put("uri", m.uri); put("name", m.name); put("durationMs", m.durationMs); put("startMs", m.startMs); put("volume", m.volume) }) }
     }.toString()
     fun decode(text: String): StudioProject {
@@ -37,7 +38,8 @@ object StudioJson {
                 c.optJSONArray("captions")?.let { a -> List(a.length()) { k -> a.getJSONObject(k).let { o -> app.ultimate.speech.Segment(o.getLong("s"), o.getLong("e"), o.getString("t")) } } }.orEmpty())
         } }, CanvasShape.valueOf(j.getString("shape")), j.getBoolean("fill"), j.optJSONObject("music")?.let { m ->
             StudioMusic(m.getString("uri"), m.getString("name"), m.getLong("durationMs"), m.getLong("startMs"), m.getDouble("volume").toFloat())
-        }, j.getInt("bpm"), j.getLong("beatOffset"), j.getInt("size"), j.optLong("fadeIn", 0), j.optLong("fadeOut", 0))
+        }, j.getInt("bpm"), j.getLong("beatOffset"), j.getInt("size"), j.optLong("fadeIn", 0), j.optLong("fadeOut", 0),
+            j.optJSONArray("layers")?.let { a -> List(a.length()) { i -> a.getJSONObject(i).let { o -> StudioLayer(o.getString("id"), runCatching { LayerKind.valueOf(o.getString("kind")) }.getOrDefault(LayerKind.Text), o.getString("text"), o.getLong("s"), o.getLong("e"), o.optDouble("x", 0.5).toFloat(), o.optDouble("y", 0.5).toFloat(), o.optDouble("size", 1.0).toFloat(), o.optInt("color", 0xFFFFFF)) } } }.orEmpty())
     }
 }
 

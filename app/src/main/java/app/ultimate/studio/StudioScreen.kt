@@ -1,5 +1,8 @@
 package app.ultimate.studio
 
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.material.icons.rounded.Layers
 import app.ultimate.core.relativeTime
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material.icons.rounded.ClosedCaption
@@ -162,7 +165,7 @@ private val StudioColors = darkColorScheme(
 )
 
 /** The tool open above the toolbar. */
-private enum class Panel { Speed, Volume, Filters, Adjust, Text, Audio, Format }
+private enum class Panel { Speed, Volume, Filters, Adjust, Text, Layers, Audio, Format }
 
 private const val MIN_DP_PER_SECOND = 10f
 private const val MAX_DP_PER_SECOND = 480f
@@ -184,6 +187,7 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit, launched: Boolean =
     var selection by rememberSaveable { mutableStateOf<String?>(null) }
     var panel by remember { mutableStateOf<Panel?>(null) }
     var showExport by remember { mutableStateOf(false) }
+    var layerSel by rememberSaveable { mutableStateOf<String?>(null) }
     var showProjects by remember { mutableStateOf(false) }
     var dpPerSecond by rememberSaveable { mutableFloatStateOf(64f) }
     val pxPerMs = with(density) { dpPerSecond.dp.toPx() } / 1000f
@@ -207,7 +211,7 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit, launched: Boolean =
 
     // Keep state consistent with edits: the playhead stays inside the film, and a removed clip is no longer selected.
     LaunchedEffect(project.durationMs) { if (playhead > project.durationMs) playhead = project.durationMs }
-    LaunchedEffect(project.clips.map { it.id }) { if (project.clips.none { it.id == selection }) { selection = null; if (panel != Panel.Audio && panel != Panel.Format) panel = null } }
+    LaunchedEffect(project.clips.map { it.id }) { if (project.clips.none { it.id == selection }) { selection = null; if (panel != Panel.Audio && panel != Panel.Format && panel != Panel.Layers) panel = null } }
     LaunchedEffect(work.active) { if (work.active) { playing = false; showExport = true } }
     LaunchedEffect(loading, project.clips.isEmpty()) { if (askResume && !loading && project.clips.isEmpty()) askResume = false }
     if (askResume && !loading && project.clips.isNotEmpty()) androidx.compose.material3.AlertDialog(
@@ -282,6 +286,8 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit, launched: Boolean =
                                 onError = { manager.error.value = it; playing = false },
                                 modifier = Modifier.fillMaxSize(),
                             )
+                            // Text and stickers on top of the picture: drag the selected one to move it.
+                            LayersOnPreview(project, playhead, layerSel, onPick = { layerSel = it; panel = Panel.Layers }, onMove = { id, x, y -> manager.updateLayer(id) { it.copy(fx = x, fy = y) } })
                         }
                     }
                 }
@@ -315,6 +321,8 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit, launched: Boolean =
                     onAddVideos = addVideos,
                     onMusic = { panel = Panel.Audio },
                     onText = { id -> selection = id; panel = Panel.Text },
+                    layerSel = layerSel, onLayer = { id -> layerSel = id; panel = Panel.Layers; playing = false; project.layers.firstOrNull { it.id == id }?.let { l -> playhead = l.startMs } },
+                    onAddLayer = { panel = Panel.Layers },
                 )
 
                 AnimatedVisibility(panel != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
@@ -322,7 +330,7 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit, launched: Boolean =
                     ToolPanel(
                         title = when (panel) {
                             Panel.Speed -> "Speed"; Panel.Volume -> "Volume"; Panel.Filters -> "Filters"; Panel.Adjust -> "Adjust"
-                            Panel.Text -> "Text"; Panel.Audio -> "Audio"; Panel.Format -> "Format"; null -> ""
+                            Panel.Text -> "Text"; Panel.Layers -> "Layers"; Panel.Audio -> "Audio"; Panel.Format -> "Format"; null -> ""
                         },
                         onDone = { panel = null },
                     ) {
@@ -332,6 +340,7 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit, launched: Boolean =
                             Panel.Filters -> clip?.let { c -> FiltersPanel(c, onPick = { look -> change(c.id) { it.copy(look = look) } }, onAll = { look -> manager.edit { p -> p.copy(clips = p.clips.map { it.copy(look = look) }) } }) }
                             Panel.Adjust -> clip?.let { c -> AdjustPanel(c, onBrightness = { v -> change(c.id) { it.copy(brightness = v) } }, onRotate = { stop(); change(c.id) { it.copy(rotation = (it.rotation + 90) % 360) } }) }
                             Panel.Text -> clip?.let { c -> TextPanel(c, manager, onText = { t -> change(c.id) { it.copy(title = t) } }, onPosition = { pos -> change(c.id) { it.copy(titlePosition = pos) } }, onStyle = { st, col -> change(c.id) { it.copy(captionStyle = st, captionColor = col) } }) }
+                            Panel.Layers -> LayersPanel(project, playhead, layerSel, manager, onSelect = { layerSel = it })
                             Panel.Audio -> AudioPanel(project, playhead, manager, busy, onPick = { stop(); music.launch(arrayOf("audio/*", "video/*")) })
                             Panel.Format -> FormatPanel(project, busy, manager)
                             null -> Unit
@@ -373,6 +382,7 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit, launched: Boolean =
                         ToolButton(Icons.Rounded.Delete, "Delete", !busy) { stop(); manager.edit { p -> p.copy(clips = p.clips.filterNot { it.id == c.id }) }; selection = null; panel = null }
                     } else {
                         ToolButton(Icons.Rounded.Add, "Add clips", !busy) { addVideos() }
+                        ToolButton(Icons.Rounded.Layers, "Layers", !busy && project.clips.isNotEmpty(), panel == Panel.Layers) { panel = Panel.Layers }
                         ToolButton(Icons.Rounded.MusicNote, "Audio", !busy, panel == Panel.Audio) { panel = Panel.Audio }
                         ToolButton(Icons.Rounded.TextFields, "Text", !busy && project.clips.isNotEmpty(), panel == Panel.Text) { selection = target()?.id; panel = Panel.Text }
                         ToolButton(Icons.Rounded.Palette, "Filters", !busy && project.clips.isNotEmpty(), panel == Panel.Filters) { selection = target()?.id; panel = Panel.Filters }
@@ -485,6 +495,9 @@ private fun TimelineView(
     onAddVideos: () -> Unit,
     onMusic: () -> Unit,
     onText: (String) -> Unit,
+    layerSel: String? = null,
+    onLayer: (String) -> Unit = {},
+    onAddLayer: () -> Unit = {},
     onPeek: (Long) -> Unit = {},
 ) {
     val density = LocalDensity.current
@@ -596,6 +609,20 @@ private fun TimelineView(
                                 )
                             }
                         }
+                    }
+                }
+                // The layers track: each text or sticker is a bar under the clips, from where it appears to where it goes.
+                Spacer(Modifier.height(4.dp))
+                Box(Modifier.width(with(density) { (total * pxPerMs).toDp() }).height(22.dp)) {
+                    if (project.layers.isEmpty()) {
+                        Row(Modifier.clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.surfaceVariant).clickable(enabled = enabled, onClick = onAddLayer).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Layers, null, Modifier.size(14.dp)); Spacer(Modifier.width(6.dp)); Text("Add text or stickers", fontSize = 12.sp)
+                        }
+                    }
+                    project.layers.forEach { l ->
+                        val x = with(density) { (l.startMs * pxPerMs).toDp() }; val w = with(density) { (l.durationMs * pxPerMs).toDp() }.coerceAtLeast(18.dp)
+                        Text((if (l.kind == LayerKind.Sticker) l.text else "T  " + l.text.lineSequence().first()), color = Color.White, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.offset(x = x).width(w).fillMaxHeight().clip(RoundedCornerShape(4.dp)).background(if (l.id == layerSel) Color(0xFFFFB300) else LayerColor).clickable(enabled = enabled) { onLayer(l.id) }.padding(horizontal = 6.dp, vertical = 2.dp))
                     }
                 }
                 Spacer(Modifier.height(4.dp))
@@ -1113,3 +1140,87 @@ private fun fmtSpeed(s: Float) = if (s == s.toInt().toFloat()) s.toInt().toStrin
 private fun rulerLabel(ms: Long): String = if (ms % 1000 == 0L) String.format(Locale.US, "%d:%02d", ms / 60000, ms / 1000 % 60) else String.format(Locale.US, "%.1fs", ms / 1000f)
 
 private fun clock(ms: Long): String = String.format(Locale.US, "%02d:%02d.%01d", ms / 60000, ms / 1000 % 60, ms % 1000 / 100)
+
+private val LayerColor = Color(0xFF00897B)
+
+/** Text and stickers over the picture at their place in the frame; the chosen one has an outline and can be dragged. */
+@Composable
+private fun LayersOnPreview(project: StudioProject, playhead: Long, selected: String?, onPick: (String) -> Unit, onMove: (String, Float, Float) -> Unit) {
+    val active = Layers.activeAt(project, playhead)
+    if (active.isEmpty() && project.layers.none { it.id == selected }) return
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val w = constraints.maxWidth.toFloat(); val h = constraints.maxHeight.toFloat()
+        // While dragging, the layer follows the finger on its own; the change is committed (one undo step) when it lets go.
+        var drag by remember { mutableStateOf<Triple<String, Float, Float>?>(null) }
+        // Layers that are not showing at the playhead can still be moved when selected, so a layer can be placed before it plays.
+        (active + project.layers.filter { it.id == selected && it !in active }).forEach { l ->
+            val fx = drag?.takeIf { it.first == l.id }?.second ?: l.fx; val fy = drag?.takeIf { it.first == l.id }?.third ?: l.fy
+            val on = l.id == selected
+            val px = LayerBitmaps.textPx(w.toInt(), l)
+            androidx.compose.foundation.layout.Box(
+                Modifier.offset { androidx.compose.ui.unit.IntOffset((fx * w).toInt(), (fy * h).toInt()) }.graphicsLayer { translationX = -size.width / 2f; translationY = -size.height / 2f; alpha = if (l in active) 1f else 0.4f }
+                    .then(if (on) Modifier.border(2.dp, Color(0xFFFFB300), RoundedCornerShape(6.dp)) else Modifier)
+                    .pointerInput(l.id, w, h) {
+                        detectTapGestures { onPick(l.id) }
+                    }
+                    .pointerInput(l.id, w, h) {
+                        var x = l.fx; var y = l.fy
+                        detectDragGestures(onDragStart = { onPick(l.id); x = l.fx; y = l.fy }, onDragEnd = { drag?.let { d -> onMove(d.first, d.second, d.third) }; drag = null }, onDragCancel = { drag = null }) { change, amount ->
+                            change.consume(); x = (x + amount.x / w).coerceIn(0f, 1f); y = (y + amount.y / h).coerceIn(0f, 1f); drag = Triple(l.id, x, y)
+                        }
+                    }.padding(4.dp),
+            ) {
+                androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    (if (l.kind == LayerKind.Text) l.text.lines().take(4) else listOf(l.text)).forEach { line ->
+                        Text(line, fontSize = with(LocalDensity.current) { px.toSp() }, fontWeight = if (l.kind == LayerKind.Text) FontWeight.Bold else null, color = if (l.kind == LayerKind.Text) Color(0xFF000000.toInt() or l.color) else Color.Unspecified,
+                            style = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black, androidx.compose.ui.geometry.Offset(0f, 0f), px * 0.12f)), maxLines = 1, softWrap = false)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Add, choose and adjust text and sticker layers. Drag the chosen one on the picture to move it. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun LayersPanel(project: StudioProject, playhead: Long, selected: String?, manager: StudioManager, onSelect: (String?) -> Unit) {
+    var typing by remember { mutableStateOf(false) }
+    val sel = project.layers.firstOrNull { it.id == selected }
+    if (typing) {
+        var text by remember { mutableStateOf("") }
+        androidx.compose.material3.AlertDialog(onDismissRequest = { typing = false }, title = { Text("Add text") },
+            text = { androidx.compose.material3.OutlinedTextField(text, { text = it }, label = { Text("What should it say?") }, minLines = 1, maxLines = 3) },
+            confirmButton = { TextButton({ manager.addLayer(LayerKind.Text, text, playhead)?.let { id -> onSelect(manager.project.value.layers.lastOrNull()?.id ?: id) }; typing = false }, enabled = text.isNotBlank()) { Text("Add") } },
+            dismissButton = { TextButton({ typing = false }) { Text("Cancel") } })
+    }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.FilledTonalButton({ typing = true }) { Icon(Icons.Rounded.TextFields, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Text") }
+            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Layers.STICKERS.forEach { s -> Text(s, fontSize = 26.sp, modifier = Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant).clickable { manager.addLayer(LayerKind.Sticker, s, playhead); onSelect(manager.project.value.layers.lastOrNull()?.id) }.padding(8.dp)) }
+            }
+        }
+        if (project.layers.isEmpty()) Text("Add text or a sticker. It appears for three seconds from where the playhead is; drag its ends on the track to change when, and drag it on the picture to move it.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (sel != null) {
+            val total = project.durationMs.coerceAtLeast(Layers.MIN_MS).toFloat()
+            Text("${clock(sel.startMs)} to ${clock(sel.endMs)}", style = MaterialTheme.typography.labelLarge)
+            androidx.compose.material3.RangeSlider(sel.startMs.toFloat()..sel.endMs.toFloat(), { r -> manager.updateLayer(sel.id) { it.copy(startMs = r.start.toLong(), endMs = r.endInclusive.toLong()) } }, valueRange = 0f..total)
+            Row(verticalAlignment = Alignment.CenterVertically) { Text("Size", Modifier.width(48.dp), style = MaterialTheme.typography.labelMedium); androidx.compose.material3.Slider(sel.size, { v -> manager.updateLayer(sel.id) { it.copy(size = v) } }, valueRange = 0.4f..4f, modifier = Modifier.weight(1f)) }
+            if (sel.kind == LayerKind.Text) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CAPTION_COLORS.forEach { c -> Box(Modifier.size(30.dp).clip(CircleShape).background(Color(0xFF000000.toInt() or c)).then(if (sel.color == c) Modifier.border(3.dp, Color.White, CircleShape) else Modifier).clickable { manager.updateLayer(sel.id) { it.copy(color = c) } }) }
+                    Spacer(Modifier.weight(1f))
+                    listOf("Top" to 0.18f, "Middle" to 0.5f, "Bottom" to 0.82f).forEach { (n, y) -> TextButton({ manager.updateLayer(sel.id) { it.copy(fx = 0.5f, fy = y) } }) { Text(n) } }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton({ manager.removeLayer(sel.id); onSelect(null) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            }
+        } else if (project.layers.isNotEmpty()) {
+            project.layers.forEach { l -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onSelect(l.id) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (l.kind == LayerKind.Sticker) l.text else "T", Modifier.width(32.dp)); Text(l.text.lineSequence().first(), Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis); Text("${clock(l.startMs)}–${clock(l.endMs)}", style = MaterialTheme.typography.labelMedium)
+            } }
+        }
+    }
+}
