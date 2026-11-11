@@ -18,7 +18,7 @@ class Mirror(val z0: Float, val z1: Float, val y0: Float, val y1: Float)
 class SimWorld(val w: Float, val l: Float, val h: Float, val boxes: List<Box> = emptyList(), val mirror: Mirror? = null, val blankWallZ0: Float = Float.NaN, val blankWallZ1: Float = Float.NaN)
 
 class SimPhone(
-    val seed: Int = 1, val noiseA: Float = 0.005f, val noiseB: Float = 0.008f, val wildRate: Float = 0.02f, val dropout: Float = 0.1f,
+    val seed: Int = 1, val noiseA: Float = 0.01f, val noiseB: Float = 0.02f, val wildRate: Float = 0.02f, val dropout: Float = 0.1f,
     val hand: Boolean = true, val driftPos: Float = 0.002f, val driftYaw: Float = 0.01f,
 )
 

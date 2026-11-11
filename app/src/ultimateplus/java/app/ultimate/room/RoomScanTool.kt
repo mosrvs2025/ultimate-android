@@ -158,10 +158,11 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
         val size = when { l != null && w != null -> "%.2f × %.2f m".format(l, w); l != null -> "%.2f m one way, other way not measured".format(l); else -> "size not measured" }
         return size + (s.height?.let { " · %.2f m high".format(it) } ?: " · height not measured")
     }
-    private fun detail(s: RoomStats) = (s.footprint?.let { "footprint %.1f m² · ".format(it) } ?: "") + "floor seen %.1f m² · confidence ${s.confidence.name.lowercase()}".format(s.floorSeen)
+    private fun detail(s: RoomStats) = (s.footprint?.let { "footprint %.1f m² · ".format(it) } ?: "") + "floor seen %.1f m² · confidence ${s.confidence.name.lowercase()}".format(s.floorSeen) + (if ("you" in s.floorSource) " · marked by you" else "")
 
     private fun Context.activity(): Activity? { var c: Context? = this; while (c is ContextWrapper) { if (c is Activity) return c; c = c.baseContext }; return null }
 
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
     @Composable
     private fun ScanScreen(saved: List<SavedRoom>, onSaved: (String) -> Unit, onChanged: () -> Unit) {
         val context = LocalContext.current
@@ -276,7 +277,7 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                 }
                 (st.why ?: st.coach ?: note ?: st.stats?.notes?.firstOrNull())?.let { Text(it, Modifier.align(UiAlign.BottomCenter).padding(12.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.65f)).padding(horizontal = 14.dp, vertical = 8.dp), color = Color.White, fontSize = 13.sp) }
             }
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = UiAlign.CenterVertically) {
+            androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 val m = match
                 if (m == null) Button({ naming = true }, enabled = st.stats != null) { Text("Save") }
                 else Button({ scope.launch {
@@ -293,6 +294,8 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                 } }) { Text("Add to ${m.first.name}") }
                 if (saved.isNotEmpty() && m == null) FilledTonalButton({ findPlace(false) }, enabled = !looking && st.stats != null) { Text(if (looking) "Looking…" else "Have I been here?") }
                 if (m != null) TextButton({ match = null; naming = true }) { Text("Save as new") }
+                TextButton({ note = if (scan.markFloor()) "Floor set where the dot was." else "No distance at the dot: aim it at the floor and try again." }) { Text("Mark floor") }
+                TextButton({ note = if (scan.markCeiling()) "Ceiling set where the dot was." else "No distance at the dot: aim it at the ceiling and try again." }) { Text("Mark ceiling") }
                 if (st.measure.isNotEmpty()) TextButton({ scan.clearMeasure() }) { Text("Clear measure") }
                 TextButton({ scan.reset(); match = null; note = null }) { Text("Start over") }
             }
@@ -316,10 +319,17 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                 if (list == null) Text("Loading…", Modifier.align(UiAlign.Center), color = Color.White)
                 else if (list.isEmpty()) Text("This room's shape couldn't be read.", Modifier.align(UiAlign.Center), color = Color.White)
                 else Canvas(Modifier.fillMaxSize()) {
-                    val cx = list.sumOf { it.x.toDouble() }.toFloat() / list.size; val cz = list.sumOf { it.z.toDouble() }.toFloat() / list.size
+                    // Turn about the middle of what was scanned (the median, so a stray cluster can't pull the pivot away).
+                    fun mid(f: (P3) -> Float) = list.map(f).sorted()[list.size / 2]
+                    val cx = mid { it.x }; val cz = mid { it.z }
                     val floorY = room.stats.floorY ?: list.minOf { it.y }
-                    val centre = P3(cx, floorY + (room.stats.height ?: 2.4f) / 2, cz)
+                    val centre = P3(cx, mid { it.y }, cz)
                     if (zoom == 0f) zoom = size.minDimension / (((room.stats.length ?: (list.maxOf { it.x } - list.minOf { it.x })).coerceAtLeast(1f)) * 1.6f)
+                    // A faint half-metre grid on the floor, so the shape sits on something and has a scale.
+                    run { val x0 = kotlin.math.floor(list.minOf { it.x } * 2) / 2; val x1 = kotlin.math.ceil(list.maxOf { it.x } * 2) / 2; val z0 = kotlin.math.floor(list.minOf { it.z } * 2) / 2; val z1 = kotlin.math.ceil(list.maxOf { it.z } * 2) / 2
+                        fun pt(x: Float, z: Float): Offset { val (sx, sy, _) = Orbit.project(P3(x, floorY, z), centre, yaw, pitch, zoom); return Offset(size.width / 2 + sx, size.height / 2 + sy) }
+                        var gx = x0; while (gx <= x1 + 0.01f) { drawLine(Color.White.copy(alpha = 0.12f), pt(gx, z0), pt(gx, z1), 1f); gx += 0.5f }
+                        var gz = z0; while (gz <= z1 + 0.01f) { drawLine(Color.White.copy(alpha = 0.12f), pt(x0, gz), pt(x1, gz), 1f); gz += 0.5f } }
                     // Eight height bands, far side first is close enough for points this small.
                     val bands = Array(8) { ArrayList<Offset>() }
                     val span = (room.stats.height ?: 2.4f).coerceAtLeast(0.5f)

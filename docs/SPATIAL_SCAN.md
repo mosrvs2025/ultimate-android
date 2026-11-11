@@ -13,13 +13,29 @@ All causes below were found in the 2.1.0 source and reproduced with a simulated 
 | Height 4.95 → 5.95 m, growing during the scan | Floor = densest layer in the *lowest* 0.4 m of all solid cubes; ceiling the same from the *highest*. A few stray readings (6 m range, a mirror, a window, depth edges) moved both outward, and they could only ever grow. | Floor/ceiling need a layer whose area stands clear of the wall baseline (≥ 0.5 m²), below/above every camera position, at a plausible height (1.8–4.6 m). Otherwise "not measured". ARCore plane detection is used as a second opinion on the floor. |
 | "floor seen 0.0 m²" | Area was counted at the wrong "floor" height (see above), where there were almost no cubes. | Counted at the supported floor. |
 | 6.6 × 4.5 m for a bedroom | Size = 2nd–98th percentile of every point above the floor, so noise outside the walls widened it. | Walls = tall vertical columns; direction by Hough; size = outermost real wall row to outermost real wall row, only when both sides were seen. |
-| Noisy 3D shape | The app integrated depth at 20 Hz but ARCore repeats one raw depth picture for several frames, so "seen 3 times" was satisfied by a single picture. No motion gating, no edge rejection, nothing ever removed. | One picture counted once (timestamp + checksum); solid needs evidence from ≥ 4 key frames (3 cm or 2.5° apart); skipped above 100°/s or 1.2 m/s; depth-edge pixels dropped; range 0.4–4.5 m; rays carve free space so things seen through later fade; isolated cubes are not drawn or measured. |
+| Noisy 3D shape | The app integrated depth at 20 Hz but ARCore repeats one raw depth picture for several frames, so "seen 3 times" was satisfied by a single picture. No motion gating, no edge rejection, nothing ever removed. | One picture counted once (timestamp + checksum); solid needs evidence from ≥ 3 key frames (4 in 2.2.0) (3 cm or 2.5° apart); skipped above 100°/s or 1.2 m/s; depth-edge pixels dropped; range 0.4–4.5 m; rays carve free space so things seen through later fade; isolated cubes are not drawn or measured. |
 | "No depth at the dot" much of the time | The readout used only confident raw depth (≥ 110/255) in a 5×5 window. Raw depth-from-motion is sparse on plain walls and doors; that is expected, but there was no fallback. | Falls back to ARCore's filled-in depth, labelled "≈ … (estimate)". Raw-only is still used for the map and tap-measure. |
 | Two "bed" labels, labels drifting | Same-label sightings merged within a fixed 0.7 m (a bed is 2 m), position from the single depth cell at the box centre (often the wall behind). | Merge radius per kind of thing; position = median depth over the middle of the box; higher score thresholds. |
 | Questionable labels ("book", "suitcase") | Detector limits: EfficientDet-Lite0, 80 COCO classes, 320 px input. | Thresholds raised only. A better detector is future work; geometry can't fix this. |
 | "Doesn't match a room you've saved" | The matcher sliced points "0.3–2.2 m above the floor": with the floor wrong by metres the two slices were different parts of the room. Also 5° steps with no refinement, and a noisy map on both sides. I can't tell from the video whether the earlier saved room was this same room. | Matching uses tall structure (independent of the floor), 2° search + sub-cell refinement, reports fit and spread, refuses ambiguous fits, and runs automatically. Old saved rooms are re-measured on load, but they contain the old noise: rescan and save them again. |
 
 I did not have Gemini's proposed fixes in this session, so nothing here is taken from them or checked against them.
+
+### Second recording (2.2.0): overcorrected
+
+The same room gave 10,836 points (2.1.0: about 45,000), one object, and no walls or ceiling. Causes, and what 2.2.1 changed:
+
+- Four viewpoints per cube, on 160×90 depth whose noise spreads a wall over several cubes, was too many: now three.
+- Raw confidence below 110/255 was discarded, which is most of a plain wall: now accepted from 50 with a proportionally smaller weight.
+- Free-space carving assumed 4 cm of depth noise per metre; real noise is larger, so rays to noisy hits erased the wall in front of them.
+  The untouched margin next to a surface is now 15 cm + 10 cm per metre, and each pass removes less.
+- Edge rejection threshold doubled (15 cm or 12% of the distance).
+- The simulator's noise was too kind (2 cm at 1.5 m). It is now 5.5 cm at 1.5 m and 19 cm at 3 m; all twelve tests pass with it.
+- Added: faint tentative points (drawn, never measured or saved), Mark floor / Mark ceiling, ceiling from ARCore planes, lower detector
+  thresholds, wrapped buttons, centred viewer pivot, floor grid.
+
+Not done from the feedback on that recording: hand masking (the hand still leaves some points; the simulated hand leaves under 120
+cubes), a 60 fps object tracker, folding the buttons into the floating orb, wireframe room box, label de-cluttering.
 
 ## 2. Architecture
 

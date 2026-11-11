@@ -52,7 +52,7 @@ object RoomGeometry {
     private fun cell(v: Float) = floor(v / CELL).toInt()
     private fun cellKey(x: Float, z: Float) = (cell(x).toLong() shl 32) or (cell(z).toLong() and 0xFFFFFFFFL)
 
-    fun measure(pts: List<P3>, camMinY: Float? = null, camMaxY: Float? = null, planes: List<PlaneHint> = emptyList(), maxCeilingHeight: Float = 4.6f, minCeilingHeight: Float = 1.8f): RoomStats? {
+    fun measure(pts: List<P3>, camMinY: Float? = null, camMaxY: Float? = null, planes: List<PlaneHint> = emptyList(), maxCeilingHeight: Float = 4.6f, minCeilingHeight: Float = 1.8f, userFloor: Float? = null, userCeiling: Float? = null): RoomStats? {
         if (pts.size < 400) return null
         val notes = ArrayList<String>()
         val perBin = HashMap<Int, HashSet<Long>>()
@@ -81,7 +81,8 @@ object RoomGeometry {
             else if (abs(floorY - upPlane.y) <= 0.12f) floorSource = "depth+plane"
             else if (upPlane.y < floorY - 0.15f && upPlane.area >= 2f) notes += "ARCore sees a larger surface ${((floorY - upPlane.y) * 100).toInt()} cm lower; the floor may be lower than measured."
         }
-        if (floorY == null) notes += "Floor not found yet: point the camera at the floor and move a little."
+        if (userFloor != null) { floorY = userFloor; floorSource = "you"; notes.clear() }
+        if (floorY == null) notes += "Floor not found yet: point the camera at the floor and move a little, or aim the dot at it and tap Mark floor."
 
         // ---- Ceiling: the highest peak with real area, above every camera position and at a plausible room height.
         val ceilNeed = max(0.4f, 0.10f * peakExcess)
@@ -93,9 +94,13 @@ object RoomGeometry {
             if (floorY != null && (y - floorY < minCeilingHeight || y - floorY > maxCeilingHeight)) continue
             ceilI = i; break
         }
-        val ceilingY = if (ceilI >= 0 && floorY != null) locate(ceilI) else null
-        if (ceilingY == null && floorY != null) notes += "Ceiling not confirmed: tilt up to the ceiling."
-        if (ceilingY != null && smooth.indices.any { yOf(it) > ceilingY + 0.25f && smooth[it] >= ceilNeed && isPeak(it) }) notes += "Readings above the ceiling (a window, mirror or glare?) were ignored."
+        var ceilingY = if (ceilI >= 0 && floorY != null) locate(ceilI) else null
+        var ceilingSource = if (ceilingY != null) "depth" else ""
+        // Plain ceilings give depth-from-motion little to work with; ARCore's own surface detection sometimes still finds them.
+        if (ceilingY == null && floorY != null) planes.filter { !it.upward && it.area >= 0.8f && (camMaxY == null || it.y >= camMaxY + 0.1f) && it.y - floorY in minCeilingHeight..maxCeilingHeight }.maxByOrNull { it.area }?.let { ceilingY = it.y; ceilingSource = "plane"; notes += "The ceiling comes from ARCore's surface detection, not from depth." }
+        if (userCeiling != null && floorY != null && userCeiling - floorY > 1f) { ceilingY = userCeiling; ceilingSource = "you" }
+        if (ceilingY == null && floorY != null) notes += "Ceiling not confirmed: tilt up to it, or aim the dot at it and tap Mark ceiling."
+        if (ceilingY != null && smooth.indices.any { yOf(it) > ceilingY!! + 0.25f && smooth[it] >= ceilNeed && isPeak(it) }) notes += "Readings above the ceiling (a window, mirror or glare?) were ignored."
 
         // ---- Walls: tall vertical columns, independent of the floor.
         val lowY = floorY?.plus(0.15f) ?: camMinY?.minus(1.9f) ?: Float.NEGATIVE_INFINITY
@@ -116,8 +121,8 @@ object RoomGeometry {
         val floorSeen = if (floorY == null) 0f else pts.filter { abs(it.y - floorY) <= 0.075f }.map { cellKey(it.x, it.z) }.toSet().size * CELL * CELL
 
         val have = listOf(floorY != null, ceilingY != null, u?.complete == true, v?.complete == true).count { it }
-        val conf = when { floorY == null && have == 0 -> Confidence.LOW; have >= 4 && pts.size >= 8000 && floorSource != "plane" -> Confidence.HIGH; have >= 3 -> Confidence.MEDIUM; else -> Confidence.LOW }
-        return RoomStats(floorY, ceilingY, heading, u, v, floorSeen, pts.size, conf, notes, floorSource)
+        val conf = when { floorY == null && have == 0 -> Confidence.LOW; have >= 4 && pts.size >= 8000 && floorSource != "plane" && ceilingSource == "depth" -> Confidence.HIGH; have >= 3 -> Confidence.MEDIUM; else -> Confidence.LOW }
+        return RoomStats(floorY, ceilingY, heading, u, v, floorSeen, pts.size, conf, notes, listOf(floorSource, ceilingSource).joinToString("/"))
     }
 
     /** The wall direction (0..90°): the angle at which the most wall cells line up in straight rows, counting both the direction and the one across it. */
@@ -140,11 +145,13 @@ object RoomGeometry {
      */
     private fun span(values: List<Float>): Span? {
         val h = HashMap<Int, Int>(); for (x in values) h.merge(floor(x / CELL).toInt(), 1, Int::plus)
-        val peak = h.values.max(); val need = max(8, (0.35f * peak).toInt())
-        val strong = h.keys.filter { (h[it] ?: 0) >= need }.sorted()
+        // Strength over three neighbouring rows, because noise spreads a wall over more than one.
+        fun s3(k: Int) = (h[k - 1] ?: 0) + (h[k] ?: 0) + (h[k + 1] ?: 0)
+        val need = max(12, (0.35f * h.keys.maxOf { s3(it) }).toInt())
+        val strong = h.keys.filter { s3(it) >= need }.sorted()
         if (strong.isEmpty()) return null
-        /** A wall smeared over two rows by noise: its position is the weighted centre of the outermost strong row and its strong neighbour. */
-        fun wall(k: Int, inward: Int): Float { val a = h[k] ?: 0; val b = if ((k + inward) in strong) h[k + inward] ?: 0 else 0; return ((k + 0.5f) * a + (k + inward + 0.5f) * b) / (a + b) * CELL }
+        /** Noise smears a wall over a few rows: its position is the weighted centre of the outermost run of strong rows (up to 40 cm deep). */
+        fun wall(k: Int, inward: Int): Float { var s = 0f; var w = 0f; var j = k; var n = 0; while (j in strong && n < 4) { val c = (h[j] ?: 0).toFloat(); s += (j + 0.5f) * c; w += c; j += inward; n++ }; return if (w > 0f) s / w * CELL else (k + 0.5f) * CELL }
         val lo = wall(strong.first(), 1); val hi = wall(strong.last(), -1)
         return Span(lo, hi, hi - lo >= 1.5f)
     }

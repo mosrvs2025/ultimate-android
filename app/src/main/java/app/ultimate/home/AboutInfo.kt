@@ -62,6 +62,14 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("2.2.1", listOf(
+            "Room scan: 2.2.0 was too strict. On a real phone it kept about a quarter of the points of the earlier build and found no walls or ceiling. A point now needs three viewpoints instead of four, doubtful depth readings count a little instead of not at all (so plain walls fill in over a few views), fewer readings are thrown away at depth edges, and the step that clears seen-through points no longer eats into walls whose depth is noisy.",
+            "The picture reacts at once: readings that aren't confirmed yet are drawn as faint pale dots and turn solid as they're confirmed. Only confirmed points are measured and saved.",
+            "You can tell it what it is looking at: aim the dot at the floor or the ceiling and tap Mark floor or Mark ceiling. The measurement then uses your mark and says so. The ceiling can also come from ARCore's own surface detection when depth can't see a plain ceiling.",
+            "Things are recognised more readily again (the thresholds were too high), and are placed using lower-confidence depth when that is all there is.",
+            "The buttons under the camera wrap onto a second line instead of running off the screen. The 3D viewer turns about the middle of the scan and shows a half-metre floor grid.",
+            "Still simulator-tested only; the simulated phone was made noisier to match what the recording showed.",
+        ), tries = listOf("roomscan")),
         Entry("2.2.0", listOf(
             "Room scan rebuilt after the first real-phone test. The wrong numbers in that recording (a 5.95 m ceiling, 0.0 m² of floor, a 6.6 × 4.5 m bedroom) came from taking the lowest and highest stray depth reading as floor and ceiling. Floor and ceiling now need a real area of support, must sit below and above everywhere the phone has been, and a size is only given when walls were seen on both sides. What isn't measured says \"not measured\" with a hint on what to scan.",
             "Much less noise: the phone was counting the same depth picture several times, which made noise look solid. Each picture is now counted once, needs four different viewpoints to become solid, is skipped while the phone moves too fast, and readings on depth edges or beyond 4.5 m are dropped. Things later seen through (a hand, a foot) fade out.",

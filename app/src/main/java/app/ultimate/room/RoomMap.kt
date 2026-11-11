@@ -23,7 +23,7 @@ data class P3(val x: Float, val y: Float, val z: Float) {
  *  - every depth reading that lands in a cube adds to its occupancy (log-odds), weighted by how trustworthy the reading was;
  *  - every depth ray that passes *through* a cube on its way to a surface takes some away (free-space carving), so a hand, a foot or a
  *    one-off bad reading that is later seen through fades instead of staying forever;
- *  - a cube only counts as solid when its evidence is high *and* it was seen from at least [MIN_VIEWS] (four) different camera positions
+ *  - a cube only counts as solid when its evidence is high *and* it was seen from at least [MIN_VIEWS] (three) different camera positions
  *    (key frames), so the same depth picture counted over and over while the phone is held still can no longer make noise "solid".
  *
  * A second, coarse grid (20 cm) remembers where rays have passed freely, so a later scan can tell "this was solid before and is now seen
@@ -108,6 +108,9 @@ class RoomMap(val size: Float = 0.05f) {
     fun evidenceAt(i: Int) = occ[i]
     fun centre(i: Int): FloatArray { val (x, y, z) = unpack(keys[i]); return floatArrayOf((x + 0.5f) * size, (y + 0.5f) * size, (z + 0.5f) * size) }
 
+    /** Cubes with some evidence that are not solid yet: shown faintly while scanning so the picture reacts at once, never measured or saved. */
+    fun tentative(max: Int = 20000): List<P3> { val out = ArrayList<P3>(); var i = 0; while (i < cap && out.size < max) { if (keys[i] != EMPTY && !isSolid(i) && occ[i] >= 0.4f) { val c = centre(i); out += P3(c[0], c[1], c[2]) }; i++ }; return out }
+
     /** Solid cubes with fewer than [minNeighbours] solid cubes touching them are speckle and are left out (used for drawing and measuring). */
     fun cleaned(minNeighbours: Int = 3): List<P3> {
         val set = HashSet<Long>(); val all = ArrayList<Triple<Int, Int, Int>>()
@@ -182,7 +185,7 @@ class RoomMap(val size: Float = 0.05f) {
         private const val MASK = (1L shl 21) - 1
         private const val MAGIC = 0x524D5032   // "RMP2"
         private const val MAGIC_V1 = 0x524D4150   // "RMAP", the first release: solid cubes only
-        const val HIT = 0.85f; const val MISS = 0.5f; const val OCC_MAX = 4f; const val OCC_MIN = -1.5f; const val SOLID = 2.0f; const val MIN_VIEWS = 4
+        const val HIT = 0.85f; const val MISS = 0.3f; const val OCC_MAX = 4f; const val OCC_MIN = -1.5f; const val SOLID = 1.5f; const val MIN_VIEWS = 3
         private const val DROP = -1.2f
         private const val FREE_KEEP = 3
 

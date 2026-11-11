@@ -36,7 +36,7 @@ object Aligner {
         return cols.filter { it.value.size >= minBins }.keys.map { (it shr 32).toInt() to it.toInt() }
     }
 
-    fun align(fresh: List<P3>, saved: List<P3>, minPrecision: Float = 0.6f, minCells: Int = 80): Alignment? {
+    fun align(fresh: List<P3>, saved: List<P3>, minPrecision: Float = 0.72f, minCells: Int = 80): Alignment? {
         val a = structure(fresh); val b = structure(saved)
         if (a.size < minCells || b.size < minCells) return null
         val bSet = HashSet<Long>(b.size * 2); for ((x, z) in b) bSet += key(x, z)

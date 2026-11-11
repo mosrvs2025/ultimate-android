@@ -23,7 +23,7 @@ object RoomLabels {
         else -> 0.25f
     }
     /** Big things can be told from one good look; small ones get mislabelled more, so they need more sightings and a surer detector. */
-    fun minScore(label: String): Float = if (radius(label) >= 0.55f) 0.5f else 0.55f
+    fun minScore(label: String): Float = if (radius(label) >= 0.55f) 0.45f else 0.5f
 }
 
 /**
