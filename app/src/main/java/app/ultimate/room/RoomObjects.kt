@@ -1,0 +1,75 @@
+package app.ultimate.room
+
+/**
+ * A thing found in a space. [id] stays the same across scans, so "the couch" is one couch however many times the room is rescanned.
+ * [state] is "here", or "missing" when a later scan looked at where it was and did not find it.
+ */
+data class RoomObject(val label: String, val at: P3, val seen: Int, val best: Float, val id: String = "", val firstAt: Long = 0, val lastAt: Long = 0, val state: String = "here")
+
+/** The household things worth remembering, out of what the detector knows (people and vehicles are left out on purpose). */
+object RoomLabels {
+    val KEEP = setOf("chair", "couch", "bed", "dining table", "tv", "laptop", "potted plant", "refrigerator", "microwave", "oven", "toaster", "sink", "toilet", "book", "clock", "vase",
+        "bottle", "cup", "bowl", "keyboard", "mouse", "remote", "cell phone", "backpack", "handbag", "suitcase", "bench", "teddy bear", "umbrella", "scissors", "hair drier")
+    fun emoji(label: String) = when (label) { "chair", "bench" -> "🪑"; "couch" -> "🛋️"; "bed" -> "🛏️"; "dining table" -> "🍽️"; "tv" -> "📺"; "laptop", "keyboard", "mouse" -> "💻"; "potted plant", "vase" -> "🪴"
+        "refrigerator" -> "🧊"; "microwave", "oven", "toaster" -> "🍳"; "sink" -> "🚰"; "toilet" -> "🚽"; "book" -> "📚"; "clock" -> "🕒"; "bottle", "cup", "bowl" -> "🥤"; "remote", "cell phone" -> "📱"; "backpack", "handbag", "suitcase" -> "🎒"; else -> "📦" }
+
+    /**
+     * How far apart two sightings of the same kind of thing can be and still be one thing: about the thing's own size. One fixed
+     * distance (0.7 m, as before) splits a two-metre bed into several "beds" and glues separate bottles on a shelf into one.
+     */
+    fun radius(label: String): Float = when (label) {
+        "bed" -> 1.6f; "couch" -> 1.4f; "dining table" -> 1.1f; "refrigerator", "bench" -> 0.9f; "tv", "oven", "toilet", "sink" -> 0.7f
+        "chair", "suitcase", "potted plant", "microwave" -> 0.55f; "laptop", "backpack", "keyboard", "umbrella", "teddy bear" -> 0.4f
+        else -> 0.25f
+    }
+    /** Big things can be told from one good look; small ones get mislabelled more, so they need more sightings and a surer detector. */
+    fun minScore(label: String): Float = if (radius(label) >= 0.55f) 0.5f else 0.55f
+}
+
+/**
+ * Remembers objects across many camera frames within one scan. One frame's detection is not trusted: the same label seen again within
+ * the thing's own size is the same object (its position settles to the running average), and it only counts after [confirmAt]
+ * sightings. Pure, so it is tested.
+ */
+class ObjectMemory(private val confirmAt: Int = 3) {
+    private val all = ArrayList<RoomObject>()
+
+    fun see(label: String, at: P3, score: Float) {
+        if (score < RoomLabels.minScore(label)) return
+        val r = RoomLabels.radius(label)
+        val i = all.indices.filter { all[it].label == label && all[it].at.dist(at) <= r }.minByOrNull { all[it].at.dist(at) }
+        if (i == null) { all += RoomObject(label, at, 1, score); return }
+        val o = all[i]; val n = o.seen + 1; val k = minOf(o.seen, 20)   // after 20 sightings, new ones still nudge it (so drift doesn't freeze an early error)
+        all[i] = o.copy(at = P3((o.at.x * k + at.x) / (k + 1), (o.at.y * k + at.y) / (k + 1), (o.at.z * k + at.z) / (k + 1)), seen = n, best = maxOf(o.best, score))
+    }
+
+    fun confirmed(): List<RoomObject> = all.filter { it.seen >= confirmAt }.sortedByDescending { it.seen }
+    fun clear() = all.clear()
+}
+
+/**
+ * Keeping things' identities when a room is scanned again. [fresh] must already be in the saved room's coordinates. A fresh thing of
+ * the same kind near a saved one *is* that saved one (it keeps its id and first-seen time, and takes the new position, so a chair that
+ * was nudged stays the same chair). A fresh thing with no match is new. A saved thing with no match is marked "missing" only if this
+ * scan actually looked at the place where it was ([looked]); otherwise it is left exactly as it was. Pure, so it is tested.
+ */
+object ObjectIdentity {
+    fun merge(saved: List<RoomObject>, fresh: List<RoomObject>, now: Long, looked: (P3) -> Boolean, newId: () -> String): List<RoomObject> {
+        val out = ArrayList<RoomObject>(); val used = HashSet<Int>()
+        // Closest pairs first, so two chairs side by side keep their own identities.
+        val pairs = ArrayList<Triple<Float, Int, Int>>()
+        for (s in saved.indices) for (f in fresh.indices) if (saved[s].label == fresh[f].label) { val d = saved[s].at.dist(fresh[f].at); if (d <= 2f * RoomLabels.radius(saved[s].label) + 0.3f) pairs += Triple(d, s, f) }
+        val matchOf = HashMap<Int, Int>()
+        for ((_, s, f) in pairs.sortedBy { it.first }) if (s !in matchOf && f !in used) { matchOf[s] = f; used += f }
+        for (s in saved.indices) {
+            val o = saved[s]; val f = matchOf[s]?.let { fresh[it] }
+            out += when {
+                f != null -> o.copy(at = f.at, seen = o.seen + f.seen, best = maxOf(o.best, f.best), lastAt = now, state = "here", id = o.id.ifEmpty { newId() })
+                looked(o.at) -> o.copy(state = "missing", id = o.id.ifEmpty { newId() })
+                else -> o.copy(id = o.id.ifEmpty { newId() })
+            }
+        }
+        for (f in fresh.indices) if (f !in used) out += fresh[f].copy(id = newId(), firstAt = now, lastAt = now, state = "here")
+        return out
+    }
+}
