@@ -3,6 +3,13 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 2.1.0
+- New in Ultimate+: Room scan (under Senses). Walk slowly round a room with the camera and the phone builds its shape in 3D from ARCore depth and motion tracking, shows the distance to whatever the centre dot is on, and works out the room's length, width, height and floor area. Tap two points to measure between them.
+- It recognises furniture and household things on the phone (chairs, couch, bed, table, TV, laptop, plants and so on), pins a label on each where it stands in the room, and only keeps one after seeing it several times.
+- Save a room and it is remembered: open it later in a 3D viewer (drag to turn, pinch to zoom), and when you scan again tap "Have I been here?" to have the phone recognise the room from its shape, show the things it remembered there in green, and add the new scan to it.
+- Private by design: camera pictures are looked at on the phone and dropped; only the room's shape and labels are stored, in the app's own storage. Nothing is uploaded.
+- Honest limits: needs a phone with ARCore depth (it offers to install Google Play Services for AR). Most phones work out depth from the camera moving, so blank walls, mirrors, glass and dim light scan poorly, and measurements are estimates. This was built without a phone to test on; see docs/SPATIAL_SCAN.md.
+
 ## 2.0.0
 - Fixed: a clip you just imported into Studio wouldn't play. The preview muted itself while a clip loaded and, when it finished, set "playing" from an out-of-date value, so tapping Play during that moment (right after importing) was undone. It now follows what you asked for, and the first clip no longer waits at all.
 - Version numbers now go 2.0.0 and up, so they stop looking like they go backwards (1.100.0 is higher than 1.99.0 but reads like 1.10).
