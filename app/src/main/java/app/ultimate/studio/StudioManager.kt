@@ -114,6 +114,34 @@ class StudioManager(private val context: Context, private val hub: WorkHub) : Wo
     }
     fun newProject() = open(StudioProject())
 
+    /** Splits the clip under [atMs] on the film's clock; false when the playhead is on a cut already or there is no clip. */
+    fun splitAt(atMs: Long): Boolean {
+        val (clip, into) = Timeline.locate(project.value, atMs) ?: return false
+        val src = (into * clip.speed).toLong()
+        if (src < Timeline.MIN_CLIP_MS || clip.durationMs - into < Timeline.MIN_CLIP_MS) return false
+        split(clip.id, into); return true
+    }
+
+    /**
+     * Finds the pauses in a clip's sound and cuts them out. Scans on the phone, then applies as one undo step. Says what it did in the
+     * status line, or why it couldn't.
+     */
+    fun cutSilence(clipId: String) {
+        val clip = project.value.clips.firstOrNull { it.id == clipId } ?: return
+        if (loading.value || work.value.active || silenceJob?.isActive == true) return
+        status.value = "Listening for pauses…"
+        silenceJob = scope.launch {
+            val db = withContext(Dispatchers.IO) { Silence.scan(context, Uri.parse(clip.uri), clip.startMs, clip.endMs) }
+            if (db == null) { status.value = "Couldn't read this clip's sound"; error.value = "This clip has no sound Studio can read, so there is nothing to cut."; return@launch }
+            val cuts = Silence.find(db, Silence.thresholdFor(db))
+            if (cuts.isEmpty()) { status.value = "No pauses to cut"; return@launch }
+            val removed = cuts.sumOf { it.last - it.first + 1 }
+            edit { p -> p.copy(clips = p.clips.flatMap { if (it.id == clipId) Timeline.removeRanges(it, cuts) else listOf(it) }) }
+            status.value = "Cut ${cuts.size} pause${if (cuts.size == 1) "" else "s"} (${removed / 1000}.${removed % 1000 / 100} s). Undo to put them back"
+        }
+    }
+    private var silenceJob: Job? = null
+
     /** Adds a text or sticker layer at [at] and returns its id. */
     fun addLayer(kind: LayerKind, text: String, at: Long): String? {
         if (text.isBlank()) return null

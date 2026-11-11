@@ -1,5 +1,6 @@
 package app.ultimate.studio
 
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.material.icons.rounded.Layers
@@ -181,6 +182,7 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit, launched: Boolean =
     val status by manager.status.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
+    val context = LocalContext.current
 
     var playhead by rememberSaveable { mutableLongStateOf(0L) }
     var playing by remember { mutableStateOf(false) }
@@ -357,6 +359,14 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit, launched: Boolean =
                     }
                 }
 
+                // A short, dismissible guide the first few times, so nothing has to be discovered by accident.
+                val tipPrefs = remember { context.getSharedPreferences("studio", android.content.Context.MODE_PRIVATE) }
+                var tipOpen by remember { mutableStateOf(!tipPrefs.getBoolean("tips-seen", false)) }
+                if (tipOpen && project.clips.isNotEmpty() && panel == null && selection == null) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF26323A)).padding(start = 12.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Tap a clip to edit it · Split cuts where the playhead is · Pinch to zoom · Hold a clip, then drag to reorder", Modifier.weight(1f), color = Color.White, fontSize = 12.sp)
+                    TextButton({ tipOpen = false; tipPrefs.edit().putBoolean("tips-seen", true).apply() }) { Text("Got it") }
+                }
+
                 // Bottom toolbar: project tools, or clip tools while a clip is selected.
                 val clipTools = selected != null
                 Toolbar {
@@ -365,10 +375,10 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit, launched: Boolean =
                         ToolButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back", !busy) { selection = null; panel = null }
                         ToolButton(Icons.Rounded.ContentCut, "Split", !busy) {
                             stop()
-                            val at = playhead - Timeline.offset(project, c.id)
-                            if (at <= 0 || at >= c.durationMs) manager.error.value = "Move the playhead inside the selected clip to split it"
-                            else { manager.split(c.id, at); haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+                            // Splits the clip the playhead is on, selected or not, so there is nothing to line up first.
+                            if (manager.splitAt(playhead)) haptics.performHapticFeedback(HapticFeedbackType.LongPress) else manager.error.value = "The playhead is on a cut already. Move it into a clip to split there."
                         }
+                        ToolButton(Icons.Rounded.AutoFixHigh, "Cut pauses", !busy) { stop(); manager.cutSilence(c.id) }
                         ToolButton(Icons.Rounded.Speed, "Speed", !busy, panel == Panel.Speed) { panel = Panel.Speed }
                         ToolButton(if (c.volume == 0f) Icons.AutoMirrored.Rounded.VolumeOff else Icons.AutoMirrored.Rounded.VolumeUp, "Volume", !busy, panel == Panel.Volume) { panel = Panel.Volume }
                         ToolButton(Icons.Rounded.Palette, "Filters", !busy, panel == Panel.Filters) { panel = Panel.Filters }
@@ -382,6 +392,9 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit, launched: Boolean =
                         ToolButton(Icons.Rounded.Delete, "Delete", !busy) { stop(); manager.edit { p -> p.copy(clips = p.clips.filterNot { it.id == c.id }) }; selection = null; panel = null }
                     } else {
                         ToolButton(Icons.Rounded.Add, "Add clips", !busy) { addVideos() }
+                        ToolButton(Icons.Rounded.ContentCut, "Split", !busy && project.clips.isNotEmpty()) {
+                            stop(); if (manager.splitAt(playhead)) haptics.performHapticFeedback(HapticFeedbackType.LongPress) else manager.error.value = "The playhead is on a cut already. Move it into a clip to split there."
+                        }
                         ToolButton(Icons.Rounded.Layers, "Layers", !busy && project.clips.isNotEmpty(), panel == Panel.Layers) { panel = Panel.Layers }
                         ToolButton(Icons.Rounded.MusicNote, "Audio", !busy, panel == Panel.Audio) { panel = Panel.Audio }
                         ToolButton(Icons.Rounded.TextFields, "Text", !busy && project.clips.isNotEmpty(), panel == Panel.Text) { selection = target()?.id; panel = Panel.Text }
@@ -1214,7 +1227,12 @@ private fun LayersPanel(project: StudioProject, playhead: Long, selected: String
                     listOf("Top" to 0.18f, "Middle" to 0.5f, "Bottom" to 0.82f).forEach { (n, y) -> TextButton({ manager.updateLayer(sel.id) { it.copy(fx = 0.5f, fy = y) } }) { Text(n) } }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Timing by eye is fiddly: snap an end to the playhead, or make the layer last exactly as long as the clip under it.
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.AssistChip({ manager.updateLayer(sel.id) { it.copy(startMs = playhead, endMs = maxOf(it.endMs, playhead + Layers.MIN_MS)) } }, { Text("Start here") })
+                androidx.compose.material3.AssistChip({ manager.updateLayer(sel.id) { it.copy(endMs = playhead) } }, { Text("End here") })
+                androidx.compose.material3.AssistChip({ Timeline.locate(project, playhead)?.first?.let { c -> val s = Timeline.offset(project, c.id); manager.updateLayer(sel.id) { it.copy(startMs = s, endMs = s + c.durationMs) } } }, { Text("Match clip") })
+                androidx.compose.material3.AssistChip({ manager.addLayer(sel.kind, sel.text, playhead)?.let { id -> manager.updateLayer(id) { it.copy(fx = (sel.fx + 0.08f).coerceAtMost(1f), fy = (sel.fy + 0.08f).coerceAtMost(1f), size = sel.size, color = sel.color) }; onSelect(id) } }, { Text("Duplicate") })
                 TextButton({ manager.removeLayer(sel.id); onSelect(null) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             }
         } else if (project.layers.isNotEmpty()) {

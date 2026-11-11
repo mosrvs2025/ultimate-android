@@ -139,6 +139,22 @@ object Timeline {
         require(sourceAt - clip.startMs >= MIN_CLIP_MS && clip.endMs - sourceAt >= MIN_CLIP_MS) { "Move the playhead away from the clip edges" }
         return listOf(clip.copy(endMs = sourceAt), clip.copy(id = UUID.randomUUID().toString(), startMs = sourceAt))
     }
+
+    /**
+     * Takes the stretches in [removeMs] (milliseconds from the clip's in-point in the SOURCE, before speed) out of [clip], leaving the
+     * pieces between them as separate clips with the clip's settings. Pieces under [MIN_CLIP_MS] are dropped. A clip with nothing
+     * to remove comes back unchanged.
+     */
+    fun removeRanges(clip: StudioClip, removeMs: List<LongRange>): List<StudioClip> {
+        val cuts = removeMs.map { (clip.startMs + it.first).coerceAtLeast(clip.startMs)..(clip.startMs + it.last + 1).coerceAtMost(clip.endMs) }.filter { it.last - it.first > 0 }.sortedBy { it.first }
+        if (cuts.isEmpty()) return listOf(clip)
+        val pieces = ArrayList<LongRange>(); var at = clip.startMs
+        for (c in cuts) { if (c.first > at) pieces += at..c.first; at = maxOf(at, c.last) }
+        if (clip.endMs > at) pieces += at..clip.endMs
+        val kept = pieces.filter { it.last - it.first >= MIN_CLIP_MS }
+        return kept.mapIndexed { i, r -> clip.copy(id = if (i == 0) clip.id else UUID.randomUUID().toString(), startMs = r.first, endMs = r.last) }
+    }
+
     fun beatMs(index: Int, bpm: Int, offsetMs: Long = 0): Long {
         require(bpm in 30..300 && index >= 0)
         return offsetMs + (index * 60000.0 / bpm).roundToLong()

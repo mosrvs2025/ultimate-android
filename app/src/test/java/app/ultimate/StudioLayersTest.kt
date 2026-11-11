@@ -66,3 +66,40 @@ class StudioLayersTest {
         assertFalse(LayerBitmaps.textPx(720, l.copy(size = 2f)) <= LayerBitmaps.textPx(720, l))
     }
 }
+
+class SilenceCutTest {
+    private fun db(vararg runs: Pair<Int, Float>): FloatArray = runs.flatMap { (n, v) -> List(n) { v } }.toFloatArray()   // windows of 50 ms
+
+    @Test fun longQuietStretchesAreFoundWithAMarginKeptOnEachSide() {
+        // 1 s speech, 1 s quiet, 1 s speech.
+        val cuts = app.ultimate.studio.Silence.find(db(20 to -20f, 20 to -60f, 20 to -20f), thresholdDb = -42f, minSilentMs = 450, keepMs = 120)
+        assertEquals(1, cuts.size); assertEquals(1120L..1879L, cuts[0])
+    }
+
+    @Test fun shortGapsBetweenWordsAndPausesTooSmallToCutAreLeftAlone() {
+        assertTrue("a 300 ms breath is not cut", app.ultimate.studio.Silence.find(db(20 to -20f, 6 to -60f, 20 to -20f)).isEmpty())
+        assertTrue("500 ms quiet minus margins leaves under 100 ms", app.ultimate.studio.Silence.find(db(20 to -20f, 10 to -60f, 20 to -20f), keepMs = 230).isEmpty())
+        assertTrue(app.ultimate.studio.Silence.find(db(40 to -20f)).isEmpty()); assertTrue(app.ultimate.studio.Silence.find(FloatArray(0)).isEmpty())
+    }
+
+    @Test fun quietAtTheStartAndEndIsCutToo() {
+        val cuts = app.ultimate.studio.Silence.find(db(14 to -60f, 20 to -20f, 14 to -60f))
+        assertEquals(2, cuts.size); assertTrue(cuts[0].last < 700 && cuts[1].first > 1500)
+    }
+
+    @Test fun theThresholdFollowsTheRecordingsOwnNoiseFloorWithinLimits() {
+        val quietRoom = db(30 to -58f, 30 to -20f); val noisyRoom = db(30 to -38f, 30 to -15f)
+        assertEquals(-49f, app.ultimate.studio.Silence.thresholdFor(quietRoom), 0.1f); assertEquals(-30f, app.ultimate.studio.Silence.thresholdFor(noisyRoom), 0.1f)
+        assertEquals(-42f, app.ultimate.studio.Silence.thresholdFor(FloatArray(0)), 0f)
+    }
+
+    @Test fun removingRangesLeavesTheSpeechPiecesWithTheClipsSettingsAndUndoableIds() {
+        val c = StudioClip(id = "c", uri = "content://x", name = "a", sourceMs = 10_000, startMs = 1_000, endMs = 9_000, volume = 0.7f)
+        val parts = app.ultimate.studio.Timeline.removeRanges(c, listOf(1_000L..1_999L, 5_000L..5_999L))
+        assertEquals(3, parts.size); assertEquals("c", parts[0].id)
+        assertEquals(1_000L, parts[0].startMs); assertEquals(2_000L, parts[0].endMs); assertEquals(3_000L, parts[1].startMs); assertEquals(7_000L, parts[2].startMs); assertEquals(9_000L, parts[2].endMs)
+        assertTrue(parts.all { it.volume == 0.7f } && parts.map { it.id }.toSet().size == 3)
+        assertEquals(listOf(c), app.ultimate.studio.Timeline.removeRanges(c, emptyList()))
+        assertTrue("pieces under the minimum are dropped", app.ultimate.studio.Timeline.removeRanges(c, listOf(0L..7_950L)).isEmpty())
+    }
+}

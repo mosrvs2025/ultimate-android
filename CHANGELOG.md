@@ -3,6 +3,12 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 1.100.0
+- Cut pauses: select a clip and tap Cut pauses. Studio listens to its sound on the phone, finds the silent stretches (judged against that recording's own background noise, with a little kept on each side so words aren't clipped) and cuts them out in one step. The status line says how many it cut; Undo puts them back.
+- Split is always there now, in the main toolbar as well as with a clip selected, and it cuts the clip the playhead is on, so there is nothing to line up first.
+- Layers: Start here, End here and Match clip set a layer's timing from the playhead or the clip under it, and Duplicate copies it.
+- A short guide appears the first time you have clips (tap a clip to edit, split at the playhead, pinch to zoom, hold to reorder) and goes away for good when you tap Got it.
+
 ## 1.99.0
 - Studio layers: a second track over your film for text and stickers. Layers button (or the new row under the clips): add text or an emoji sticker at the playhead, drag it on the picture to place it, drag its ends on the track (or the range slider) to choose when it shows, and set size, colour and top, middle or bottom. Layers are saved with the project, follow the film if you trim it, and are burned into the export.
 - Days tab: the summary chips (photos, screenshots, notifications, watched…) are now tappable. Tapping one filters the feed below, scrolls it into view, lights up its heading for a moment ("Only photos · 12") and gives a Show everything button. The chip you picked is outlined.
