@@ -76,6 +76,8 @@
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
     <application android:requestLegacyExternalStorage="true">
+        <!-- Room scan uses ARCore when the phone has it; the app installs and runs without it. -->
+        <meta-data android:name="com.google.ar.core" android:value="optional" />
         <service android:name="app.ultimate.player.PlaybackService" android:exported="true" android:foregroundServiceType="mediaPlayback">
             <intent-filter><action android:name="androidx.media3.session.MediaSessionService" /></intent-filter>
         </service>

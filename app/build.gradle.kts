@@ -22,8 +22,8 @@ android {
         targetSdk = 35
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 118
-        versionName = "2.0.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 119
+        versionName = "2.1.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -303,6 +303,8 @@ dependencies {
     // Hand tracking for camera-assisted Echo calibration (Apache-2.0). Model fetched by scripts/fetch-models.sh.
     "ultimateImplementation"("com.google.mediapipe:tasks-vision:0.10.20")
     "ultimateplusImplementation"("com.google.mediapipe:tasks-vision:0.10.20")
+    // ARCore (depth and motion tracking) for Room scan. Ultimate+ only: the offline edition stays free of Google Play Services.
+    "ultimateplusImplementation"("com.google.ar:core:1.44.0")
     // Watch: Wear OS's own phone-watch link (Bluetooth, Wi-Fi or the internet), for Ultimate+ on a Galaxy Watch.
     "ultimateplusImplementation"("com.google.android.gms:play-services-wearable:18.2.0")
     // play-services-wearable brings androidx.fragment 1.0; activity-result APIs need 1.3 or later.
