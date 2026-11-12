@@ -4,7 +4,7 @@ package app.ultimate.room
  * A thing found in a space. [id] stays the same across scans, so "the couch" is one couch however many times the room is rescanned.
  * [state] is "here", or "missing" when a later scan looked at where it was and did not find it.
  */
-data class RoomObject(val label: String, val at: P3, val seen: Int, val best: Float, val id: String = "", val firstAt: Long = 0, val lastAt: Long = 0, val state: String = "here")
+data class RoomObject(val label: String, val at: P3, val seen: Int, val best: Float, val id: String = "", val firstAt: Long = 0, val lastAt: Long = 0, val state: String = "here", val missed: Int = 0)
 
 /** The household things worth remembering, out of what the detector knows (people and vehicles are left out on purpose). */
 object RoomLabels {
@@ -63,13 +63,29 @@ object ObjectIdentity {
         for ((_, s, f) in pairs.sortedBy { it.first }) if (s !in matchOf && f !in used) { matchOf[s] = f; used += f }
         for (s in saved.indices) {
             val o = saved[s]; val f = matchOf[s]?.let { fresh[it] }
-            out += when {
-                f != null -> o.copy(at = f.at, seen = o.seen + f.seen, best = maxOf(o.best, f.best), lastAt = now, state = "here", id = o.id.ifEmpty { newId() })
-                looked(o.at) -> o.copy(state = "missing", id = o.id.ifEmpty { newId() })
+            val r = when {
+                f != null -> o.copy(at = f.at, seen = o.seen + f.seen, best = maxOf(o.best, f.best), lastAt = now, state = "here", missed = 0, id = o.id.ifEmpty { newId() })
+                looked(o.at) -> o.copy(state = "missing", missed = o.missed + 1, id = o.id.ifEmpty { newId() })
                 else -> o.copy(id = o.id.ifEmpty { newId() })
             }
+            // Not found again after two scans that looked at the place: it is gone, so it stops cluttering the list.
+            if (r.missed < 2) out += r
         }
-        for (f in fresh.indices) if (f !in used) out += fresh[f].copy(id = newId(), firstAt = now, lastAt = now, state = "here")
+        for (f in fresh.indices) if (f !in used) out += fresh[f].copy(id = newId(), firstAt = now, lastAt = now, state = "here", missed = 0)
+        return tidy(out)
+    }
+
+    /** One thing, one entry: same-kind entries closer than about the thing's own size are the same thing seen twice (the older identity stays). */
+    fun tidy(all: List<RoomObject>): List<RoomObject> {
+        val sorted = all.sortedWith(compareBy<RoomObject>({ if (it.firstAt == 0L) Long.MAX_VALUE else it.firstAt }).thenByDescending { it.seen })
+        val out = ArrayList<RoomObject>()
+        for (o in sorted) {
+            val i = out.indexOfFirst { it.label == o.label && it.at.dist(o.at) < 1.1f * RoomLabels.radius(o.label) + 0.1f }
+            if (i < 0) { out += o; continue }
+            val k = out[i]; val n = k.seen + o.seen
+            out[i] = k.copy(at = P3((k.at.x * k.seen + o.at.x * o.seen) / n, (k.at.y * k.seen + o.at.y * o.seen) / n, (k.at.z * k.seen + o.at.z * o.seen) / n), seen = n, best = maxOf(k.best, o.best),
+                lastAt = maxOf(k.lastAt, o.lastAt), state = if (k.state == "here" || o.state == "here") "here" else "missing", missed = minOf(k.missed, o.missed))
+        }
         return out
     }
 }

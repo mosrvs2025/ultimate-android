@@ -16,7 +16,7 @@ import kotlin.math.abs
 class SpatialEngineTest {
     private val boxes = listOf(Box(0.0f, 0f, 0.0f, 0.6f, 1.2f, 1.8f), Box(2.6f, 0f, 1.2f, 4.2f, 0.55f, 3.0f), Box(1.6f, 0f, 0f, 2.4f, 2.0f, 0.5f))
     private val room = SimWorld(4.2f, 3.4f, 2.5f, boxes = boxes, mirror = Mirror(1.0f, 2.2f, 0.6f, 1.9f))
-    private fun stats(i: ScanIntegrator) = RoomGeometry.measure(i.map.cleaned(), i.counters.camMinY, i.counters.camMaxY)
+    private fun stats(i: ScanIntegrator) = RoomGeometry.measure(i.map.cleaned(), i.counters.camMinY, i.counters.camMaxY, maxPitchDeg = i.counters.maxPitchDeg)
 
     private val a by lazy { Sim.scan(room, Sim.walk(room), SimPhone(seed = 1), 37f, 1.5f, -2.0f) }
     private val b by lazy { Sim.scan(room, Sim.walk(room, startYaw = 40f), SimPhone(seed = 7), -110f, -3.0f, 0.7f) }
@@ -186,5 +186,63 @@ class SpatialEngineTest {
         assertEquals(-2f, cz, 1e-3f); assertEquals(100f, 80f + cx / -cz * 114f, 0.01f); assertEquals(40f, 45f - cy / -cz * 114f, 0.01f)
         assertTrue(abs(Orbit.project(p, p, 30f, 20f, 100f).first) < 1e-4f)
         assertEquals(0, Upright.rotation(1f, 0.1f)); assertEquals(90, Upright.rotation(0.1f, 1f)); assertEquals(639f to 479f, Upright.toSensor(0f, 0f, 180, 640, 480))
+    }
+
+    @Test fun aCeilingNoDepthCanSeeIsEstimatedFromWhereTheWallsEnd() {
+        val w = SimWorld(4.2f, 3.4f, 2.5f, boxes = boxes, blankCeiling = true)
+        val i = Sim.scan(w, Sim.walk(w), SimPhone(seed = 11), 20f, 0.5f, 1.0f)
+        val s = stats(i)!!
+        assertEquals("ceiling source", "walls", s.ceilingSource); assertEquals(2.5f, s.height!!, 0.2f)
+        assertNull("an estimate is never 'trusted' enough to be high confidence", s.takeIf { it.confidence == Confidence.HIGH })
+        // Looking only level, the wall tops are just the edge of the picture: no ceiling is claimed.
+        val level = Sim.walk(w).map { Cam(it.x, it.y, it.z, it.yawDeg, 0f) }
+        val l = stats(Sim.scan(w, level, SimPhone(seed = 12), 20f, 0.5f, 1.0f))
+        assertTrue("claimed a ceiling from a level scan: ${l?.height}", l == null || l.ceilingY == null || l.ceilingSource != "walls" || abs(l.height!! - 2.5f) < 0.3f)
+    }
+
+    @Test fun aKnownHeightSurvivesAScanThatNeverSawTheCeiling() {
+        val noCeil = SimWorld(4.2f, 3.4f, 2.5f, boxes = boxes, blankCeiling = true)
+        val low = Sim.walk(noCeil).map { Cam(it.x, it.y, it.z, it.yawDeg, it.pitchDeg.coerceAtMost(5f)) }
+        val s = stats(Sim.scan(noCeil, low, SimPhone(seed = 14), 0f, 0f, 0f))!!
+        if (s.ceilingY == null) { val h = RoomGeometry.holdHeight(s, 2.21f); assertEquals(2.21f, h.height!!, 0.001f); assertEquals("kept", h.ceilingSource); assertNull("kept is not trusted", h.trustedHeight) }
+        assertEquals("a measured height is trusted", 2.5f, stats(a)!!.trustedHeight!!, 0.15f)
+    }
+
+    @Test fun refinementBringsScansTogetherWithoutLayingASecondCopyOfTheWalls() {
+        // A good sensor (4 cm of noise at 3 m) and perfect tracking: what is left is the algorithm's own error.
+        fun quiet(seed: Int) = SimPhone(seed = seed, noiseA = 0.005f, noiseB = 0.004f, wildRate = 0.005f, dropout = 0.05f, driftPos = 0f, driftYaw = 0f)
+        val q1 = Sim.scan(room, Sim.walk(room), quiet(1), 37f, 1.5f, -2.0f); val q2 = Sim.scan(room, Sim.walk(room, startYaw = 40f), quiet(7), -110f, -3.0f, 0.7f)
+        val al = Aligner.align(q2.map.cleaned(), q1.map.cleaned())!!
+        val tb = Sim.truth(-110f, -3.0f, -1.35f, 0.7f)
+        val errs = listOf(P3(0.5f, 0.2f, 0.5f), P3(-2f, 0f, 1f), P3(1.5f, -1f, -2f)).map { p -> val r = tb.apply(p); val s = Sim.toSession(Sim.matrix(Cam(r.x, r.y, r.z, 0f, 0f)), 37f, 1.5f, -1.35f, -2.0f); al.apply(p).dist(P3(s[12], s[13], s[14])) }
+        assertTrue("within 4 cm with a good sensor and no drift: $errs", errs.all { it < 0.04f }); assertTrue("measured residual ${al.rmsCm} cm", al.rmsCm < 5f)
+        // With the ordinary noisy phone and drift the same alignment is still good to ~15 cm: noise of that size limits how well two scans can agree.
+        val noisy = Aligner.align(b.map.cleaned(), a.map.cleaned())!!; assertTrue("noisy fit ${noisy.rmsCm}", noisy.rmsCm < 12f)
+        // Merged back onto itself with the cubes a little off (as a real alignment is): nearly everything confirms, hardly anything is added.
+        val shifted = q2.map.mapped { al.apply(it) }; val before = q1.map.solid
+        val rep = q1.map.fuse(shifted)
+        assertTrue("new ${rep.added} confirmed ${rep.reinforced} of $before", rep.added < rep.reinforced)
+    }
+
+    @Test fun staleAndDoubledThingsAreTidiedAwayAfterTwoMissedScans() {
+        val d = listOf(RoomObject("bed", P3(0f, 0.4f, 0f), 6, 0.8f, "a", 10, 20), RoomObject("bed", P3(1.5f, 0.4f, 0.3f), 3, 0.7f, "b", 30, 30, "missing", 1), RoomObject("bottle", P3(3f, 0.9f, 1f), 3, 0.7f, "c", 10, 10), RoomObject("bottle", P3(3.5f, 0.9f, 1f), 3, 0.7f, "d", 10, 10))
+        val t = ObjectIdentity.tidy(d)
+        assertEquals("one bed, two bottles", 3, t.size); assertEquals("a", t.first { it.label == "bed" }.id); assertEquals(9, t.first { it.label == "bed" }.seen); assertEquals("here", t.first { it.label == "bed" }.state)
+        var n = 0
+        var cur = ObjectIdentity.merge(listOf(RoomObject("chair", P3(2f, 0.4f, 2f), 5, 0.8f, "x", 1, 1)), emptyList(), 2L, { true }) { "n${n++}" }
+        assertEquals("missing", cur.single().state); assertEquals(1, cur.single().missed)
+        cur = ObjectIdentity.merge(cur, emptyList(), 3L, { true }) { "n${n++}" }
+        assertTrue("gone after the second scan that looked", cur.isEmpty())
+    }
+
+    @Test fun theHeightRidesWithTheSavedSpace() {
+        val dir = java.io.File(System.getProperty("java.io.tmpdir"), "rooms" + System.nanoTime()); val store = RoomStore(dir)
+        val r = store.save("Den", a.map, emptyList(), stats(a), heightM = 2.4f)!!
+        assertEquals(2.5f, store.list().single().heightM!!, 0.15f)   // this scan measured its own ceiling, which wins
+        val flat = stats(a)!!.copy(ceilingY = null, ceilingSource = "")
+        store.save("Den", a.map, emptyList(), flat, r.id, r.at, heightM = 2.4f, snapshot = false)
+        store.list().single().let { assertEquals(2.4f, it.heightM!!, 0.001f); assertEquals(2.4f, it.stats.height!!, 0.001f); assertEquals("kept", it.stats.ceilingSource) }
+        assertFalse("a no-snapshot save keeps no undo of its own", store.canUndo(r.id))
+        dir.deleteRecursively()
     }
 }

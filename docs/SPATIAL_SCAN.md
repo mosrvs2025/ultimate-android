@@ -37,6 +37,36 @@ The same room gave 10,836 points (2.1.0: about 45,000), one object, and no walls
 Not done from the feedback on that recording: hand masking (the hand still leaves some points; the simulated hand leaves under 120
 cubes), a 60 fps object tracker, folding the buttons into the floating orb, wireframe room box, label de-cluttering.
 
+### Third recording (2.2.1): merging
+
+2.2.1 responded well (points, objects and a size of 5.31 × 5.02 m appeared during the scan), but "Add to my room" went wrong.
+Verified in the source:
+
+- **The live scan was wiped after every Add.** The add handler called `scan.reset()`. That is why the readout fell to "0 points · size not
+  measured" straight after Add, and why the 2.21 m ceiling height from the fan was lost (it lived only in the wiped scan, and was never
+  stored with the space).
+- **Every Add reused the first alignment.** The match was computed once and reused for Scans 2, 3, 4, hence the identical "75% fit ±6 cm".
+  That reuse is not wrong while ARCore keeps tracking (the session frame is unchanged), but it was never improved or checked, and the ±6 cm
+  was the coarse 10 cm-cell search, not a measurement.
+- **Doubled walls.** "8,279 confirmed, 24,367 new": a new cube was only counted as confirming if it fell in exactly the same 5 cm cube as a
+  saved one, so with a few centimetres of alignment error nearly every wall point was added again beside the old one. Part of the mess is
+  also the base: "First scan, 6 hr ago, 45,483 points" is a 2.1.0 scan, before the noise filtering; old saved spaces are not cleaned up by
+  rescanning.
+- **Duplicate and ghost things.** Saved things were kept forever as "not seen last scan", and two entries of one thing were never merged.
+
+Changes in 2.3.0: no reset; alignment polished on every Add; a point next to a saved one confirms it; height stored with the space and held
+in the live readout; wall-top ceiling estimate (requires ≥ 25° of upward tilt, level-only scans are tested not to produce one); Mark ceiling
+asks for a height when there is no distance at the dot; things merged within ~1.1× their size and dropped after two scans that looked at
+their place and didn't find them.
+
+A finding worth recording: the first attempt at polishing the alignment used nearest-point ICP on the voxel centres, and in the simulator it
+reported a 2 cm fit while being 8–17 cm from the truth: it pulls the two scans' 5 cm cube grids into step with each other rather than the
+walls. It was replaced by maximising overlap with a smoothed (about 7 cm) wall-density picture, which does not have that bias. With a good
+simulated sensor and no drift it lands within 4 cm; with the ordinary noisy simulated phone, noise of 10+ cm at 3 m bounds the agreement.
+The simulator's noise level is my estimate, not something I measured from the phone.
+
+Not done: hand masking, a 60 fps object tracker, merging the buttons into the floating orb (a separate overlay), a pose-graph for drift.
+
 ## 2. Architecture
 
 ```

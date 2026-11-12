@@ -106,7 +106,79 @@ object Aligner {
         val covered = HashSet<Long>(); for (i in a.indices) { val ix = floor((ax[i] * c - az[i] * s + tx) / CELL).toInt(); val iz = floor((ax[i] * s + az[i] * c + tz) / CELL).toInt(); for (u in -1..1) for (v in -1..1) if (key(ix + u, iz + v) in bSet) covered += key(ix + u, iz + v) }
         val dy = heightShift(fresh, saved)
         val margin = top.precision - rival
-        return Alignment(((yaw % 360f) + 360f) % 360f, tx, dy, tz, score = precision, precision = precision, recall = covered.size.toFloat() / b.size, rmsCm = best.third * 100f, matched = best.second, margin = margin, ambiguous = margin < 0.08f)
+        val coarse = Alignment(((yaw % 360f) + 360f) % 360f, tx, dy, tz, score = precision, precision = precision, recall = covered.size.toFloat() / b.size, rmsCm = best.third * 100f, matched = best.second, margin = margin, ambiguous = margin < 0.08f)
+        return refine(coarse, fresh, saved)
+    }
+
+    /** Points that stand in tall columns (walls, wardrobes, door frames), the same idea as [structure] but keeping the points. */
+    private fun structurePoints(pts: List<P3>, minBins: Int = 10): List<P3> {
+        val cols = HashMap<Long, HashSet<Int>>()
+        fun k(p: P3) = (floor(p.x / CELL).toLong() shl 32) or (floor(p.z / CELL).toLong() and 0xFFFFFFFFL)
+        for (p in pts) cols.getOrPut(k(p)) { HashSet() }.add(floor(p.y / 0.05f).toInt())
+        return pts.filter { (cols[k(it)]?.size ?: 0) >= minBins }
+    }
+
+    /**
+     * Polishes an alignment against the actual wall points. The search above works on 10 cm cells, so it is good to a few centimetres;
+     * a merge needs better, or each scan lays a slightly different copy of every wall on the last.
+     *
+     * The saved walls are turned into a smooth density picture (each wall point spreads a little, about 7 cm), and the turn and shift
+     * are nudged, in steps shrinking from 3 cm to 3 mm, to put the new wall points where that picture is densest. A smooth picture
+     * matters: matching each point to its nearest saved point instead pulls the two scans' 5 cm cube grids into step with each other
+     * (rather than the walls into step), and was measured to be off by up to 17 cm even though it reported a 2 cm fit. [Alignment.rmsCm]
+     * afterwards is the typical distance from each new wall point to the nearest saved one.
+     */
+    fun refine(a: Alignment, fresh: List<P3>, saved: List<P3>): Alignment {
+        val sp = structurePoints(saved); val fp0 = structurePoints(fresh)
+        if (sp.size < 300 || fp0.size < 300) return a
+        val fp = if (fp0.size <= 4000) fp0 else (0 until 4000).map { fp0[(it.toLong() * fp0.size / 4000).toInt()] }
+        val res = 0.05f; val x0 = sp.minOf { it.x } - 1f; val z0 = sp.minOf { it.z } - 1f
+        val nx = ((sp.maxOf { it.x } + 1f - x0) / res).toInt() + 1; val nz = ((sp.maxOf { it.z } + 1f - z0) / res).toInt() + 1
+        if (nx * nz > 1_500_000) return a
+        val raw = FloatArray(nx * nz); for (p in sp) { val ix = ((p.x - x0) / res).toInt(); val iz = ((p.z - z0) / res).toInt(); raw[iz * nx + ix] += 1f }
+        // Gaussian blur, radius 3 cells (sigma about 1.5 cells), in two passes.
+        val kern = floatArrayOf(0.05f, 0.12f, 0.2f, 0.26f, 0.2f, 0.12f, 0.05f)
+        val tmp = FloatArray(nx * nz); val den = FloatArray(nx * nz)
+        for (z in 0 until nz) for (x in 0 until nx) { var s = 0f; for (k in -3..3) { val xx = x + k; if (xx in 0 until nx) s += raw[z * nx + xx] * kern[k + 3] }; tmp[z * nx + x] = s }
+        for (z in 0 until nz) for (x in 0 until nx) { var s = 0f; for (k in -3..3) { val zz = z + k; if (zz in 0 until nz) s += tmp[zz * nx + x] * kern[k + 3] }; den[z * nx + x] = s }
+        fun at(x: Float, z: Float): Float {
+            val fx = (x - x0) / res - 0.5f; val fz = (z - z0) / res - 0.5f; val ix = floor(fx).toInt(); val iz = floor(fz).toInt()
+            if (ix < 0 || iz < 0 || ix + 1 >= nx || iz + 1 >= nz) return 0f
+            val u = fx - ix; val v = fz - iz
+            return den[iz * nx + ix] * (1 - u) * (1 - v) + den[iz * nx + ix + 1] * u * (1 - v) + den[(iz + 1) * nx + ix] * (1 - u) * v + den[(iz + 1) * nx + ix + 1] * u * v
+        }
+        fun score(yaw: Float, tx: Float, tz: Float): Float {
+            val r = Math.toRadians(yaw.toDouble()); val c = cos(r).toFloat(); val s = sin(r).toFloat(); var sum = 0f
+            for (p in fp) sum += at(p.x * c - p.z * s + tx, p.x * s + p.z * c + tz)
+            return sum
+        }
+        var yaw = a.yawDeg; var tx = a.dx; var tz = a.dz; var best = score(yaw, tx, tz); val start = best
+        var dYaw = 1f; var dT = 0.03f
+        while (dT > 0.0035f) {
+            var improved = true; var guard = 0
+            while (improved && guard++ < 20) {
+                improved = false
+                for (dy in -1..1) for (dx in -1..1) for (dz in -1..1) {
+                    if (dy == 0 && dx == 0 && dz == 0) continue
+                    val s = score(yaw + dy * dYaw, tx + dx * dT, tz + dz * dT)
+                    if (s > best + 1e-3f) { best = s; yaw += dy * dYaw; tx += dx * dT; tz += dz * dT; improved = true }
+                }
+            }
+            dYaw /= 2f; dT /= 2f
+        }
+        if (best <= start) return a
+        val out = a.copy(yawDeg = ((yaw % 360f) + 360f) % 360f, dx = tx, dz = tz)
+        // Fit indicator: distance from each new wall point to the nearest saved wall point (trimmed, so clutter doesn't dominate).
+        val cs = 0.075f
+        fun key(x: Int, y: Int, z: Int) = ((x.toLong() and 0x1FFFFF) shl 42) or ((y.toLong() and 0x1FFFFF) shl 21) or (z.toLong() and 0x1FFFFF)
+        val grid = HashMap<Long, ArrayList<P3>>(sp.size); for (p in sp) grid.getOrPut(key(floor(p.x / cs).toInt(), floor(p.y / cs).toInt(), floor(p.z / cs).toInt())) { ArrayList(2) } += p
+        val ds = ArrayList<Float>(fp.size)
+        for (s in fp) { val p = out.apply(s); val ix = floor(p.x / cs).toInt(); val iy = floor(p.y / cs).toInt(); val iz = floor(p.z / cs).toInt(); var bd = 0.12f; var hit = false
+            for (u in -1..1) for (v in -1..1) for (w in -1..1) grid[key(ix + u, iy + v, iz + w)]?.forEach { q -> val d = p.dist(q); if (d < bd) { bd = d; hit = true } }
+            if (hit) ds += bd }
+        if (ds.size < 100) return out
+        ds.sort(); val k = ds.take((ds.size * 0.75f).toInt().coerceAtLeast(1))
+        return out.copy(rmsCm = sqrt(k.sumOf { (it * it).toDouble() }.toFloat() / k.size) * 100f, matched = ds.size)
     }
 
     /** The shift in height that best lines up the two scans' layers: add it to a new point's height to get the saved room's. */

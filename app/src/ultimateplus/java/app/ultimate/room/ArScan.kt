@@ -37,6 +37,8 @@ data class ScanState(
     /** Two tapped points and the straight-line distance between them. */
     val measure: List<P3> = emptyList(),
     val fps: Float = 0f, val depthSize: String = "", val keyFrames: Int = 0, val diag: String = "", val coach: String? = null,
+    /** How far the phone is tilted up (+) or down (-), in degrees, to offer "mark the ceiling" / "mark the floor" when it is aimed at them. */
+    val pitchDeg: Float = 0f,
 )
 
 /**
@@ -58,6 +60,9 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
     @Volatile private var planes: List<PlaneHint> = emptyList()
     @Volatile private var centreP: P3? = null
     @Volatile private var userFloor: Float? = null; @Volatile private var userCeiling: Float? = null
+    /** A height measured earlier in this scan, or in the saved space being scanned, so a moment of not seeing the ceiling does not lose it. */
+    @Volatile private var heldHeight: Float? = null
+    @Volatile private var pitch = 0f
     private var statsRun = 0
     @Volatile private var lastSkip: String? = null; @Volatile private var lastSkipAt = 0L
 
@@ -91,7 +96,10 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
     /** You say what the dot is on: the floor or the ceiling. Uses the distance at the dot (measured or estimated). False when there is no distance there. */
     fun markFloor(): Boolean { userFloor = centreP?.y ?: return false; lastStats = 0; return true }
     fun markCeiling(): Boolean { userCeiling = centreP?.y ?: return false; lastStats = 0; return true }
-    fun reset() { userFloor = null; userCeiling = null; synchronized(map) { map.clear(); integrator = ScanIntegrator(map) }; synchronized(memory) { memory.clear() }; measured.clear(); points = null; pointCount = 0; state.value = state.value.copy(stats = null, solid = 0, objects = emptyList(), measure = emptyList(), keyFrames = 0) }
+    /** You give the ceiling as a height above the floor (when there is no depth at the dot to take it from). False when the floor isn't known yet. */
+    fun markCeilingHeight(h: Float): Boolean { val f = state.value.stats?.floorY ?: return false; userCeiling = f + h; lastStats = 0; return true }
+    fun holdHeight(h: Float?) { heldHeight = h }
+    fun reset() { userFloor = null; userCeiling = null; heldHeight = null; synchronized(map) { map.clear(); integrator = ScanIntegrator(map) }; synchronized(memory) { memory.clear() }; measured.clear(); points = null; pointCount = 0; state.value = state.value.copy(stats = null, solid = 0, objects = emptyList(), measure = emptyList(), keyFrames = 0) }
     fun close() { worker.shutdown(); fuser.shutdown(); runCatching { detector?.close() } }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -127,6 +135,7 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
         if (tracking) {
             cam.getViewMatrix(view, 0); cam.getProjectionMatrix(proj, 0, 0.1f, 30f)
             val pose = FloatArray(16); cam.pose.toMatrix(pose, 0); integrator.noteCamera(pose)
+            pitch = Math.toDegrees(Math.asin((-pose[9]).toDouble().coerceIn(-1.0, 1.0))).toFloat()
             if (state.value.depth) runCatching { depthStep(frame, pose, now)?.let { centre = it.first; approx = it.second; depthSize = it.third } }
             if (now - lastPlanes > 1000) { lastPlanes = now; planes = runCatching { session.getAllTrackables(Plane::class.java).filter { it.trackingState == TrackingState.TRACKING && it.subsumedBy == null && it.type != Plane.Type.VERTICAL }.map { PlaneHint(it.centerPose.ty(), it.extentX * it.extentZ, it.type == Plane.Type.HORIZONTAL_UPWARD_FACING) } }.getOrDefault(emptyList()) }
             drawPoints(view, proj)
@@ -135,7 +144,7 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
             lastPublish = now
             val skip = lastSkip.takeIf { now - lastSkipAt < 900 }
             state.value = state.value.copy(tracking = tracking, centreM = centre, centreApprox = approx, solid = pointCount, view = if (tracking) view else null, proj = if (tracking) proj else null,
-                objects = synchronized(memory) { memory.confirmed() }, measure = measured.toList(), fps = fps, depthSize = depthSize, keyFrames = integrator.keyFrames,
+                objects = synchronized(memory) { memory.confirmed() }, measure = measured.toList(), fps = fps, depthSize = depthSize, keyFrames = integrator.keyFrames, pitchDeg = pitch,
                 coach = if (skip == "fast") "Slow down: moving this fast blurs the depth" else null,
                 why = if (!state.value.depth) state.value.why else if (!tracking) "Move the phone slowly so it can find its place" else null)
         }
@@ -152,7 +161,9 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
                     faint.forEach { fb.put(it.x); fb.put(it.y); fb.put(it.z); fb.put(0f) }; shown.forEach { fb.put(it.x); fb.put(it.y); fb.put(it.z); fb.put(1f) }; fb.position(0)
                     points = fb; pointCount = pts.size
                     if (statsRun++ % 3 == 0) {
-                        val s = RoomGeometry.measure(pts, it.counters.camMinY.takeIf { v -> v.isFinite() }, it.counters.camMaxY.takeIf { v -> v.isFinite() }, planes, userFloor = userFloor, userCeiling = userCeiling)
+                        val m = RoomGeometry.measure(pts, it.counters.camMinY.takeIf { v -> v.isFinite() }, it.counters.camMaxY.takeIf { v -> v.isFinite() }, planes, userFloor = userFloor, userCeiling = userCeiling, maxPitchDeg = it.counters.maxPitchDeg)
+                        m?.trustedHeight?.let { h -> heldHeight = h }
+                        val s = m?.let { x -> RoomGeometry.holdHeight(x, heldHeight) }
                         state.value = state.value.copy(stats = s, diag = it.counters.summary() + " · planes ${planes.size}")
                     }
                 }

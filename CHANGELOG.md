@@ -3,6 +3,14 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 2.3.0
+- Adding to a saved space no longer wipes the scan. Before, tapping Add cleared everything on screen and you had to start again; now it keeps scanning and each Add folds in what is new. One visit is one entry in the scan history, and Undo takes the whole visit back.
+- Merging is tighter. The match against the saved space is polished against the real wall points on every Add (before, the first match was reused, which is why every scan showed the same 75% fit), and a point that lands next to an existing one now confirms it instead of laying a second copy of the wall beside it.
+- A measured ceiling is kept. The room height from the ceiling fan stays with the space across scans, and a ceiling can now also be estimated from where the walls end (only when you really tilted up at it, and shown as an estimate). If depth can't see the ceiling and there is no distance at the dot, Mark ceiling asks for the height.
+- Things are tidied: the same thing seen twice is one thing, and one that is not found again in two scans that looked at its place is dropped. Ones not found last time are hidden from the viewer and listed under Things.
+- New scan screen: one main button (Save, or Add to <space>) and a menu, a small readout that expands when tapped, and a "Tap to mark the ceiling / floor" button that appears when you aim up or down at one that isn't measured yet. The camera now fills the screen.
+- New viewer: the 3D view fills the screen with size, height and things chips across the top, a Scan again button, and Rename, Undo scan, Scan log and Forget tiles. Names only show where there is room, so they no longer pile up.
+
 ## 2.2.1
 - Room scan: 2.2.0 was too strict. On a real phone it kept about a quarter of the points of the earlier build and found no walls or ceiling. A point now needs three viewpoints instead of four, doubtful depth readings count a little instead of not at all (so plain walls fill in over a few views), fewer readings are thrown away at depth edges, and the step that clears seen-through points no longer eats into walls whose depth is noisy.
 - The picture reacts at once: readings that aren't confirmed yet are drawn as faint pale dots and turn solid as they're confirmed. Only confirmed points are measured and saved.

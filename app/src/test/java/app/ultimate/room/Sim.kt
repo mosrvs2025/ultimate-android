@@ -15,10 +15,10 @@ class Box(val x0: Float, val y0: Float, val z0: Float, val x1: Float, val y1: Fl
 class Mirror(val z0: Float, val z1: Float, val y0: Float, val y1: Float)
 
 /** A room to scan: floor y=0, ceiling y=[h], walls at x=0, x=[w], z=0, z=[l]. [blank] is a wall area depth-from-motion can't read (plain paint). */
-class SimWorld(val w: Float, val l: Float, val h: Float, val boxes: List<Box> = emptyList(), val mirror: Mirror? = null, val blankWallZ0: Float = Float.NaN, val blankWallZ1: Float = Float.NaN)
+class SimWorld(val w: Float, val l: Float, val h: Float, val boxes: List<Box> = emptyList(), val mirror: Mirror? = null, val blankWallZ0: Float = Float.NaN, val blankWallZ1: Float = Float.NaN, val blankCeiling: Boolean = false)
 
 class SimPhone(
-    val seed: Int = 1, val noiseA: Float = 0.01f, val noiseB: Float = 0.02f, val wildRate: Float = 0.02f, val dropout: Float = 0.1f,
+    val seed: Int = 1, val noiseA: Float = 0.008f, val noiseB: Float = 0.012f, val wildRate: Float = 0.02f, val dropout: Float = 0.1f,
     val hand: Boolean = true, val driftPos: Float = 0.002f, val driftYaw: Float = 0.01f,
 )
 
@@ -61,6 +61,7 @@ object Sim {
         // Room walls: nearest of the six planes whose hit lies inside the room.
         for ((axis, p) in listOf(0 to 0f, 0 to w.w, 1 to 0f, 1 to w.h, 2 to 0f, 2 to w.l)) {
             val dd = d[axis]; if (dd == 0f) continue
+            if (w.blankCeiling && axis == 1 && p == w.h) continue   // plain white paint: no depth at all
             val t = (p - o[axis]) / dd; if (t <= 0.05f || t >= best) continue
             val x = o[0] + d[0] * t; val y = o[1] + d[1] * t; val z = o[2] + d[2] * t
             if (x in -0.01f..w.w + 0.01f && y in -0.01f..w.h + 0.01f && z in -0.01f..w.l + 0.01f) {
