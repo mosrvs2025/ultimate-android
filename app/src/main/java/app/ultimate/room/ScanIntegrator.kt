@@ -12,7 +12,7 @@ class DepthFrame(val w: Int, val h: Int, val mm: ShortArray, val conf: ByteArray
 class IntegratorCounters {
     var frames = 0; var duplicate = 0; var tooFast = 0; var tooClose = 0; var integrated = 0
     var pixels = 0L; var lowConfidence = 0L; var outOfRange = 0L; var edges = 0L; var kept = 0L
-    var camMinY = Float.POSITIVE_INFINITY; var camMaxY = Float.NEGATIVE_INFINITY
+    var camMinY = Float.POSITIVE_INFINITY; var camMaxY = Float.NEGATIVE_INFINITY; var maxPitchDeg = -90f
     fun summary() = "frames $frames · used $integrated · repeats $duplicate · too fast $tooFast · too similar $tooClose · pixels kept ${if (pixels > 0) (kept * 100 / pixels) else 0}% (low confidence ${if (pixels > 0) (lowConfidence * 100 / pixels) else 0}%, out of range ${if (pixels > 0) (outOfRange * 100 / pixels) else 0}%, edges ${if (pixels > 0) (edges * 100 / pixels) else 0}%)"
 }
 
@@ -32,7 +32,7 @@ class ScanIntegrator(val map: RoomMap, private val maxRange: Float = 4.5f, priva
     var keyFrames = 0; private set
 
     /** Notes where the camera is (call for every tracked frame), for the floor and ceiling checks: the phone is always above the floor and below the ceiling. */
-    fun noteCamera(pose: FloatArray) { counters.camMinY = minOf(counters.camMinY, pose[13]); counters.camMaxY = max(counters.camMaxY, pose[13]) }
+    fun noteCamera(pose: FloatArray) { counters.camMinY = minOf(counters.camMinY, pose[13]); counters.camMaxY = max(counters.camMaxY, pose[13]); counters.maxPitchDeg = max(counters.maxPitchDeg, Math.toDegrees(Math.asin((-pose[9]).toDouble().coerceIn(-1.0, 1.0))).toFloat()) }
 
     /** Returns null when the picture was used, or the reason it was not. */
     fun integrate(f: DepthFrame): String? {

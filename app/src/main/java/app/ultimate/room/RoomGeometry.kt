@@ -22,8 +22,10 @@ data class PlaneHint(val y: Float, val area: Float, val upward: Boolean)
  */
 data class RoomStats(
     val floorY: Float?, val ceilingY: Float?, val headingDeg: Float, val u: Span?, val v: Span?,
-    val floorSeen: Float, val voxels: Int, val confidence: Confidence, val notes: List<String> = emptyList(), val floorSource: String = "",
+    val floorSeen: Float, val voxels: Int, val confidence: Confidence, val notes: List<String> = emptyList(), val floorSource: String = "", val ceilingSource: String = "",
 ) {
+    /** The room height if it came from something trustworthy (depth, wall tops, or you), for keeping across scans; null for a guess. */
+    val trustedHeight: Float? get() = height?.takeIf { ceilingSource in setOf("depth", "walls", "you") && floorSource != "plane" }
     val height: Float? get() = if (floorY != null && ceilingY != null) ceilingY - floorY else null
     val sizes: List<Float> get() = listOfNotNull(u?.takeIf { it.complete }?.size, v?.takeIf { it.complete }?.size).sortedDescending()
     val length: Float? get() = sizes.firstOrNull()
@@ -52,7 +54,7 @@ object RoomGeometry {
     private fun cell(v: Float) = floor(v / CELL).toInt()
     private fun cellKey(x: Float, z: Float) = (cell(x).toLong() shl 32) or (cell(z).toLong() and 0xFFFFFFFFL)
 
-    fun measure(pts: List<P3>, camMinY: Float? = null, camMaxY: Float? = null, planes: List<PlaneHint> = emptyList(), maxCeilingHeight: Float = 4.6f, minCeilingHeight: Float = 1.8f, userFloor: Float? = null, userCeiling: Float? = null): RoomStats? {
+    fun measure(pts: List<P3>, camMinY: Float? = null, camMaxY: Float? = null, planes: List<PlaneHint> = emptyList(), maxCeilingHeight: Float = 4.6f, minCeilingHeight: Float = 1.8f, userFloor: Float? = null, userCeiling: Float? = null, maxPitchDeg: Float? = null): RoomStats? {
         if (pts.size < 400) return null
         val notes = ArrayList<String>()
         val perBin = HashMap<Int, HashSet<Long>>()
@@ -98,6 +100,10 @@ object RoomGeometry {
         var ceilingSource = if (ceilingY != null) "depth" else ""
         // Plain ceilings give depth-from-motion little to work with; ARCore's own surface detection sometimes still finds them.
         if (ceilingY == null && floorY != null) planes.filter { !it.upward && it.area >= 0.8f && (camMaxY == null || it.y >= camMaxY + 0.1f) && it.y - floorY in minCeilingHeight..maxCeilingHeight }.maxByOrNull { it.area }?.let { ceilingY = it.y; ceilingSource = "plane"; notes += "The ceiling comes from ARCore's surface detection, not from depth." }
+        // The tops of the walls: a ceiling shows up as many wall columns all ending at the same height, even when plain paint gives depth
+        // nothing to measure on the ceiling itself. Only believed when the columns are many, tightly level, and spread across the room.
+        // Only when the phone was really tilted up at the ceiling: walls that merely end at the edge of a level picture are not a ceiling.
+        if (ceilingY == null && floorY != null && maxPitchDeg != null && maxPitchDeg >= 25f) wallTops(pts, floorY, camMaxY, minCeilingHeight, maxCeilingHeight)?.let { ceilingY = it; ceilingSource = "walls"; notes += "The ceiling height is estimated from where the walls end, not measured on the ceiling." }
         if (userCeiling != null && floorY != null && userCeiling - floorY > 1f) { ceilingY = userCeiling; ceilingSource = "you" }
         if (ceilingY == null && floorY != null) notes += "Ceiling not confirmed: tilt up to it, or aim the dot at it and tap Mark ceiling."
         if (ceilingY != null && smooth.indices.any { yOf(it) > ceilingY!! + 0.25f && smooth[it] >= ceilNeed && isPeak(it) }) notes += "Readings above the ceiling (a window, mirror or glare?) were ignored."
@@ -122,8 +128,29 @@ object RoomGeometry {
 
         val have = listOf(floorY != null, ceilingY != null, u?.complete == true, v?.complete == true).count { it }
         val conf = when { floorY == null && have == 0 -> Confidence.LOW; have >= 4 && pts.size >= 8000 && floorSource != "plane" && ceilingSource == "depth" -> Confidence.HIGH; have >= 3 -> Confidence.MEDIUM; else -> Confidence.LOW }
-        return RoomStats(floorY, ceilingY, heading, u, v, floorSeen, pts.size, conf, notes, listOf(floorSource, ceilingSource).joinToString("/"))
+        return RoomStats(floorY, ceilingY, heading, u, v, floorSeen, pts.size, conf, notes, floorSource, ceilingSource)
     }
+
+    /** The height at which many tall wall columns end together, or null. */
+    private fun wallTops(pts: List<P3>, floorY: Float, camMaxY: Float?, minH: Float, maxH: Float): Float? {
+        val top = HashMap<Long, Float>(); val bins = HashMap<Long, HashSet<Int>>()
+        for (p in pts) if (p.y > floorY + 0.15f) { val k = cellKey(p.x, p.z); if ((top[k] ?: Float.NEGATIVE_INFINITY) < p.y) top[k] = p.y; bins.getOrPut(k) { HashSet() }.add(floor(p.y / BIN).toInt()) }
+        val tall = top.filter { (bins[it.key]?.size ?: 0) >= 14 }
+        if (tall.size < 40) return null
+        val byBin = HashMap<Int, MutableList<Long>>(); for ((k, y) in tall) byBin.getOrPut(floor(y / BIN).toInt()) { ArrayList() } += k
+        val best = byBin.entries.maxByOrNull { e -> (-1..1).sumOf { byBin[e.key + it]?.size ?: 0 } } ?: return null
+        val members = (-1..1).flatMap { byBin[best.key + it].orEmpty() }
+        if (members.size < max(25, (0.3f * tall.size).toInt())) return null
+        val xs = members.map { (it shr 32).toInt() }; val zs = members.map { it.toInt() }
+        if ((xs.max() - xs.min()) < 25 && (zs.max() - zs.min()) < 25) return null
+        val y = (best.key + 0.5f) * BIN
+        if (y - floorY < minH || y - floorY > maxH || (camMaxY != null && y < camMaxY + 0.1f)) return null
+        return y
+    }
+
+    /** Puts back a room height measured earlier when this scan could not see the ceiling: the ceiling does not move between scans. */
+    fun holdHeight(s: RoomStats, height: Float?): RoomStats =
+        if (height != null && s.ceilingY == null && s.floorY != null) s.copy(ceilingY = s.floorY + height, ceilingSource = "kept", notes = s.notes.filterNot { it.startsWith("Ceiling not confirmed") } + "Ceiling height kept from an earlier scan.") else s
 
     /** The wall direction (0..90°): the angle at which the most wall cells line up in straight rows, counting both the direction and the one across it. */
     fun heading(cells: List<P3>): Float {

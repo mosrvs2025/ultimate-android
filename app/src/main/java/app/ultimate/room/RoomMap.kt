@@ -159,10 +159,14 @@ class RoomMap(val size: Float = 0.05f) {
             loop@ for (a in -2..2) for (b in -2..2) for (c in -2..2) { val j = other.find(pack(x + a, y + b, z + c)); if (j >= 0 && other.occ[j] > 0.5f) { near = true; break@loop } }
             if (!near) { occ[i] = 0f; views[i] = 0; removed++ }
         }
+        // A new cube lands on an existing one, or next to one (alignment is good to a few centimetres, not to the cube): either way it is
+        // the same surface and confirms it. Only cubes with nothing solid beside them are new; without this, every merge laid a second copy
+        // of each wall a cube away from the first.
         var added = 0; var reinforced = 0
         for (n in theirs.indices) {
-            val j = find(theirs[n])
-            if (j >= 0 && isSolid(j)) { occ[j] = minOf(occ[j] + 0.5f * ev[n], OCC_MAX); reinforced++ }
+            val (x, y, z) = unpack(theirs[n]); var hit = -1
+            loop@ for (a in intArrayOf(0, -1, 1)) for (b in intArrayOf(0, -1, 1)) for (c in intArrayOf(0, -1, 1)) { val j = find(pack(x + a, y + b, z + c)); if (j >= 0 && isSolid(j)) { hit = j; break@loop } }
+            if (hit >= 0) { occ[hit] = minOf(occ[hit] + 0.5f * ev[n], OCC_MAX); reinforced++ }
             else { val k = findOrAdd(theirs[n]); occ[k] = maxOf(occ[k], ev[n]); views[k] = maxOf(views[k].toInt(), MIN_VIEWS).toByte(); added++ }
         }
         for ((k, v) in other.free) free.merge(k, v) { a, b -> minOf(255, a + b) }
