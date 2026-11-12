@@ -292,7 +292,7 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                     val now = System.currentTimeMillis()
                     // The alignment is polished against the saved shape every time, not carried over from the first match.
                     val al = Aligner.refine(m.second, fresh.cleaned(), base.cleaned())
-                    val res = Fusion.update(base, room.objects, fresh, synchronized(scan.memory) { scan.memory.confirmed() }, al, now, room.heightM, st.stats?.trustedHeight) { java.util.UUID.randomUUID().toString() }
+                    val res = Fusion.update(base, room.objects, fresh, synchronized(scan.memory) { scan.memory.confirmed() }, al, now, room.heightM, st.stats?.trustedHeight, room.stats) { java.util.UUID.randomUUID().toString() }
                     val first = visitAt == null; val at = visitAt ?: now
                     val prev = room.sessions.lastOrNull()?.takeIf { !first && it.at == at }
                     val entry = ScanSession(at, (prev?.added ?: 0) + res.report.added, res.report.reinforced, (prev?.removed ?: 0) + res.report.removed, al.score, al.rmsCm, res.map.solid)

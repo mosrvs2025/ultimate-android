@@ -47,8 +47,8 @@ class RoomStore(private val dir: File) {
     /** Saves a space. Null when there is too little to measure anything. Updating an existing [id] keeps the previous shape for [undo]. */
     fun save(name: String, map: RoomMap, objects: List<RoomObject>, stats: RoomStats? = null, id: String = UUID.randomUUID().toString(), at: Long = System.currentTimeMillis(),
              kind: String = "room", place: String = "", sessions: List<ScanSession>? = null, updatedAt: Long = System.currentTimeMillis(),
-             heightM: Float? = null, snapshot: Boolean = true): SavedRoom? {
-        val s0 = stats ?: RoomGeometry.measure(map.cleaned()) ?: return null
+             heightM: Float? = null, snapshot: Boolean = true, previousStats: RoomStats? = null): SavedRoom? {
+        val s0 = (stats ?: RoomGeometry.measure(map.cleaned()) ?: return null).let { RoomGeometry.keepBest(it, previousStats) }
         val height = s0.trustedHeight ?: heightM
         val s = RoomGeometry.holdHeight(s0, height)
         val solid = map.solid
@@ -105,12 +105,12 @@ object Fusion {
     class Result(val map: RoomMap, val objects: List<RoomObject>, val report: FuseReport, val stats: RoomStats?, val heightM: Float?)
 
     /** [fresh] and [freshObjects] are in the new session's coordinates; [a] takes them to the saved space's. [heightM] is a height kept from before; [freshHeightM] one this scan measured. */
-    fun update(saved: RoomMap, savedObjects: List<RoomObject>, fresh: RoomMap, freshObjects: List<RoomObject>, a: Alignment, now: Long, heightM: Float? = null, freshHeightM: Float? = null, newId: () -> String): Result {
+    fun update(saved: RoomMap, savedObjects: List<RoomObject>, fresh: RoomMap, freshObjects: List<RoomObject>, a: Alignment, now: Long, heightM: Float? = null, freshHeightM: Float? = null, previous: RoomStats? = null, newId: () -> String): Result {
         val moved = fresh.mapped { a.apply(it) }
         val report = saved.fuse(moved)
         val objects = ObjectIdentity.merge(savedObjects, freshObjects.map { it.copy(at = a.apply(it.at)) }, now, looked = { moved.freeAt(it.x, it.y, it.z) >= 4 || moved.isSolidNear(it, 0.3f) }, newId = newId)
         val measured = RoomGeometry.measure(saved.cleaned())
         val height = measured?.trustedHeight ?: freshHeightM ?: heightM
-        return Result(saved, objects, report, measured?.let { RoomGeometry.holdHeight(it, height) }, height)
+        return Result(saved, objects, report, measured?.let { RoomGeometry.holdHeight(RoomGeometry.keepBest(it, previous), height) }, height)
     }
 }

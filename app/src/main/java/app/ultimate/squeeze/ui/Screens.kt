@@ -37,7 +37,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
+import app.ultimate.UltimateApp
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Block
@@ -520,7 +522,9 @@ private fun RunScreen(queue: QueueState, library: List<LibraryEntry>, vm: Squeez
             Surface(tonalElevation = 3.dp) {
                 Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp)) {
                     if (queue.active) {
-                        OutlinedButton(onCancel, Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) { Text("Cancel") }
+                        // Quiet, so it is not pressed by accident, and plainly a stop.
+                        androidx.compose.material3.FilledTonalButton(onCancel, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(26.dp),
+                            colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.error)) { Text("✕  Cancel squeeze") }
                     } else {
                         Button(onDone, Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) { Text("Done", style = MaterialTheme.typography.titleMedium) }
                     }
@@ -567,10 +571,8 @@ private fun ResultRow(job: Item, context: android.content.Context, onOpen: (Stri
             Text(entry?.name ?: job.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
             when (val s = job.status) {
                 Status.Queued -> Sub("Waiting")
-                is Status.Running -> {
-                    GooeyProgress(progress = { s.progress }, Modifier.fillMaxWidth().padding(top = 6.dp).height(6.dp).clip(CircleShape), live = false)
-                    Sub("${(s.progress * 100).roundToInt()}%" + (s.speedX?.let { String.format(java.util.Locale.US, " · %.1f× real time", it) } ?: "") + (s.etaMs?.let { " · ${formatEta(it)}" } ?: ""))
-                }
+                // The big card above already shows this one's progress; saying it twice just made two bars fight.
+                is Status.Running -> Sub("Squeezing now")
                 is Status.Done -> {
                     Text(
                         "${formatBytes(job.source.sizeBytes)} → ${formatBytes(s.outputBytes)}  (−${percentSaved(job.source.sizeBytes, s.outputBytes)}%)",
@@ -588,6 +590,7 @@ private fun ResultRow(job: Item, context: android.content.Context, onOpen: (Stri
             is Status.Done -> {
                 if (entry != null) IconButton({ onRename(entry) }) { Icon(Icons.Rounded.Edit, "Rename ${entry.name}") }
                 IconButton({ context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(s.output, "video/mp4").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }) { Icon(Icons.Rounded.PlayArrow, "Play") }
+                sendToComputer(context)?.let { go -> IconButton({ go(s.output) }) { Icon(Icons.Rounded.Computer, "Send to your computer") } }
                 IconButton({
                     val send = Intent(Intent.ACTION_SEND).setType("video/mp4").putExtra(Intent.EXTRA_STREAM, s.output).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     context.startActivity(Intent.createChooser(send, "Share video"))
@@ -598,6 +601,13 @@ private fun ResultRow(job: Item, context: android.content.Context, onOpen: (Stri
             else -> {}
         }
     }
+}
+
+/** Sends a file to the computer through the app's own computer link, when this edition has it; null (so no button) when it doesn't. */
+private fun sendToComputer(context: android.content.Context): ((android.net.Uri) -> Unit)? {
+    val host = context.applicationContext as? UltimateApp ?: return null
+    val tool = host.tools.firstOrNull { it.id == "send" } ?: return null
+    return { uri -> host.shell.open(tool, ToolLaunch(uris = listOf(uri))) }
 }
 
 @Composable

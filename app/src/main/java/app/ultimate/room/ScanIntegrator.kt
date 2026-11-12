@@ -3,17 +3,20 @@ package app.ultimate.room
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sqrt
 
 /** One depth picture with everything needed to place it in the room. [mm] is millimetres along the viewing direction (0 = no reading); [conf] is 0..255 or null. */
-class DepthFrame(val w: Int, val h: Int, val mm: ShortArray, val conf: ByteArray?, val fx: Float, val fy: Float, val cx: Float, val cy: Float, val pose: FloatArray, val timeNs: Long)
+class DepthFrame(val w: Int, val h: Int, val mm: ShortArray, val conf: ByteArray?, val fx: Float, val fy: Float, val cx: Float, val cy: Float, val pose: FloatArray, val timeNs: Long,
+    /** ARCore's filled-in depth at the same size (millimetres): smoother and less exact than the raw picture, but defined on plain walls and ceilings where the raw one has holes. */
+    val fill: ShortArray? = null)
 
 /** Why frames were or were not used: the first thing to read when a scan on a real phone looks wrong. */
 class IntegratorCounters {
     var frames = 0; var body = 0L; var duplicate = 0; var tooFast = 0; var tooClose = 0; var integrated = 0
-    var pixels = 0L; var lowConfidence = 0L; var outOfRange = 0L; var edges = 0L; var kept = 0L
+    var pixels = 0L; var lowConfidence = 0L; var outOfRange = 0L; var edges = 0L; var kept = 0L; var filled = 0L
     var camMinY = Float.POSITIVE_INFINITY; var camMaxY = Float.NEGATIVE_INFINITY; var maxPitchDeg = -90f
-    fun summary() = "frames $frames · used $integrated · repeats $duplicate · too fast $tooFast · too similar $tooClose · pixels kept ${if (pixels > 0) (kept * 100 / pixels) else 0}% (low confidence ${if (pixels > 0) (lowConfidence * 100 / pixels) else 0}%, out of range ${if (pixels > 0) (outOfRange * 100 / pixels) else 0}%, edges ${if (pixels > 0) (edges * 100 / pixels) else 0}%, you ${if (pixels > 0) (body * 100 / pixels) else 0}%)"
+    fun summary() = "frames $frames · used $integrated · repeats $duplicate · too fast $tooFast · too similar $tooClose · pixels kept ${if (pixels > 0) (kept * 100 / pixels) else 0}% (low confidence ${if (pixels > 0) (lowConfidence * 100 / pixels) else 0}%, out of range ${if (pixels > 0) (outOfRange * 100 / pixels) else 0}%, edges ${if (pixels > 0) (edges * 100 / pixels) else 0}%, filled in ${if (pixels > 0) (filled * 100 / pixels) else 0}%, you ${if (pixels > 0) (body * 100 / pixels) else 0}%)"
 }
 
 /**
@@ -24,7 +27,7 @@ class IntegratorCounters {
  * mixed a near and a far surface into a point floating in between). What is left is added as evidence, and a sample of rays is carved
  * so that things seen through later (a hand, a foot) fade. Pure, so it is tested.
  */
-class ScanIntegrator(val map: RoomMap, private val maxRange: Float = 4.5f, private val minConfidence: Int = 50, private val maxTurnDegPerS: Float = 100f, private val maxSpeed: Float = 1.2f, private val bodyRadius: Float = 0.55f) {
+class ScanIntegrator(val map: RoomMap, private val maxRange: Float = 4.5f, private val minConfidence: Int = 50, private val maxTurnDegPerS: Float = 100f, private val maxSpeed: Float = 1.2f, private val bodyRadius: Float = 0.45f) {
     val counters = IntegratorCounters()
     private var lastSum = Long.MIN_VALUE
     private var prevPos: FloatArray? = null; private var prevFwd: FloatArray? = null; private var prevT = 0L
@@ -58,11 +61,18 @@ class ScanIntegrator(val map: RoomMap, private val maxRange: Float = 4.5f, priva
             for (y in 0 until h) for (x in 0 until w) {
                 c.pixels++
                 val raw = f.mm[y * w + x].toInt() and 0xFFFF
-                if (raw == 0) { c.outOfRange++; continue }
-                val d = raw / 1000f
-                if (d < 0.4f || d > maxRange) { c.outOfRange++; continue }
-                if (f.conf != null && (f.conf[y * w + x].toInt() and 0xFF) < minConfidence) { c.lowConfidence++; continue }
-                if (edge(f, x, y, d)) { c.edges++; continue }
+                val d0 = raw / 1000f
+                var weightScale = 1f; var d = d0; var isFill = false
+                val rawOk = raw != 0 && d0 >= 0.4f && d0 <= maxRange && (f.conf == null || (f.conf[y * w + x].toInt() and 0xFF) >= minConfidence)
+                if (!rawOk) {
+                    if (raw == 0 || d0 < 0.4f || d0 > maxRange) c.outOfRange++ else c.lowConfidence++
+                    // Plain paint gives raw depth nothing to work with. ARCore's filled-in depth still has an answer there: take it, as weak evidence
+                    // (it needs several views to agree, and it never clears anything), so walls and ceilings can be seen at all.
+                    val fa = f.fill ?: continue
+                    val fr = fa[y * w + x].toInt() and 0xFFFF; val fd = fr / 1000f
+                    if (fr == 0 || fd < 0.5f || fd > min(maxRange, 4f) || edge(fa, w, h, x, y, fd, 0.25f, 0.2f)) continue
+                    d = fd; weightScale = 0.3f; isFill = true
+                } else if (edge(f.mm, w, h, x, y, d, 0.2f, 0.15f)) { c.edges++; continue }
                 val nx = (x + 0.5f - f.cx) * d / f.fx; val ny = (f.cy - y - 0.5f) * d / f.fy; val nz = -d
                 val px = pose[0] * nx + pose[4] * ny + pose[8] * nz + pose[12]; val py = pose[1] * nx + pose[5] * ny + pose[9] * nz + pose[13]; val pz = pose[2] * nx + pose[6] * ny + pose[10] * nz + pose[14]
                 // Weight: nearer readings and ones ARCore is surer of count for more; a doubtful reading still counts a little, so plain walls fill in over several views.
@@ -70,7 +80,8 @@ class ScanIntegrator(val map: RoomMap, private val maxRange: Float = 4.5f, priva
                 // Your own legs and feet: anything in a column straight below the phone (within about half a metre sideways) is you, not the room.
                 val bx = px - pos[0]; val bz = pz - pos[2]
                 if (bx * bx + bz * bz < bodyRadius * bodyRadius && py < pos[1] - 0.35f && py > pos[1] - 1.9f) { c.body++; continue }
-                map.hit(px, py, pz, keyFrames, (1.3f - d / 4f).coerceIn(0.5f, 1f) * cw)
+                map.hit(px, py, pz, keyFrames, (1.3f - d / 4f).coerceIn(0.5f, 1f) * (if (isFill) 1f else cw) * weightScale)
+                if (isFill) { c.filled++; continue }
                 c.kept++
                 if (x % 3 == 1 && y % 3 == 1) map.carve(pos[0], pos[1], pos[2], px, py, pz, 0.15f + 0.1f * d)
             }
@@ -79,10 +90,10 @@ class ScanIntegrator(val map: RoomMap, private val maxRange: Float = 4.5f, priva
     }
 
     /** A depth pixel on a sharp step in depth (compared with the pixel to its right and below) is a blend of two surfaces, not a real one. */
-    private fun edge(f: DepthFrame, x: Int, y: Int, d: Float): Boolean {
-        val lim = max(0.15f, 0.12f * d)
-        if (x + 1 < f.w) { val n = (f.mm[y * f.w + x + 1].toInt() and 0xFFFF) / 1000f; if (n > 0f && abs(n - d) > lim) return true }
-        if (y + 1 < f.h) { val n = (f.mm[(y + 1) * f.w + x].toInt() and 0xFFFF) / 1000f; if (n > 0f && abs(n - d) > lim) return true }
+    private fun edge(a: ShortArray, w: Int, h: Int, x: Int, y: Int, d: Float, absLim: Float, relLim: Float): Boolean {
+        val lim = max(absLim, relLim * d)
+        if (x + 1 < w) { val n = (a[y * w + x + 1].toInt() and 0xFFFF) / 1000f; if (n > 0f && abs(n - d) > lim) return true }
+        if (y + 1 < h) { val n = (a[(y + 1) * w + x].toInt() and 0xFFFF) / 1000f; if (n > 0f && abs(n - d) > lim) return true }
         return false
     }
     private fun dist(a: FloatArray, b: FloatArray): Float { val x = a[0] - b[0]; val y = a[1] - b[1]; val z = a[2] - b[2]; return sqrt(x * x + y * y + z * z) }

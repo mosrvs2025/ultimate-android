@@ -86,6 +86,24 @@ Verified against the code and the video:
 Not done: palm-on-wall marking (needs hand tracking beside ARCore), anything for the "hardcoded centroid alignment" idea: a guess at an
 alignment would corrupt the saved map, so an update that can't be lined up is refused with a reason instead.
 
+### Fifth recording (2.4.0): why walls and ceilings stayed empty
+
+Tapping the readout showed: *45,738 points · 103k raw · 329 views · checks kept 26%: low confidence 28%, out of range 23%, edges 23%*.
+
+- "Out of range" includes pixels where ARCore's raw depth has **no reading at all** (0), which is plain paint. Together with low
+  confidence that is half the picture, and the part that is missing is exactly the walls and ceiling. The "edges" figure was my own
+  flying-pixel filter being too tight on cluttered scenes.
+- Fix: the filled-in depth ARCore also provides (smooth, defined on plain surfaces, less exact) is used wherever the raw reading is
+  missing or low-confidence, as weak evidence (weight 0.3, only 0.5–4 m, own edge test, never used to clear cubes). The edge filter went
+  from 15 cm / 12% to 20 cm / 15%. The diagnostics line now also says how much was filled in.
+- Simulated: a wall with 99% of its raw depth missing was 14% covered after a short walk, and fully covered with the filled-in depth;
+  the rest of the room measures the same. Not yet checked on a real phone: the filled-in depth is smoother than the truth, so expect plain
+  walls to be a little thicker than the others.
+- The sizes disappearing (3.04 × 3.00 m, then 2.71 × 1.75 m, then "size not measured" on save) was the measurement being redone from
+  whatever walls were visible each time. Now a wall-to-wall size is kept unless a later one is as large or larger.
+- Not done: Gemini's "project rays onto the room shell": that would draw walls that were never seen; and a floor drawn under your feet
+  (the skipped area is now 45 cm instead of 55 cm). Palm-on-wall marking still needs hand tracking running beside the scan.
+
 ## 2. Architecture
 
 ```

@@ -150,7 +150,8 @@ fun CheckupScreen(manager: CheckupManager, onExit: () -> Unit) {
             TopAppBar(
                 title = { Text("Phone checkup") }, navigationIcon = { ToolBackButton(onExit) },
                 actions = {
-                    if (state is CheckupManager.State.Done) IconButton({ withConsent { manager.scan() } }) { Icon(Icons.Rounded.Refresh, "Scan again") }
+                    val hasLast = manager.archive.reports.collectAsStateWithLifecycle().value.isNotEmpty()
+                    if (state is CheckupManager.State.Done || (state is CheckupManager.State.Idle && hasLast)) IconButton({ withConsent { manager.scan() } }) { Icon(Icons.Rounded.Refresh, "Scan again") }
                     ShellActions()
                 },
             )
@@ -172,7 +173,8 @@ fun CheckupScreen(manager: CheckupManager, onExit: () -> Unit) {
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (val s = state) {
-                CheckupManager.State.Idle -> Intro({ withConsent { manager.scan() } })
+                // A phone that has been checked before opens on that report, not on the empty first-time screen; scanning again is one tap.
+                CheckupManager.State.Idle -> manager.archive.reports.collectAsStateWithLifecycle().value.firstOrNull()?.let { LastReport(it) { withConsent { manager.scan() } } } ?: Intro({ withConsent { manager.scan() } })
                 is CheckupManager.State.Scanning -> Scanning(s)
                 is CheckupManager.State.Failed -> Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("The scan stopped", style = MaterialTheme.typography.titleLarge)
@@ -191,6 +193,40 @@ fun CheckupScreen(manager: CheckupManager, onExit: () -> Unit) {
 }
 
 // ───────────────────────────── intro & scanning ─────────────────────────────
+
+/** The last checkup, straight away: the score and when it was taken, then the report that was saved with it. Scanning again is a button, not a wait. */
+@Composable
+private fun LastReport(r: app.ultimate.checkup.engine.SavedReport, onScan: () -> Unit) {
+    val context = LocalContext.current
+    var text by remember(r.at) { mutableStateOf<String?>(null) }
+    LaunchedEffect(r.at) { text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { context.contentResolver.openInputStream(Uri.parse(r.uri))?.bufferedReader()?.use { it.readText() } }.getOrNull() } }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("${r.score}/100", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(Checkup.verdict(r.score), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("Checked ${app.ultimate.core.relativeTime(r.at)} · ${r.apps} apps · ${r.critical} need attention · ${r.warnings} to review", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+            }
+        }
+        Button(onScan, Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(18.dp)) { Icon(Icons.Rounded.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Scan again") }
+        val md = text
+        when {
+            md == null -> Text("Opening the saved report…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            md.isBlank() -> Text("The saved report file is gone from Documents/Ultimate. Scan again to make a new one.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            else -> SelectionContainer { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                md.lines().forEach { l ->
+                    val s = l.trim()
+                    when {
+                        s.isEmpty() -> Spacer(Modifier.height(4.dp))
+                        s.startsWith("#") -> Text(s.trimStart('#').trim(), style = if (s.startsWith("##")) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+                        s.startsWith("- ") || s.startsWith("* ") -> Text("•  " + s.drop(2).replace("**", ""), style = MaterialTheme.typography.bodyMedium)
+                        else -> Text(s.replace("**", ""), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            } }
+        }
+    }
+}
 
 @Composable
 private fun Intro(onScan: () -> Unit) {

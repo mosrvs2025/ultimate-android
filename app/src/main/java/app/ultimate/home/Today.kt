@@ -31,6 +31,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.BatteryStd
 import androidx.compose.material.icons.rounded.Computer
@@ -165,7 +167,7 @@ fun TodayDashboard(app: UltimateApp) {
     LaunchedEffect(Unit) { while (true) { delay(60_000); tick++ } }
     val ids = remember { app.tools.map { it.id }.toSet() }
     val seen = remember { mutableSetOf<Any>() }
-    fun open(id: String) = app.tools.firstOrNull { it.id == id }?.let { app.insights.count("home.card.$id"); app.shell.open(it) }
+    fun open(id: String, launch: ToolLaunch? = null) = app.tools.firstOrNull { it.id == id }?.let { app.insights.count("home.card.$id"); if (launch != null) app.shell.open(it, launch) else app.shell.open(it) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(Nudges.greeting(System.currentTimeMillis()), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))
@@ -173,9 +175,14 @@ fun TodayDashboard(app: UltimateApp) {
         val f = facts
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(horizontal = 2.dp)) {
             if (f != null) {
+                // Two things, two cards: the battery (opens Android's own battery usage) and the storage (opens the storage map).
                 item("battery") {
-                    Glance(Modifier.appear("g-bat", seen, 0), if (f.charging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryStd, "Phone",
-                        (f.battery?.let { "$it%" } ?: "–"), "${formatBytes(f.free)} free", ring = f.battery?.let { it / 100f },
+                    Glance(Modifier.appear("g-bat", seen, 0), if (f.charging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryStd, "Battery",
+                        (f.battery?.let { "$it%" } ?: "–"), if (f.charging) "charging" else "tap for what's using it", ring = f.battery?.let { it / 100f },
+                        onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_POWER_USAGE_SUMMARY).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } })
+                }
+                item("storage") {
+                    Glance(Modifier.appear("g-sto", seen, 1), Icons.Rounded.Storage, "Storage", formatBytes(f.free), "free · tap for the map",
                         onClick = { if ("storage" in ids) open("storage") else if ("cleanup" in ids) open("cleanup") })
                 }
                 if ("screentime" in ids) item("screen") {
@@ -189,7 +196,7 @@ fun TodayDashboard(app: UltimateApp) {
                 val played = f.today.filter { it.source == Source.Watched }
                 if (played.isNotEmpty()) item("played") {
                     val ms = played.sumOf { it.end - it.at }
-                    Glance(Modifier.appear("g-pl", seen, 3), Icons.Rounded.PlayCircle, "Played today", UsageMath.hm(ms), played.groupingBy { it.app }.eachCount().maxByOrNull { it.value }?.key?.let { "mostly $it" } ?: "") { open("timeline") }
+                    Glance(Modifier.appear("g-pl", seen, 3), Icons.Rounded.PlayCircle, "Played today", UsageMath.hm(ms), played.groupingBy { it.app }.eachCount().maxByOrNull { it.value }?.key?.let { "mostly $it · tap for the list" } ?: "") { open("timeline", ToolLaunch(source = Source.Watched.name)) }
                 }
                 if ("focus" in ids) item("focus") {
                     val focused = f.today.filter { it.source == Source.Focus }.sumOf { it.end - it.at }
@@ -197,7 +204,7 @@ fun TodayDashboard(app: UltimateApp) {
                 }
                 val pics = f.today.count { it.source == Source.Photo }
                 if (pics > 0) item("photos") {
-                    Glance(Modifier.appear("g-ph", seen, 5), Icons.Rounded.PhotoCamera, "Photos today", "$pics", f.today.count { it.source == Source.Screenshot }.takeIf { it > 0 }?.let { "and $it screenshots" } ?: "taken") { open("timeline") }
+                    Glance(Modifier.appear("g-ph", seen, 5), Icons.Rounded.PhotoCamera, "Photos today", "$pics", f.today.count { it.source == Source.Screenshot }.takeIf { it > 0 }?.let { "and $it screenshots · tap to tidy" } ?: "taken") { if ("cleanup" in ids) open("cleanup") else open("timeline", ToolLaunch(source = Source.Photo.name)) }
                 }
                 if ("checkup" in ids) item("checkup") {
                     Glance(Modifier.appear("g-ch", seen, 3), Icons.Rounded.HealthAndSafety, "Phone health", f.checkupScore?.let { "$it/100" } ?: "–", f.checkupAt?.let { relativeTime(it) } ?: "Not checked yet",
@@ -206,8 +213,9 @@ fun TodayDashboard(app: UltimateApp) {
                 if ("clips" in ids) item("clip") {
                     val clips by app.clips.clips.collectAsStateWithLifecycle()
                     val last = clips.firstOrNull()
-                    Glance(Modifier.appear("g-cl", seen, 4), Icons.Rounded.ContentPaste, "Last copied", last?.text?.lines()?.first()?.take(28) ?: "Nothing yet", if (last != null) "Tap to copy again" else "Copy something, then open Ultimate",
-                        small = true) { if (last != null) copyText(context, "Clip", last.text) else open("clips") }
+                    // The card opens the clipboard history; the little copy icon puts this one back on the clipboard.
+                    Glance(Modifier.appear("g-cl", seen, 4), Icons.Rounded.ContentPaste, "Last copied", last?.text?.lines()?.first()?.take(28) ?: "Nothing yet", if (last != null) "Tap for your clipboard history" else "Copy something, then open Ultimate",
+                        small = true, cornerIcon = if (last != null) Icons.Rounded.ContentCopy else null, onCorner = { last?.let { copyText(context, "Clip", it.text) } }) { open("clips") }
                 }
             }
         }
@@ -254,20 +262,21 @@ fun TodayDashboard(app: UltimateApp) {
 }
 
 @Composable
-private fun Glance(modifier: Modifier, icon: ImageVector, label: String, value: String, detail: String, ring: Float? = null, small: Boolean = false, onClick: () -> Unit) {
+private fun Glance(modifier: Modifier, icon: ImageVector, label: String, value: String, detail: String, ring: Float? = null, small: Boolean = false, cornerIcon: ImageVector? = null, onCorner: () -> Unit = {}, onClick: () -> Unit) {
     val primary = MaterialTheme.colorScheme.primary
     val track = MaterialTheme.colorScheme.surfaceVariant
     Column(
         modifier.width(150.dp).height(132.dp).pressScale(0.95f).clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable(onClick = onClick).padding(14.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
                 ring?.let { r -> Canvas(Modifier.size(30.dp)) { drawArc(track, -90f, 360f, false, style = Stroke(3.dp.toPx())); drawArc(primary, -90f, 360f * r.coerceIn(0f, 1f), false, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round)) } }
                 Icon(icon, null, Modifier.size(if (ring != null) 16.dp else 22.dp), tint = primary)
             }
             Spacer(Modifier.width(8.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            Text(label, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            if (cornerIcon != null) { Spacer(Modifier.weight(1f)); Icon(cornerIcon, "Copy", Modifier.size(26.dp).clip(RoundedCornerShape(8.dp)).clickable { onCorner() }.padding(3.dp), tint = primary) }
         }
         Column {
             Text(value, style = if (small) MaterialTheme.typography.titleSmall else MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
