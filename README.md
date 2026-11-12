@@ -1,6 +1,6 @@
 # Ultimate
 
-> **Current version: Ultimate+ 1.89.0 (build 103), 38 tools.** For the exact state of the code, every subsystem, known limits, branches and test results, read **[docs/CURRENT_STATE.md](docs/CURRENT_STATE.md)**. Every version's notes are in **[CHANGELOG.md](CHANGELOG.md)**.
+> **Current source version: Ultimate+ 2.6.0 (build 126).** For the latest published APK, check [Releases](https://github.com/mosrvs2025/ultimate-android/releases/latest). For the exact state of the code, every subsystem, known limits, branches and test results, read **[docs/CURRENT_STATE.md](docs/CURRENT_STATE.md)**. Every version's notes are in **[CHANGELOG.md](CHANGELOG.md)**.
 
 One Android app that holds a growing set of tools for your own phone: edit and shrink video, see what fills your storage, keep your notification and clipboard history, run rules like "silence at night", open a terminal, and connect to your servers over SSH. No ads, no analytics, no accounts.
 
