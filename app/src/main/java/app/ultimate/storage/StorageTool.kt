@@ -298,6 +298,8 @@ internal fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Un
     picked?.let { f ->
         ModalBottomSheet(onDismissRequest = { picked = null }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // What it is, before anything is opened: its picture (a frame, for a video).
+                if (f.kind == FileKind.Video || f.kind == FileKind.Image) FileThumb(f, Modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(16.dp)))
                 Text(f.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text("${formatBytes(f.bytes)} · ${relativeTime(f.modified)}\n${File(f.path).parent}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -445,6 +447,11 @@ internal fun FolderMap(folder: Folder, onFolder: (Folder, TransformOrigin) -> Un
                             val line = formatBytes(item.bytes) + (item.folder?.let { " · ${it.files} files" } ?: "")
                             drawText(measurer.measure(line, TextStyle(color = Color.White.copy(alpha = 0.85f * e), fontSize = 11.sp), maxLines = 1, overflow = TextOverflow.Ellipsis, constraints = Constraints(maxWidth = maxW)), topLeft = tl + Offset(inset, 22.dp.toPx()))
                         }
+                    }
+                    // Too small for a name: say at least what kind of file it is.
+                    if (!(sz.width > 56.dp.toPx() && sz.height > 30.dp.toPx()) && item.file != null && sz.width > 18.dp.toPx() && sz.height > 18.dp.toPx()) {
+                        val glyph = when (item.file.kind) { FileKind.Video -> "🎬"; FileKind.Image -> "🖼️"; FileKind.Audio -> "🎵"; else -> "📄" }
+                        drawText(measurer.measure(glyph, TextStyle(fontSize = 13.sp)), topLeft = tl + Offset((sz.width - 16.dp.toPx()) / 2, (sz.height - 18.dp.toPx()) / 2))
                     }
                 }
             }

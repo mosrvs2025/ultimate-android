@@ -146,13 +146,13 @@ class RoomMap(val size: Float = 0.05f) {
      *    nothing solid within 10 cm: that is furniture that moved or noise from an earlier scan. Where the new scan never looked,
      *    nothing changes, so a partial scan can only improve the map.
      */
-    fun fuse(other: RoomMap, minFree: Int = 8): FuseReport {
+    fun fuse(other: RoomMap, minFree: Int = 8, clear: Boolean = true): FuseReport {
         require(abs(other.size - size) < 1e-6f) { "Maps use different cube sizes" }
         val theirs = ArrayList<Long>(); val ev = ArrayList<Float>()
         for (i in 0 until other.cap) if (other.solidAtSlot(i)) { theirs += other.keys[i]; ev += other.occ[i] }
         // Decide removals first, against the map as it was.
         var removed = 0
-        for (i in 0 until cap) if (solidAtSlot(i)) {
+        if (clear) for (i in 0 until cap) if (solidAtSlot(i)) {
             val (x, y, z) = unpack(keys[i])
             if ((other.free[pack(floorDiv(x, 4), floorDiv(y, 4), floorDiv(z, 4))] ?: 0) < minFree) continue
             var near = false

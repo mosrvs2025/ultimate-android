@@ -145,7 +145,7 @@ class SpatialEngineTest {
     @Test fun thingsKeepTheirIdentityAcrossScans() {
         val m = ObjectMemory()
         // A two-metre bed seen at both ends is one bed; two bottles 40 cm apart are two.
-        repeat(3) { m.see("bed", P3(0f, 0.4f, 0f), 0.7f); m.see("bed", P3(1.3f, 0.4f, 0.2f), 0.7f); m.see("bottle", P3(3f, 0.9f, 1f), 0.7f); m.see("bottle", P3(3.4f, 0.9f, 1f), 0.7f) }
+        repeat(4) { m.see("bed", P3(0f, 0.4f, 0f), 0.7f); m.see("bed", P3(1.3f, 0.4f, 0.2f), 0.7f); m.see("bottle", P3(3f, 0.9f, 1f), 0.7f); m.see("bottle", P3(3.4f, 0.9f, 1f), 0.7f) }
         m.see("chair", P3(2f, 0.4f, 2f), 0.3f)
         val c = m.confirmed(); assertEquals(1, c.count { it.label == "bed" }); assertEquals(2, c.count { it.label == "bottle" }); assertEquals("a weak guess is not kept", 0, c.count { it.label == "chair" })
         var n = 0; val ids = { "id${n++}" }
@@ -319,5 +319,46 @@ class SpatialEngineTest {
         assertEquals("seeing more of the room does grow it", 3.6f, bigger.u!!.size, 0.001f)
         assertEquals("another set of walls (turned 40 degrees) is a different measurement", 1.75f, RoomGeometry.keepBest(st(Span(0f, 2.7f, true), Span(0f, 1.75f, true), h = 70f), full).v!!.size, 0.001f)
         assertNull(RoomGeometry.keepBest(st(null, null), null).u)
+    }
+
+    @Test fun wallsComeOutAsFittedSurfaces() {
+        val s = stats(a)!!
+        assertTrue("walls found: ${s.walls.size}", s.walls.size >= 3)
+        // Each wall sits on one of the measured lines and runs over a stretch of the room, not a point.
+        s.walls.forEach { w -> val span = if (w.axis == 0) s.u!! else s.v!!; assertTrue("on a measured line", abs(w.pos - span.lo) < 0.35f || abs(w.pos - span.hi) < 0.35f); assertTrue("long enough: ${w.to - w.from}", w.to - w.from >= 1.0f) }
+    }
+
+    @Test fun fourWallsPointedAtGiveTheRoomWhenNothingCouldBeSeen() {
+        // A floor and a bit of furniture, and no wall points at all (plain paint): the walls are given by pointing at each.
+        val r = kotlin.random.Random(4); val pts = ArrayList<P3>()
+        repeat(3000) { pts += P3(r.nextFloat() * 3.4f - 1.7f, -1.35f, r.nextFloat() * 4.2f - 2.1f) }
+        repeat(400) { pts += P3(r.nextFloat() * 1f, -1.35f + r.nextFloat() * 0.5f, r.nextFloat() * 1f) }
+        // The room is 3.4 m (x) by 4.2 m (z), centred on the origin, the phone in the middle.
+        val marks = listOf(WallMark(1.7f, 0.2f, 0f, 0f), WallMark(-1.7f, -0.1f, 0f, 0f), WallMark(0.1f, 2.1f, 0f, 0f), WallMark(-0.2f, -2.1f, 0f, 0f))
+        val s = RoomGeometry.measure(pts, camMinY = -0.1f, camMaxY = 0.1f, userWalls = marks, userCeilingHeight = 2.5f)!!
+        assertEquals("one side", 4.2f, s.length!!, 0.15f); assertEquals("the other", 3.4f, s.width!!, 0.15f); assertEquals(2.5f, s.height!!, 0.001f); assertEquals("you", s.ceilingSource)
+        // And one wall is not a room.
+        val one = RoomGeometry.measure(pts, camMinY = -0.1f, camMaxY = 0.1f, userWalls = marks.take(1))!!
+        assertNull(one.footprint)
+        // A height you gave follows the floor rather than staying at a fixed level.
+        assertEquals(2.5f, RoomGeometry.measure(pts, camMinY = -0.1f, camMaxY = 0.1f, userFloor = -1.4f, userCeilingHeight = 2.5f)!!.height!!, 0.001f)
+    }
+
+    @Test fun smallThingsStuckFlatOnAWallAreNotBelieved() {
+        val s = RoomStats(-1.35f, 1.15f, 0f, Span(0f, 4.2f, true), Span(0f, 3.4f, true), 8f, 9000, Confidence.MEDIUM, walls = listOf(WallSeg(0, 0f, 0f, 3.4f), WallSeg(0, 4.2f, 0f, 3.4f), WallSeg(1, 0f, 0f, 4.2f)))
+        val onWall = RoomObject("bottle", P3(0.03f, 0.1f, 1.5f), 5, 0.7f)     // 1.45 m up, flat against the u = 0 wall
+        assertFalse("a bottle floating on a blank wall", RoomLabels.plausible(onWall, s))
+        assertTrue("a bottle on a table by the wall", RoomLabels.plausible(onWall.copy(at = P3(0.3f, -0.6f, 1.5f)), s))
+        assertTrue("a bottle on the floor against the wall", RoomLabels.plausible(onWall.copy(at = P3(0.03f, -1.2f, 1.5f)), s))
+        assertTrue("a wardrobe stands against a wall", RoomLabels.plausible(RoomObject("cabinet", P3(0.03f, 0.1f, 1.5f), 5, 0.7f), s))
+        assertTrue("nothing known about the walls: no objection", RoomLabels.plausible(onWall, null))
+    }
+
+    @Test fun aLooseFitOnlyAddsAndNeverClears() {
+        val saved = a.map.mapped { it }; val n = saved.solid
+        val gone = Sim.scan(SimWorld(4.2f, 3.4f, 2.5f, boxes = boxes.take(2), mirror = room.mirror), Sim.walk(SimWorld(4.2f, 3.4f, 2.5f)), SimPhone(seed = 13), 37f, 1.5f, -2.0f)
+        val reps = saved.mapped { it }.fuse(gone.map)
+        val addOnly = saved.fuse(gone.map, clear = false)
+        assertEquals("nothing cleared when the fit is loose", 0, addOnly.removed); assertTrue("it would have cleared some: ${reps.removed}", reps.removed > 0); assertTrue(saved.solid >= n)
     }
 }

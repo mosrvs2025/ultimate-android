@@ -80,7 +80,7 @@ class RoomStore(private val dir: File) {
 
     private fun span(s: Span?) = s?.let { JSONObject().put("lo", it.lo.toDouble()).put("hi", it.hi.toDouble()).put("ok", it.complete) }
     private fun json(r: SavedRoom): String {
-        val s = JSONObject().put("heading", r.stats.headingDeg.toDouble()).put("seen", r.stats.floorSeen.toDouble()).put("voxels", r.stats.voxels).put("conf", r.stats.confidence.name).put("src", r.stats.floorSource).put("csrc", r.stats.ceilingSource).put("notes", JSONArray(r.stats.notes))
+        val s = JSONObject().put("heading", r.stats.headingDeg.toDouble()).put("seen", r.stats.floorSeen.toDouble()).put("voxels", r.stats.voxels).put("conf", r.stats.confidence.name).put("src", r.stats.floorSource).put("csrc", r.stats.ceilingSource).put("notes", JSONArray(r.stats.notes)).put("walls", JSONArray().also { w -> r.stats.walls.forEach { x -> w.put(JSONArray().put(x.axis).put(x.pos.toDouble()).put(x.from.toDouble()).put(x.to.toDouble())) } })
         r.stats.floorY?.let { s.put("floor", it.toDouble()) }; r.stats.ceilingY?.let { s.put("ceil", it.toDouble()) }; span(r.stats.u)?.let { s.put("u", it) }; span(r.stats.v)?.let { s.put("v", it) }
         return JSONObject().put("v", 2).put("id", r.id).put("name", r.name).put("at", r.at).put("updated", r.updatedAt).put("kind", r.kind).put("place", r.place).put("stats", s).also { o -> r.heightM?.let { o.put("height", it.toDouble()) } }
             .put("objects", JSONArray().also { a -> r.objects.forEach { o -> a.put(JSONObject().put("id", o.id).put("label", o.label).put("x", o.at.x.toDouble()).put("y", o.at.y.toDouble()).put("z", o.at.z.toDouble()).put("seen", o.seen).put("best", o.best.toDouble()).put("first", o.firstAt).put("last", o.lastAt).put("state", o.state).put("missed", o.missed)) } })
@@ -92,7 +92,8 @@ class RoomStore(private val dir: File) {
         fun span(k: String) = s.optJSONObject(k)?.let { Span(it.getDouble("lo").toFloat(), it.getDouble("hi").toFloat(), it.getBoolean("ok")) }
         return SavedRoom(j.getString("id"), j.getString("name"), j.getLong("at"),
             RoomStats(if (s.has("floor")) s.getDouble("floor").toFloat() else null, if (s.has("ceil")) s.getDouble("ceil").toFloat() else null, s.getDouble("heading").toFloat(), span("u"), span("v"), s.getDouble("seen").toFloat(), s.getInt("voxels"),
-                runCatching { Confidence.valueOf(s.getString("conf")) }.getOrDefault(Confidence.LOW), List(n.length()) { n.getString(it) }, s.optString("src"), s.optString("csrc")),
+                runCatching { Confidence.valueOf(s.getString("conf")) }.getOrDefault(Confidence.LOW), List(n.length()) { n.getString(it) }, s.optString("src"), s.optString("csrc"),
+                (s.optJSONArray("walls") ?: JSONArray()).let { w -> List(w.length()) { i -> w.getJSONArray(i).let { x -> WallSeg(x.getInt(0), x.getDouble(1).toFloat(), x.getDouble(2).toFloat(), x.getDouble(3).toFloat()) } } }),
             List(a.length()) { i -> a.getJSONObject(i).let { o -> RoomObject(o.getString("label"), P3(o.getDouble("x").toFloat(), o.getDouble("y").toFloat(), o.getDouble("z").toFloat()), o.getInt("seen"), o.getDouble("best").toFloat(), o.optString("id"), o.optLong("first"), o.optLong("last"), o.optString("state", "here"), o.optInt("missed")) } },
             j.optString("kind", "room"), j.optString("place"),
             List(ss.length()) { i -> ss.getJSONObject(i).let { x -> ScanSession(x.getLong("at"), x.getInt("added"), x.getInt("reinforced"), x.getInt("removed"), x.getDouble("score").toFloat(), x.getDouble("rms").toFloat(), x.getInt("voxels")) } },
@@ -105,9 +106,9 @@ object Fusion {
     class Result(val map: RoomMap, val objects: List<RoomObject>, val report: FuseReport, val stats: RoomStats?, val heightM: Float?)
 
     /** [fresh] and [freshObjects] are in the new session's coordinates; [a] takes them to the saved space's. [heightM] is a height kept from before; [freshHeightM] one this scan measured. */
-    fun update(saved: RoomMap, savedObjects: List<RoomObject>, fresh: RoomMap, freshObjects: List<RoomObject>, a: Alignment, now: Long, heightM: Float? = null, freshHeightM: Float? = null, previous: RoomStats? = null, newId: () -> String): Result {
+    fun update(saved: RoomMap, savedObjects: List<RoomObject>, fresh: RoomMap, freshObjects: List<RoomObject>, a: Alignment, now: Long, heightM: Float? = null, freshHeightM: Float? = null, previous: RoomStats? = null, clear: Boolean = true, newId: () -> String): Result {
         val moved = fresh.mapped { a.apply(it) }
-        val report = saved.fuse(moved)
+        val report = saved.fuse(moved, clear = clear)
         val objects = ObjectIdentity.merge(savedObjects, freshObjects.map { it.copy(at = a.apply(it.at)) }, now, looked = { moved.freeAt(it.x, it.y, it.z) >= 4 || moved.isSolidNear(it, 0.3f) }, newId = newId)
         val measured = RoomGeometry.measure(saved.cleaned())
         val height = measured?.trustedHeight ?: freshHeightM ?: heightM

@@ -194,6 +194,63 @@ fun CheckupScreen(manager: CheckupManager, onExit: () -> Unit) {
 
 // ───────────────────────────── intro & scanning ─────────────────────────────
 
+private fun sevColor(s: String) = when (s) { "Critical" -> Color(0xFFE53935); "Warning" -> Color(0xFFFB8C00); "Info" -> Color(0xFF1E88E5); else -> Color(0xFF43A047) }
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+/** The saved report as cards: what needs attention first, with the apps involved (tap one for its settings), then who can reach what, then the phone itself. */
+@Composable
+private fun ReportCards(p: app.ultimate.checkup.ui.ReportView.Parsed, context: Context) {
+    val pm = p.packages
+    fun open(label: String) { val pkg = pm[label] ?: return; runCatching { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$pkg")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+    @Composable fun AppChips(names: List<String>) {
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            names.take(14).forEach { n -> Row(Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerHighest).clickable(enabled = pm[n] != null) { open(n) }.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                pm[n]?.let { app.ultimate.core.AppIcon(it, size = 18.dp); Spacer(Modifier.width(6.dp)) }; Text(n, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) } }
+            if (names.size > 14) Text("+${names.size - 14} more", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp))
+        }
+    }
+    if (p.findings.isNotEmpty()) {
+        Text("What to look at", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        p.findings.forEach { f ->
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).height(IntrinsicSize.Min)) {
+                Box(Modifier.width(6.dp).fillMaxHeight().background(sevColor(f.severity)))
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(f.severity, Modifier.clip(RoundedCornerShape(50)).background(sevColor(f.severity).copy(alpha = 0.18f)).padding(horizontal = 8.dp, vertical = 2.dp), color = sevColor(f.severity), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(8.dp)); Text(f.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                    }
+                    Text(f.detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (f.apps.isNotEmpty()) AppChips(f.apps)
+                }
+            }
+        }
+    } else Text("Nothing to fix.", style = MaterialTheme.typography.bodyLarge, color = Color(0xFF43A047))
+    if (p.access.isNotEmpty()) {
+        Text("Who can reach what", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+        p.access.forEach { a -> Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) { Text(a.label, Modifier.weight(1f), fontWeight = FontWeight.SemiBold); Text("${a.count} app${if (a.count == 1) "" else "s"}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            AppChips(a.apps) } }
+    }
+    if (p.device.isNotEmpty()) {
+        Text("Your phone", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            p.device.forEach { (k, v) -> Column(Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Text(k, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Text(v, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium) } }
+        }
+    }
+    var showApps by remember { mutableStateOf(false) }
+    if (p.apps.isNotEmpty()) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { showApps = !showApps }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Apps (${p.apps.size})", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Icon(if (showApps) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
+        }
+        if (p.appsLine.isNotBlank()) Text(p.appsLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (showApps) p.apps.forEach { a -> Row(Modifier.fillMaxWidth().clickable { open(a.label) }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            app.ultimate.core.AppIcon(a.pkg, size = 30.dp); Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) { Text(a.label, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(listOf(a.version, a.installer).filter { it.isNotBlank() }.joinToString(" · ") + if (a.notes.isNotBlank()) "\n${a.notes}" else "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
+    }
+}
+
 /** The last checkup, straight away: the score and when it was taken, then the report that was saved with it. Scanning again is a button, not a wait. */
 @Composable
 private fun LastReport(r: app.ultimate.checkup.engine.SavedReport, onScan: () -> Unit) {
@@ -213,17 +270,7 @@ private fun LastReport(r: app.ultimate.checkup.engine.SavedReport, onScan: () ->
         when {
             md == null -> Text("Opening the saved report…", color = MaterialTheme.colorScheme.onSurfaceVariant)
             md.isBlank() -> Text("The saved report file is gone from Documents/Ultimate. Scan again to make a new one.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            else -> SelectionContainer { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                md.lines().forEach { l ->
-                    val s = l.trim()
-                    when {
-                        s.isEmpty() -> Spacer(Modifier.height(4.dp))
-                        s.startsWith("#") -> Text(s.trimStart('#').trim(), style = if (s.startsWith("##")) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
-                        s.startsWith("- ") || s.startsWith("* ") -> Text("•  " + s.drop(2).replace("**", ""), style = MaterialTheme.typography.bodyMedium)
-                        else -> Text(s.replace("**", ""), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            } }
+            else -> ReportCards(app.ultimate.checkup.ui.ReportView.parse(md), context)
         }
     }
 }
