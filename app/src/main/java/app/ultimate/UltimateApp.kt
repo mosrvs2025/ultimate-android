@@ -103,6 +103,8 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
             // Camera-assisted Echo calibration ships only in the full editions (src/vision, with MediaPipe).
             if (BuildConfig.HAS_SOUND) runCatching { add(Class.forName("app.ultimate.vision.AirTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
             if (BuildConfig.HAS_SOUND) add(app.ultimate.spatial.SpatialTool(this@UltimateApp))
+            // The Health screen counts workouts from the camera where this build has body tracking.
+            if (BuildConfig.HAS_SOUND) runCatching { Class.forName("app.ultimate.vision.WorkoutCameraInstall") }
             if (BuildConfig.HAS_SOUND) runCatching { add(Class.forName("app.ultimate.vision.PlaygroundTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
             if (BuildConfig.HAS_SOUND) runCatching { add(Class.forName("app.ultimate.vision.HandCalibrationTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
             if (BuildConfig.HAS_SOUND) runCatching { add(Class.forName("app.ultimate.vision.TeachEchoTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }

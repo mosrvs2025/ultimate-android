@@ -47,3 +47,6 @@
 # Tools loaded by name, kept explicitly like the others (R8 also recognises the Class.forName constants).
 -keep class app.ultimate.vision.TeachEchoTool { public <init>(app.ultimate.UltimateApp); }
 -keep class app.ultimate.watch.WatchTool { public <init>(app.ultimate.UltimateApp); }
+
+# The Health screen's camera workout counter registers itself by name.
+-keep class app.ultimate.vision.WorkoutCameraInstall { *; }
