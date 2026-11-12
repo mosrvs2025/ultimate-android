@@ -3,6 +3,15 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 2.3.1
+- "Scan again to improve" now really updates that space. The main button says Update <name> from the moment you start, never asks for a name, and if the scan hasn't lined up with the space yet it does that when you tap (and says so plainly if it can't, instead of making a new space).
+- Mark ceiling / Mark floor no longer use an old reading. With no distance at the dot, the ceiling used to be set from the last good reading (that is how it came to say 7.47 m high). Now it needs a distance right now, above everywhere the phone has been; otherwise it offers 2.4 m, 2.7 m, 3.0 m or a typed height. A tap on Reset clears a floor or ceiling you marked.
+- Measuring distances is now a mode you turn on from the menu, with a visible Done button, so touching the screen no longer drops yellow rulers.
+- Your own legs and feet are no longer mapped when you look down: anything in a column straight below the phone is skipped.
+- Things are checked against their real size: a big wooden chest of drawers is now a cabinet instead of a suitcase, and a bottle a metre wide or a bed 60 cm long is dropped. In a saved space, tap Things to relabel or remove any of them.
+- The "could be my room, but it fits more than one way" message no longer sticks around: it is re-checked every time, including each time a new thing is recognised, and things the two scans have in common now settle a room that fits two ways round.
+- Not in this build: putting your palm on a wall to mark it (needs hand tracking running beside the scan).
+
 ## 2.3.0
 - Adding to a saved space no longer wipes the scan. Before, tapping Add cleared everything on screen and you had to start again; now it keeps scanning and each Add folds in what is new. One visit is one entry in the scan history, and Undo takes the whole visit back.
 - Merging is tighter. The match against the saved space is polished against the real wall points on every Add (before, the first match was reused, which is why every scan showed the same 75% fit), and a point that lands next to an existing one now confirms it instead of laying a second copy of the wall beside it.

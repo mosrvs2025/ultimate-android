@@ -245,4 +245,48 @@ class SpatialEngineTest {
         assertFalse("a no-snapshot save keeps no undo of its own", store.canUndo(r.id))
         dir.deleteRecursively()
     }
+
+    @Test fun aBareRoomThatFitsTwoWaysIsSettledByTheThingsInIt() {
+        val bare = SimWorld(4f, 3f, 2.5f)
+        fun inSession(p: P3, yaw: Float, tx: Float, tz: Float): P3 { val m = Sim.toSession(Sim.matrix(Cam(p.x, p.y, p.z, 0f, 0f)), yaw, tx, -1.35f, tz); return P3(m[12], m[13], m[14]) }
+        val x = Sim.scan(bare, Sim.walk(bare), SimPhone(seed = 2), 0f, 0f, 0f); val y = Sim.scan(bare, Sim.walk(bare, startYaw = 30f), SimPhone(seed = 4), 77f, 1f, 1f)
+        val things = listOf(RoomObject("chair", P3(0.5f, 0.4f, 0.6f), 5, 0.8f), RoomObject("bed", P3(3.2f, 0.3f, 2.2f), 5, 0.8f), RoomObject("laptop", P3(2.0f, 0.8f, 0.4f), 4, 0.8f))
+        val saved = things.map { it.copy(at = inSession(it.at, 0f, 0f, 0f)) }; val fresh = things.map { it.copy(at = inSession(it.at, 77f, 1f, 1f)) }
+        val cands = Aligner.alignAll(y.map.cleaned(), x.map.cleaned())
+        assertTrue("a bare box room fits at least two ways: ${cands.size}", cands.size >= 2)
+        assertTrue("and says so", cands.first().ambiguous)
+        val r = Aligner.resolve(cands, fresh, saved)!!
+        assertFalse("the things settle it", r.ambiguous)
+        for (i in things.indices) assertTrue("thing $i lands on itself: ${r.apply(fresh[i].at).dist(saved[i].at)}", r.apply(fresh[i].at).dist(saved[i].at) < 0.5f)
+        // Without things in common it stays ambiguous.
+        assertTrue(Aligner.resolve(cands, emptyList(), saved)!!.ambiguous)
+    }
+
+    @Test fun yourOwnLegsAreNotMappedAsTheRoom() {
+        val w = SimWorld(4.2f, 3.4f, 2.5f)
+        val cams = (0 until 60).map { Cam(2.0f + 0.04f * (it % 12), 1.35f, 1.7f + 0.03f * (it / 12), 15f * it, -65f) }
+        val i = Sim.scan(w, cams, SimPhone(noiseA = 0.005f, noiseB = 0.004f, wildRate = 0f, dropout = 0f, hand = false, driftPos = 0f, driftYaw = 0f), 0f, 0f, 0f)
+        val pts = i.map.points(); assertTrue("something was mapped: ${pts.size}", pts.size > 300)
+        val cx = 2.22f; val cz = 1.76f   // inside every camera position's 55 cm circle (the phone moved 44 cm sideways)
+        val near = pts.count { (it.x - cx) * (it.x - cx) + (it.z - cz) * (it.z - cz) < 0.2f * 0.2f && it.y < -0.5f }
+        assertEquals("nothing straight below the phone", 0, near); assertTrue("they were skipped, not missed: ${i.counters.body}", i.counters.body > 0)
+    }
+
+    @Test fun sizesDecideWhatADetectionCanBe() {
+        assertEquals("a wooden chest of drawers is not a suitcase", RoomLabels.CABINET, RoomLabels.fix("suitcase", 1.1f, 0.9f))
+        assertEquals("suitcase", RoomLabels.fix("suitcase", 0.6f, 0.7f))
+        assertNull("a bottle a metre wide is a pile of something", RoomLabels.fix("bottle", 1.0f, 0.3f)); assertEquals("bottle", RoomLabels.fix("bottle", 0.08f, 0.25f))
+        assertNull("a 60 cm bed is not a bed", RoomLabels.fix("bed", 0.6f, 0.4f)); assertEquals("bed", RoomLabels.fix("bed", 1.9f, 0.5f))
+        assertEquals("chair", RoomLabels.fix("couch", 0.6f, 0.9f))
+        assertEquals("🗄️", RoomLabels.emoji(RoomLabels.CABINET)); assertTrue(RoomLabels.radius(RoomLabels.CABINET) > RoomLabels.radius("chair"))
+    }
+
+    @Test fun thingsCanBeRelabelledAndRemovedInASavedSpace() {
+        val dir = java.io.File(System.getProperty("java.io.tmpdir"), "rooms" + System.nanoTime()); val store = RoomStore(dir)
+        val r = store.save("Den", a.map, listOf(RoomObject("suitcase", P3(1f, 0.4f, 1f), 5, 0.8f), RoomObject("book", P3(2f, 0.4f, 1f), 4, 0.7f)), stats(a))!!
+        val o = store.list().single().objects
+        store.editObjects(r.id) { l -> l.filter { it.label != "book" }.map { if (it.label == "suitcase") it.copy(label = RoomLabels.CABINET) else it } }
+        store.list().single().objects.let { assertEquals(1, it.size); assertEquals(RoomLabels.CABINET, it[0].label); assertEquals(o.first { x -> x.label == "suitcase" }.id, it[0].id) }
+        dir.deleteRecursively()
+    }
 }
