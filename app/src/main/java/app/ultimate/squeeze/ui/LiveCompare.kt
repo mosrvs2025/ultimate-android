@@ -176,8 +176,9 @@ fun LiveCompare(
                     .size(36.dp).clip(CircleShape).background(Color.White),
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Rounded.SwapHoriz, null, tint = Color.Black) }
-            Label("Original", Modifier.align(Alignment.TopStart))
-            Label("Squeezed", Modifier.align(Alignment.TopEnd))
+            // Along the bottom: the top of a screen recording carries its own status bar, and the labels used to sit right on it.
+            Label("Original", Modifier.align(Alignment.BottomStart))
+            Label("Squeezed", Modifier.align(Alignment.BottomEnd))
         }
 
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -203,6 +204,6 @@ fun LiveCompare(
 
 @Composable
 private fun Label(text: String, modifier: Modifier) = Text(
-    text, modifier.padding(10.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 8.dp, vertical = 3.dp),
-    color = Color.White, style = MaterialTheme.typography.labelMedium,
+    text, modifier.padding(10.dp).clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.82f)).padding(horizontal = 12.dp, vertical = 5.dp),
+    color = Color.White, style = MaterialTheme.typography.labelLarge,
 )

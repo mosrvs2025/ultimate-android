@@ -15,11 +15,11 @@ class Box(val x0: Float, val y0: Float, val z0: Float, val x1: Float, val y1: Fl
 class Mirror(val z0: Float, val z1: Float, val y0: Float, val y1: Float)
 
 /** A room to scan: floor y=0, ceiling y=[h], walls at x=0, x=[w], z=0, z=[l]. [blank] is a wall area depth-from-motion can't read (plain paint). */
-class SimWorld(val w: Float, val l: Float, val h: Float, val boxes: List<Box> = emptyList(), val mirror: Mirror? = null, val blankWallZ0: Float = Float.NaN, val blankWallZ1: Float = Float.NaN, val blankCeiling: Boolean = false)
+class SimWorld(val w: Float, val l: Float, val h: Float, val boxes: List<Box> = emptyList(), val mirror: Mirror? = null, val blankWallZ0: Float = Float.NaN, val blankWallZ1: Float = Float.NaN, val blankCeiling: Boolean = false, val blankDrop: Float = 0.8f)
 
 class SimPhone(
     val seed: Int = 1, val noiseA: Float = 0.008f, val noiseB: Float = 0.012f, val wildRate: Float = 0.02f, val dropout: Float = 0.1f,
-    val hand: Boolean = true, val driftPos: Float = 0.002f, val driftYaw: Float = 0.01f,
+    val hand: Boolean = true, val driftPos: Float = 0.002f, val driftYaw: Float = 0.01f, val fill: Boolean = false,
 )
 
 /** One pose of the phone in the room: position, heading and tilt. */
@@ -87,7 +87,7 @@ object Sim {
 
     /** What the phone's depth camera would deliver from [pose] (session coordinates), with the world transformed by [session] to match. */
     fun frame(world: SimWorld, roomPose: FloatArray, sessionPose: FloatArray, phone: SimPhone, rnd: Random, tNs: Long, handNow: Boolean): DepthFrame {
-        val mm = ShortArray(W * H); val conf = ByteArray(W * H)
+        val mm = ShortArray(W * H); val conf = ByteArray(W * H); val fill = if (phone.fill) ShortArray(W * H) else null
         val o = floatArrayOf(roomPose[12], roomPose[13], roomPose[14])
         for (y in 0 until H) for (x in 0 until W) {
             val dc = floatArrayOf((x + 0.5f - W / 2f) / F, (H / 2f - y - 0.5f) / F, -1f)
@@ -96,19 +96,22 @@ object Sim {
                 roomPose[1] * dc[0] + roomPose[5] * dc[1] + roomPose[9] * dc[2],
                 roomPose[2] * dc[0] + roomPose[6] * dc[1] + roomPose[10] * dc[2])
             var t = hit(world, o, d, true)
+            val clean = t
             var c = 110 + rnd.nextInt(146)
             if (handNow && phone.hand && x in 100..150 && y in 52..88) { t = 0.5f + 0.15f * rnd.nextFloat(); c = 230 }
             else {
                 if (rnd.nextFloat() < phone.dropout) c = rnd.nextInt(90)
                 // Plain paint: no features, no depth.
-                if (!world.blankWallZ0.isNaN()) { val hx = o[0] + d[0] * t; val hz = o[2] + d[2] * t; if (hx < 0.05f && hz in world.blankWallZ0..world.blankWallZ1 && rnd.nextFloat() < 0.8f) c = rnd.nextInt(80) }
+                if (!world.blankWallZ0.isNaN()) { val hx = o[0] + d[0] * t; val hz = o[2] + d[2] * t; if (hx < 0.05f && hz in world.blankWallZ0..world.blankWallZ1 && rnd.nextFloat() < world.blankDrop) c = rnd.nextInt(40) }
                 if (rnd.nextFloat() < phone.wildRate) { t = 0.3f + 7f * rnd.nextFloat(); c = 150 + rnd.nextInt(100) }
                 else t += (gauss(rnd)) * (phone.noiseA + phone.noiseB * t * t)
             }
             mm[y * W + x] = if (t in 0.2f..65f) (t * 1000f).toInt().toShort() else 0
+            // ARCore's filled-in depth: defined everywhere there is a surface, smoother and a little less exact; a hand in front is real depth too.
+            if (fill != null) { val ft = if (handNow && phone.hand && x in 100..150 && y in 52..88) t else clean + gauss(rnd) * 2f * (phone.noiseA + phone.noiseB * clean * clean); fill[y * W + x] = if (ft in 0.2f..65f) (ft * 1000f).toInt().toShort() else 0 }
             conf[y * W + x] = c.toByte()
         }
-        return DepthFrame(W, H, mm, conf, F, F, W / 2f, H / 2f, sessionPose, tNs)
+        return DepthFrame(W, H, mm, conf, F, F, W / 2f, H / 2f, sessionPose, tNs, fill)
     }
 
     /** A walk round the room looking about, the way a person scans: ~10 frames a second, a little slower than a stroll. */

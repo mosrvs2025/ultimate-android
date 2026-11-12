@@ -148,6 +148,19 @@ object RoomGeometry {
         return y
     }
 
+    /**
+     * A size, once measured wall to wall, does not shrink because the next measurement happened to see fewer walls: a wall you did not look at
+     * this time is still there. Per direction, an earlier complete span is kept when the new one is missing, incomplete or more than 15% smaller;
+     * a larger or similar complete one replaces it. Only between measurements of the same walls (headings within 12°); otherwise the new one wins.
+     */
+    fun keepBest(new: RoomStats, old: RoomStats?): RoomStats {
+        if (old == null || abs(new.headingDeg - old.headingDeg) > 12f) return new
+        fun pick(n: Span?, o: Span?): Span? = if (o != null && o.complete && (n == null || !n.complete || n.size < 0.85f * o.size)) o else n
+        val u = pick(new.u, old.u); val v = pick(new.v, old.v)
+        if (u === new.u && v === new.v) return new
+        return new.copy(u = u, v = v, headingDeg = old.headingDeg, notes = new.notes.filterNot { it.startsWith("Only one wall seen") } + "Size kept from an earlier measurement of the same walls.")
+    }
+
     /** Puts back a room height measured earlier when this scan could not see the ceiling: the ceiling does not move between scans. */
     fun holdHeight(s: RoomStats, height: Float?): RoomStats =
         if (height != null && s.ceilingY == null && s.floorY != null) s.copy(ceilingY = s.floorY + height, ceilingSource = "kept", notes = s.notes.filterNot { it.startsWith("Ceiling not confirmed") } + "Ceiling height kept from an earlier scan.") else s

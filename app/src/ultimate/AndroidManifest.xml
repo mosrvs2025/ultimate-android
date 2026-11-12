@@ -190,7 +190,7 @@
         <activity
             android:name=".clean.ShareCleanActivity"
             android:exported="true"
-            android:label="Share clean"
+            android:label="Strip metadata &amp; share"
             android:icon="@mipmap/ic_launcher"
             android:excludeFromRecents="true"
             android:taskAffinity=""

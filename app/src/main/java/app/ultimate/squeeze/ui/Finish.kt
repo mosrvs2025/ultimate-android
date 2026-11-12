@@ -31,6 +31,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -43,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -91,42 +94,45 @@ fun ProgressHero(queue: QueueState) {
     val tertiary = MaterialTheme.colorScheme.tertiary
     val onContainer = MaterialTheme.colorScheme.onPrimaryContainer
 
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = RoundedCornerShape(28.dp)) {
-        Column(Modifier.fillMaxWidth().padding(24.dp)) {
-            Text("Squeezing", style = MaterialTheme.typography.labelLarge, color = onContainer)
-            Text("${(shown * 100).roundToInt()}%", style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold, color = onContainer)
-            AnimatedContent(
-                targetState = statusLine(shown),
-                transitionSpec = { (slideInVertically { it / 2 } + fadeIn()) togetherWith (slideOutVertically { -it / 2 } + fadeOut()) },
-                label = "message",
-            ) { Text(it, style = MaterialTheme.typography.titleMedium, color = onContainer) }
+    val eased = FastOutSlowInEasing.transform(shown)
+    val sizeNow = (before - (before - target) * eased).toLong()
+    val saved = percentSaved(before, sizeNow)
+    val dark = Color.Black.copy(alpha = 0.62f)
 
-            Spacer(Modifier.height(20.dp))
-            Box(Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(18.dp)).background(onContainer.copy(alpha = 0.12f))) {
-                Box(
-                    Modifier.fillMaxWidth(width).fillMaxHeight().clip(RoundedCornerShape(18.dp)).background(
-                        Brush.linearGradient(
-                            listOf(primary, tertiary, primary),
-                            start = Offset(-600f + 1800f * shimmer.value, 0f), end = Offset(600f + 1800f * shimmer.value, 200f),
-                        ),
-                    ),
-                )
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), shape = RoundedCornerShape(28.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // The frame being squeezed, with a light sweeping down it as it encodes.
+            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(20.dp)).background(Color.Black)) {
+                running?.let { VideoThumb(it.uri, Modifier.fillMaxSize(), it.source.durationMs) }
+                Canvas(Modifier.fillMaxSize()) {
+                    val y = size.height * shimmer.value; val band = size.height * 0.28f
+                    drawRect(Brush.verticalGradient(listOf(Color.Transparent, primary.copy(alpha = 0.55f), Color.Transparent), startY = y - band, endY = y + band), topLeft = Offset(0f, y - band), size = Size(size.width, band * 2))
+                    drawLine(Color.White.copy(alpha = 0.85f), Offset(0f, y), Offset(size.width, y), strokeWidth = 2f)
+                }
+                Text("${(shown * 100).roundToInt()}%", Modifier.align(Alignment.TopEnd).padding(10.dp).clip(RoundedCornerShape(50)).background(dark).padding(horizontal = 12.dp, vertical = 5.dp), color = Color.White, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                AnimatedContent(
+                    targetState = statusLine(shown), modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
+                    transitionSpec = { (slideInVertically { it / 2 } + fadeIn()) togetherWith (slideOutVertically { -it / 2 } + fadeOut()) }, label = "message",
+                ) { Text(it, Modifier.clip(RoundedCornerShape(50)).background(dark).padding(horizontal = 12.dp, vertical = 5.dp), color = Color.White, style = MaterialTheme.typography.labelMedium) }
             }
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Original ${formatBytes(before)}", style = MaterialTheme.typography.labelMedium, color = onContainer)
-                Text("Aiming for ≈ ${formatBytes(target)}", style = MaterialTheme.typography.labelMedium, color = onContainer, fontWeight = FontWeight.SemiBold)
+            // The number that matters, falling as it goes.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(formatBytes(before), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough)
+                Text("  ➔  ", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(formatBytes(sizeNow), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.weight(1f))
+                Text("−$saved%", Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 12.dp, vertical = 5.dp), color = onContainer, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             }
-            Spacer(Modifier.height(12.dp))
+            // One thin bar, the only progress on the screen.
+            Box(Modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                Box(Modifier.fillMaxWidth(shown.coerceAtLeast(0.01f)).fillMaxHeight().clip(CircleShape).background(Brush.linearGradient(listOf(primary, tertiary, primary), start = Offset(-600f + 1800f * shimmer.value, 0f), end = Offset(600f + 1800f * shimmer.value, 200f))))
+            }
             val detail = buildList {
                 live?.speedX?.let { add(String.format(Locale.US, "%.1f× real time", it)) }
-                live?.etaMs?.let { add(formatEta(it)) }
+                live?.etaMs?.let { add(formatEta(it) + " left") }
             }.joinToString(" · ")
-            Text(
-                "Video ${minOf(finished + 1, total)} of $total" + if (detail.isNotEmpty()) " · $detail" else "",
-                style = MaterialTheme.typography.bodySmall, color = onContainer,
-            )
-            Text("You can leave the app. It keeps working.", style = MaterialTheme.typography.bodySmall, color = onContainer.copy(alpha = 0.8f))
+            Text("Video ${minOf(finished + 1, total)} of $total" + if (detail.isNotEmpty()) " · $detail" else "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Aiming for ≈ ${formatBytes(target)}. You can leave the app; it keeps working.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
         }
     }
 }

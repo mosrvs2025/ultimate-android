@@ -3,6 +3,15 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 2.5.0
+- Room scan sees plain walls and ceilings. The diagnostics from your last scan showed three quarters of the depth being thrown away, mostly on plain paint, where the camera's raw depth has holes. Those holes are now filled from ARCore's own filled-in depth, as weak evidence that needs several views to agree and never clears anything; the sharp-edge filter is looser too. In the simulator a nearly blank wall went from 14% covered to fully covered.
+- A size you have measured wall to wall no longer shrinks or vanishes: a later measurement that sees fewer walls keeps the earlier size, in the live readout, when you add to a space and when you save. (Start over clears it.) The floor under your feet is skipped over a smaller area.
+- Home cards go where they say. Battery and Storage are now two cards (Battery opens Android's battery usage, Storage the storage map). Played today opens the Timeline on what you played, Photos today opens Clean up when there are screenshots to tidy, and Last copied opens your clipboard history with a copy icon on the card for the quick re-copy.
+- Phone checkup opens on your last report (score, date, findings) instead of the first-time screen, with Scan again one tap away.
+- Squeeze, while squeezing: the frame being squeezed with a light sweeping down it, the size falling live (552 MB ➔ 23.3 MB, −95%), one thin progress bar instead of two, and a quieter Cancel squeeze button. When finished: a Send to your computer button next to Play and Share, and the Original / Squeezed labels sit along the bottom of the comparison instead of on top of the video's own status bar.
+- The share-menu shortcut is now called Strip metadata & share.
+- Not in this build: putting your palm on a wall to mark it, and drawing a floor where none was seen.
+
 ## 2.4.0
 - Workouts, in the Health screen. Prop the phone up, pick an exercise and tap Count a set with the camera: it finds your joints on the phone (the picture is dropped, never saved), counts each full repetition, tells you what to fix, and keeps the set. It can count squats, push-ups, sit-ups, lunges, jumping jacks, bicep curls, shoulder presses and high knees, and time a plank.
 - Only full reps count. A half squat is not counted and says "Go deeper"; a plank only runs while your body is level and straight, and says whether to lift or lower your hips. Standing still, walking about or being out of position counts nothing.

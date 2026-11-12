@@ -68,6 +68,8 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
     @Volatile private var userFloor: Float? = null; @Volatile private var userCeiling: Float? = null
     /** A height measured earlier in this scan, or in the saved space being scanned, so a moment of not seeing the ceiling does not lose it. */
     @Volatile private var heldHeight: Float? = null
+    /** The best wall-to-wall size seen in this scan: a later measurement that sees fewer walls must not shrink it. */
+    @Volatile private var bestStats: RoomStats? = null
     @Volatile private var pitch = 0f
     private var statsRun = 0
     @Volatile private var lastSkip: String? = null; @Volatile private var lastSkipAt = 0L
@@ -123,7 +125,7 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
     /** You give the ceiling as a height above the floor (when there is no depth at the dot to take it from). False when the floor isn't known yet. */
     fun markCeilingHeight(h: Float): Boolean { val f = state.value.stats?.floorY ?: return false; userCeiling = f + h; lastStats = 0; return true }
     fun holdHeight(h: Float?) { heldHeight = h }
-    fun reset() { userFloor = null; userCeiling = null; heldHeight = null; synchronized(map) { map.clear(); integrator = ScanIntegrator(map) }; synchronized(memory) { memory.clear() }; measured.clear(); points = null; pointCount = 0; state.value = state.value.copy(stats = null, solid = 0, objects = emptyList(), measure = emptyList(), keyFrames = 0) }
+    fun reset() { userFloor = null; userCeiling = null; heldHeight = null; bestStats = null; synchronized(map) { map.clear(); integrator = ScanIntegrator(map) }; synchronized(memory) { memory.clear() }; measured.clear(); points = null; pointCount = 0; state.value = state.value.copy(stats = null, solid = 0, objects = emptyList(), measure = emptyList(), keyFrames = 0) }
     fun close() { worker.shutdown(); fuser.shutdown(); runCatching { detector?.close() } }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -187,7 +189,9 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
                     if (statsRun++ % 3 == 0) {
                         val m = RoomGeometry.measure(pts, it.counters.camMinY.takeIf { v -> v.isFinite() }, it.counters.camMaxY.takeIf { v -> v.isFinite() }, planes, userFloor = userFloor, userCeiling = userCeiling, maxPitchDeg = it.counters.maxPitchDeg)
                         m?.trustedHeight?.let { h -> heldHeight = h }
-                        val s = m?.let { x -> RoomGeometry.holdHeight(x, heldHeight) }
+                        val kept = m?.let { x -> RoomGeometry.keepBest(x, bestStats) }
+                        if (kept != null && (kept.u?.complete == true || kept.v?.complete == true)) bestStats = kept
+                        val s = kept?.let { x -> RoomGeometry.holdHeight(x, heldHeight) }
                         state.value = state.value.copy(stats = s, diag = it.counters.summary() + " · planes ${planes.size}")
                     }
                 }
@@ -215,7 +219,9 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
                 lastDepthTs = depth.timestamp
                 val mm = ShortArray(dw * dh); val cf = ByteArray(dw * dh)
                 for (y in 0 until dh) { for (x in 0 until dw) mm[y * dw + x] = db.getShort(y * dStride + x * 2); cb.position(y * cStride); cb.get(cf, y * dw, dw) }
-                val f = DepthFrame(dw, dh, mm, cf, fx, fy, cx, cy, pose, depth.timestamp); val it = integrator
+                // ARCore's filled-in depth too, where it has it: plain walls and ceilings have holes in the raw picture but not in this one.
+                val fillArr = if (smooth) runCatching { frame.acquireDepthImage16Bits().use { s -> val sb = s.planes[0].buffer.order(ByteOrder.nativeOrder()); val st = s.planes[0].rowStride; ShortArray(dw * dh) { i -> sb.getShort((i / dw * s.height / dh) * st + (i % dw * s.width / dw) * 2) } } }.getOrNull() else null
+                val f = DepthFrame(dw, dh, mm, cf, fx, fy, cx, cy, pose, depth.timestamp, fillArr); val it = integrator
                 fuser.execute { runCatching { it.integrate(f)?.let { r -> lastSkip = r; lastSkipAt = System.currentTimeMillis() } }; fusing.set(false) }
             }
             fun metres(x: Int, y: Int): Float? {

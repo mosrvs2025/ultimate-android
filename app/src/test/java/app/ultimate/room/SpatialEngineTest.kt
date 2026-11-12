@@ -289,4 +289,35 @@ class SpatialEngineTest {
         store.list().single().objects.let { assertEquals(1, it.size); assertEquals(RoomLabels.CABINET, it[0].label); assertEquals(o.first { x -> x.label == "suitcase" }.id, it[0].id) }
         dir.deleteRecursively()
     }
+
+    @Test fun filledInDepthLetsPlainWallsBeSeenAndNeverClearsAnything() {
+        // A bedroom whose left wall is plain paint: raw depth has almost nothing there (99% of its pixels missing).
+        val w = SimWorld(4.2f, 3.4f, 2.5f, boxes = boxes.drop(1), blankWallZ0 = 0.3f, blankWallZ1 = 3.1f, blankDrop = 0.99f)
+        // How much of the plain wall (2.6 m by 1.9 m, 5 cm patches) has any solid cube in front of it.
+        fun wallCubes(i: ScanIntegrator) = i.map.cleaned().mapNotNull { val r = Sim.truth(10f, 0.2f, -1.35f, 0.5f).apply(it); if (r.x < 0.25f && r.z in 0.4f..3.0f && r.y in 0.3f..2.2f) (Math.floor(r.z / 0.05) to Math.floor(r.y / 0.05)) else null }.toSet().size
+        // A short walk, as in a real scan where the wall is only in view for seconds.
+        val walk = Sim.walk(w, loops = 1).take(220)
+        val without = Sim.scan(w, walk, SimPhone(seed = 31, fill = false), 10f, 0.2f, 0.5f)
+        val with = Sim.scan(w, walk, SimPhone(seed = 31, fill = true), 10f, 0.2f, 0.5f)
+        val a1 = wallCubes(without); val a2 = wallCubes(with)
+        println("WALLCOV $a1 -> $a2 of ${52 * 38}")
+        assertTrue("the plain wall is better covered with filled-in depth: $a1 -> $a2 of ${52 * 38}", a2 > a1 * 1.15f && a2 > 0.8f * 52 * 38)
+        assertTrue("and the counters say where it came from: ${with.counters.summary()}", with.counters.filled > 0)
+        // It must not make the rest worse: the room still measures the same.
+        val s = RoomGeometry.measure(with.map.cleaned(), with.counters.camMinY, with.counters.camMaxY, maxPitchDeg = with.counters.maxPitchDeg)!!
+        assertEquals(4.2f, s.length!!, 0.3f); assertEquals(3.4f, s.width!!, 0.3f); assertEquals(2.5f, s.height!!, 0.2f)
+    }
+
+    @Test fun aSizeMeasuredWallToWallDoesNotShrinkWhenFewerWallsAreSeen() {
+        fun st(u: Span?, v: Span?, h: Float = 30f) = RoomStats(-1.3f, 1.2f, h, u, v, 5f, 9000, Confidence.MEDIUM)
+        val full = st(Span(0f, 3.04f, true), Span(0f, 3.0f, true))
+        val kept = RoomGeometry.keepBest(st(Span(0f, 3.0f, true), Span(0f, 1.2f, false)), full)
+        assertEquals("similar and complete: the new one", 3.0f, kept.u!!.size, 0.001f); assertEquals("lost its far wall: the old one", 3.0f, kept.v!!.size, 0.001f)
+        val shrunk = RoomGeometry.keepBest(st(Span(0f, 2.71f, true), Span(0f, 1.75f, true)), full)
+        assertEquals("a complete but much smaller one is not trusted over a wall-to-wall one", 3.0f, shrunk.v!!.size, 0.001f)
+        val bigger = RoomGeometry.keepBest(st(Span(0f, 3.6f, true), Span(0f, 3.4f, true)), full)
+        assertEquals("seeing more of the room does grow it", 3.6f, bigger.u!!.size, 0.001f)
+        assertEquals("another set of walls (turned 40 degrees) is a different measurement", 1.75f, RoomGeometry.keepBest(st(Span(0f, 2.7f, true), Span(0f, 1.75f, true), h = 70f), full).v!!.size, 0.001f)
+        assertNull(RoomGeometry.keepBest(st(null, null), null).u)
+    }
 }

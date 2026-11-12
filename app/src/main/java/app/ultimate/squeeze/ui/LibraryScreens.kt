@@ -308,15 +308,15 @@ private fun CompareSlider(before: Bitmap, after: Bitmap, modifier: Modifier = Mo
                 .size(36.dp).clip(CircleShape).background(Color.White),
             contentAlignment = Alignment.Center,
         ) { Icon(Icons.Rounded.SwapHoriz, null, tint = Color.Black) }
-        Tag("Original", Modifier.align(Alignment.TopStart))
-        Tag("Squeezed", Modifier.align(Alignment.TopEnd))
+        Tag("Original", Modifier.align(Alignment.BottomStart))
+        Tag("Squeezed", Modifier.align(Alignment.BottomEnd))
     }
 }
 
 @Composable
 private fun Tag(text: String, modifier: Modifier) = Text(
-    text, modifier.padding(10.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 8.dp, vertical = 3.dp),
-    color = Color.White, style = MaterialTheme.typography.labelMedium,
+    text, modifier.padding(10.dp).clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.82f)).padding(horizontal = 12.dp, vertical = 5.dp),
+    color = Color.White, style = MaterialTheme.typography.labelLarge,
 )
 
 @Composable
