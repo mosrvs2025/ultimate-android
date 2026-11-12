@@ -7,40 +7,101 @@ import java.util.UUID
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
-/** A saved room: its name, when it was scanned, what was measured and what was found in it. The shape itself is in a file beside it. */
-data class SavedRoom(val id: String, val name: String, val at: Long, val stats: RoomStats, val objects: List<RoomObject>)
+/** One scan that went into a saved space: when, how well it lined up, and what it changed. The first scan has score 1 and only "added". */
+data class ScanSession(val at: Long, val added: Int, val reinforced: Int, val removed: Int, val score: Float, val rmsCm: Float, val voxels: Int)
 
 /**
- * Rooms kept on this phone, in the app's private storage (other apps cannot read it, and nothing is uploaded). One folder per
- * room: a small description and the compressed shape. Deleting a room deletes both.
+ * A saved space: a room, or anything else with a shape worth remembering ([kind]: room, vehicle, shelving, other). [place] groups spaces
+ * that belong together (the rooms of one home or building). [sessions] is the scan history: every scan that was folded in.
+ */
+data class SavedRoom(
+    val id: String, val name: String, val at: Long, val stats: RoomStats, val objects: List<RoomObject>,
+    val kind: String = "room", val place: String = "", val sessions: List<ScanSession> = emptyList(), val updatedAt: Long = at,
+)
+
+/**
+ * Spaces kept on this phone, in the app's private storage (other apps cannot read it, and nothing is uploaded). One folder per space:
+ * a small description, the compressed shape, and the shape as it was before the last update (so one update can be undone).
  */
 class RoomStore(private val dir: File) {
     init { dir.mkdirs() }
 
-    fun list(): List<SavedRoom> = dir.listFiles().orEmpty().filter { it.isDirectory }.mapNotNull { d -> runCatching { meta(File(d, "room.json").readText()) }.getOrNull() }.sortedByDescending { it.at }
+    fun list(): List<SavedRoom> = dir.listFiles().orEmpty().filter { it.isDirectory }.mapNotNull { d -> runCatching { load(d) }.getOrNull() }.sortedByDescending { it.updatedAt }
 
-    fun save(name: String, map: RoomMap, objects: List<RoomObject>, id: String = UUID.randomUUID().toString(), at: Long = System.currentTimeMillis()): SavedRoom? {
-        val stats = map.stats() ?: return null
-        val room = SavedRoom(id, name.trim().take(40).ifBlank { "Room" }, at, stats, objects)
-        val d = File(dir, id).apply { mkdirs() }
-        GZIPOutputStream(File(d, "map.bin.gz").outputStream()).use { map.write(it) }
+    /** Rooms saved by the first release only stored the old, unreliable measurements: measure those again from their shape, once. */
+    private fun load(d: File): SavedRoom {
+        val j = JSONObject(File(d, "room.json").readText())
+        if (j.optInt("v", 1) >= 2) return meta(j)
+        val map = map(d.name) ?: error("no map")
+        val stats = RoomGeometry.measure(map.cleaned()) ?: RoomStats(null, null, 0f, null, null, 0f, map.solid, Confidence.LOW, listOf("Scanned with an older version: scan again to measure it."))
+        val a = j.getJSONArray("objects"); val at = j.getLong("at")
+        val room = SavedRoom(j.getString("id"), j.getString("name"), at, stats,
+            List(a.length()) { i -> a.getJSONObject(i).let { o -> RoomObject(o.getString("label"), P3(o.getDouble("x").toFloat(), o.getDouble("y").toFloat(), o.getDouble("z").toFloat()), o.getInt("seen"), o.getDouble("best").toFloat(), UUID.randomUUID().toString(), at, at) } },
+            sessions = listOf(ScanSession(at, map.solid, 0, 0, 1f, 0f, map.solid)))
         File(d, "room.json").writeText(json(room))
         return room
     }
 
+    /** Saves a space. Null when there is too little to measure anything. Updating an existing [id] keeps the previous shape for [undo]. */
+    fun save(name: String, map: RoomMap, objects: List<RoomObject>, stats: RoomStats? = null, id: String = UUID.randomUUID().toString(), at: Long = System.currentTimeMillis(),
+             kind: String = "room", place: String = "", sessions: List<ScanSession>? = null, updatedAt: Long = System.currentTimeMillis()): SavedRoom? {
+        val s = stats ?: RoomGeometry.measure(map.cleaned()) ?: return null
+        val solid = map.solid
+        val room = SavedRoom(id, name.trim().take(40).ifBlank { "Room" }, at, s.copy(voxels = solid), objects.map { if (it.id.isEmpty()) it.copy(id = UUID.randomUUID().toString(), firstAt = at, lastAt = at) else it },
+            kind, place.trim().take(40), sessions ?: listOf(ScanSession(at, solid, 0, 0, 1f, 0f, solid)), updatedAt)
+        val d = File(dir, id).apply { mkdirs() }
+        val cur = File(d, "map.bin.gz"); val curMeta = File(d, "room.json")
+        if (cur.exists() && curMeta.exists()) { cur.copyTo(File(d, "map.prev.gz"), true); curMeta.copyTo(File(d, "room.prev.json"), true) }
+        val tmp = File(d, "map.tmp"); GZIPOutputStream(tmp.outputStream()).use { map.write(it) }
+        if (!tmp.renameTo(cur)) { tmp.copyTo(cur, true); tmp.delete() }
+        curMeta.writeText(json(room))
+        return room
+    }
+
     fun map(id: String): RoomMap? = runCatching { GZIPInputStream(File(File(dir, id), "map.bin.gz").inputStream()).use { RoomMap.read(it) } }.getOrNull()
-    fun rename(id: String, name: String) { list().firstOrNull { it.id == id }?.let { File(File(dir, id), "room.json").writeText(json(it.copy(name = name.trim().take(40).ifBlank { it.name }))) } }
+    fun canUndo(id: String) = File(File(dir, id), "map.prev.gz").exists() && File(File(dir, id), "room.prev.json").exists()
+    /** Puts the space back as it was before its last update. */
+    fun undo(id: String): Boolean {
+        val d = File(dir, id); val pm = File(d, "map.prev.gz"); val pj = File(d, "room.prev.json"); if (!pm.exists() || !pj.exists()) return false
+        pm.copyTo(File(d, "map.bin.gz"), true); pj.copyTo(File(d, "room.json"), true); pm.delete(); pj.delete(); return true
+    }
+    private fun edit(id: String, f: (SavedRoom) -> SavedRoom) { list().firstOrNull { it.id == id }?.let { File(File(dir, id), "room.json").writeText(json(f(it))) } }
+    fun rename(id: String, name: String) = edit(id) { it.copy(name = name.trim().take(40).ifBlank { it.name }) }
+    fun describe(id: String, kind: String, place: String) = edit(id) { it.copy(kind = kind, place = place.trim().take(40)) }
     fun delete(id: String) { File(dir, id).deleteRecursively() }
     fun bytes(id: String): Long = File(dir, id).listFiles().orEmpty().sumOf { it.length() }
 
-    private fun json(r: SavedRoom) = JSONObject().put("id", r.id).put("name", r.name).put("at", r.at)
-        .put("stats", JSONObject().put("floor", r.stats.floorY.toDouble()).put("w", r.stats.width.toDouble()).put("l", r.stats.length.toDouble()).put("area", r.stats.floorArea.toDouble()).put("voxels", r.stats.voxels).also { o -> r.stats.ceilingY?.let { o.put("ceil", it.toDouble()) } })
-        .put("objects", JSONArray().also { a -> r.objects.forEach { o -> a.put(JSONObject().put("label", o.label).put("x", o.at.x.toDouble()).put("y", o.at.y.toDouble()).put("z", o.at.z.toDouble()).put("seen", o.seen).put("best", o.best.toDouble())) } }).toString()
+    private fun span(s: Span?) = s?.let { JSONObject().put("lo", it.lo.toDouble()).put("hi", it.hi.toDouble()).put("ok", it.complete) }
+    private fun json(r: SavedRoom): String {
+        val s = JSONObject().put("heading", r.stats.headingDeg.toDouble()).put("seen", r.stats.floorSeen.toDouble()).put("voxels", r.stats.voxels).put("conf", r.stats.confidence.name).put("src", r.stats.floorSource).put("notes", JSONArray(r.stats.notes))
+        r.stats.floorY?.let { s.put("floor", it.toDouble()) }; r.stats.ceilingY?.let { s.put("ceil", it.toDouble()) }; span(r.stats.u)?.let { s.put("u", it) }; span(r.stats.v)?.let { s.put("v", it) }
+        return JSONObject().put("v", 2).put("id", r.id).put("name", r.name).put("at", r.at).put("updated", r.updatedAt).put("kind", r.kind).put("place", r.place).put("stats", s)
+            .put("objects", JSONArray().also { a -> r.objects.forEach { o -> a.put(JSONObject().put("id", o.id).put("label", o.label).put("x", o.at.x.toDouble()).put("y", o.at.y.toDouble()).put("z", o.at.z.toDouble()).put("seen", o.seen).put("best", o.best.toDouble()).put("first", o.firstAt).put("last", o.lastAt).put("state", o.state)) } })
+            .put("sessions", JSONArray().also { a -> r.sessions.forEach { x -> a.put(JSONObject().put("at", x.at).put("added", x.added).put("reinforced", x.reinforced).put("removed", x.removed).put("score", x.score.toDouble()).put("rms", x.rmsCm.toDouble()).put("voxels", x.voxels)) } }).toString()
+    }
 
-    private fun meta(text: String): SavedRoom {
-        val j = JSONObject(text); val s = j.getJSONObject("stats"); val a = j.getJSONArray("objects")
+    private fun meta(j: JSONObject): SavedRoom {
+        val s = j.getJSONObject("stats"); val a = j.getJSONArray("objects"); val ss = j.getJSONArray("sessions"); val n = s.optJSONArray("notes") ?: JSONArray()
+        fun span(k: String) = s.optJSONObject(k)?.let { Span(it.getDouble("lo").toFloat(), it.getDouble("hi").toFloat(), it.getBoolean("ok")) }
         return SavedRoom(j.getString("id"), j.getString("name"), j.getLong("at"),
-            RoomStats(s.getDouble("floor").toFloat(), if (s.has("ceil")) s.getDouble("ceil").toFloat() else null, s.getDouble("w").toFloat(), s.getDouble("l").toFloat(), s.getDouble("area").toFloat(), s.getInt("voxels")),
-            List(a.length()) { i -> a.getJSONObject(i).let { o -> RoomObject(o.getString("label"), P3(o.getDouble("x").toFloat(), o.getDouble("y").toFloat(), o.getDouble("z").toFloat()), o.getInt("seen"), o.getDouble("best").toFloat()) } })
+            RoomStats(if (s.has("floor")) s.getDouble("floor").toFloat() else null, if (s.has("ceil")) s.getDouble("ceil").toFloat() else null, s.getDouble("heading").toFloat(), span("u"), span("v"), s.getDouble("seen").toFloat(), s.getInt("voxels"),
+                runCatching { Confidence.valueOf(s.getString("conf")) }.getOrDefault(Confidence.LOW), List(n.length()) { n.getString(it) }, s.optString("src")),
+            List(a.length()) { i -> a.getJSONObject(i).let { o -> RoomObject(o.getString("label"), P3(o.getDouble("x").toFloat(), o.getDouble("y").toFloat(), o.getDouble("z").toFloat()), o.getInt("seen"), o.getDouble("best").toFloat(), o.optString("id"), o.optLong("first"), o.optLong("last"), o.optString("state", "here")) } },
+            j.optString("kind", "room"), j.optString("place"),
+            List(ss.length()) { i -> ss.getJSONObject(i).let { x -> ScanSession(x.getLong("at"), x.getInt("added"), x.getInt("reinforced"), x.getInt("removed"), x.getDouble("score").toFloat(), x.getDouble("rms").toFloat(), x.getInt("voxels")) } },
+            j.optLong("updated", j.getLong("at")))
+    }
+}
+
+/** Folding a new scan into a saved space: the one place that does it, so the screen and the tests use the same steps. */
+object Fusion {
+    class Result(val map: RoomMap, val objects: List<RoomObject>, val report: FuseReport, val stats: RoomStats?)
+
+    /** [fresh] and [freshObjects] are in the new session's coordinates; [a] takes them to the saved space's. */
+    fun update(saved: RoomMap, savedObjects: List<RoomObject>, fresh: RoomMap, freshObjects: List<RoomObject>, a: Alignment, now: Long, newId: () -> String): Result {
+        val moved = fresh.mapped { a.apply(it) }
+        val report = saved.fuse(moved)
+        val objects = ObjectIdentity.merge(savedObjects, freshObjects.map { it.copy(at = a.apply(it.at)) }, now, looked = { moved.freeAt(it.x, it.y, it.z) >= 4 || moved.isSolidNear(it, 0.3f) }, newId = newId)
+        return Result(saved, objects, report, RoomGeometry.measure(saved.cleaned()))
     }
 }

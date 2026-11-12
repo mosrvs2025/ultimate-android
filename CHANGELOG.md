@@ -3,6 +3,22 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 2.2.1
+- Room scan: 2.2.0 was too strict. On a real phone it kept about a quarter of the points of the earlier build and found no walls or ceiling. A point now needs three viewpoints instead of four, doubtful depth readings count a little instead of not at all (so plain walls fill in over a few views), fewer readings are thrown away at depth edges, and the step that clears seen-through points no longer eats into walls whose depth is noisy.
+- The picture reacts at once: readings that aren't confirmed yet are drawn as faint pale dots and turn solid as they're confirmed. Only confirmed points are measured and saved.
+- You can tell it what it is looking at: aim the dot at the floor or the ceiling and tap Mark floor or Mark ceiling. The measurement then uses your mark and says so. The ceiling can also come from ARCore's own surface detection when depth can't see a plain ceiling.
+- Things are recognised more readily again (the thresholds were too high), and are placed using lower-confidence depth when that is all there is.
+- The buttons under the camera wrap onto a second line instead of running off the screen. The 3D viewer turns about the middle of the scan and shows a half-metre floor grid.
+- Still simulator-tested only; the simulated phone was made noisier to match what the recording showed.
+
+## 2.2.0
+- Room scan rebuilt after the first real-phone test. The wrong numbers in that recording (a 5.95 m ceiling, 0.0 m² of floor, a 6.6 × 4.5 m bedroom) came from taking the lowest and highest stray depth reading as floor and ceiling. Floor and ceiling now need a real area of support, must sit below and above everywhere the phone has been, and a size is only given when walls were seen on both sides. What isn't measured says "not measured" with a hint on what to scan.
+- Much less noise: the phone was counting the same depth picture several times, which made noise look solid. Each picture is now counted once, needs four different viewpoints to become solid, is skipped while the phone moves too fast, and readings on depth edges or beyond 4.5 m are dropped. Things later seen through (a hand, a foot) fade out.
+- Scanning a saved space again improves it: the new scan is lined up with the saved one from walls and tall furniture (no longer dependent on the floor estimate), then folded in. Agreeing points gain confidence, new areas are added, and things that are gone from places you looked at are cleared. Recognition now runs by itself while you scan. Each space keeps a scan history, and the last scan can be undone.
+- Things keep their identity between scans (the same bed stays one bed), are merged by their real size instead of a fixed 70 cm, and are placed by the depth across the middle of the detection rather than one pixel. Ones not found again where you looked are marked, not silently dropped.
+- The distance at the dot falls back to ARCore's filled-in depth where the raw depth has holes (plain walls, doors), shown as "≈ … (estimate)". The viewer has Plan and 3D views with the measured outline and its sizes drawn in. Tap the readout while scanning for diagnostics. Spaces can be marked as room, vehicle or shelving and grouped by place.
+- Verified on a simulated phone only (noise, stray readings, a mirror, a hand, drift): see docs/SPATIAL_SCAN.md for what still needs a real-device test.
+
 ## 2.1.0
 - New in Ultimate+: Room scan (under Senses). Walk slowly round a room with the camera and the phone builds its shape in 3D from ARCore depth and motion tracking, shows the distance to whatever the centre dot is on, and works out the room's length, width, height and floor area. Tap two points to measure between them.
 - It recognises furniture and household things on the phone (chairs, couch, bed, table, TV, laptop, plants and so on), pins a label on each where it stands in the room, and only keeps one after seeing it several times.

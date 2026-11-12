@@ -124,7 +124,7 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
             Box(Modifier.fillMaxSize().padding(pad)) {
                 when {
                     scanning -> ScanScreen(list, onSaved = { reload(); scanning = false; viewing = it }, onChanged = { reload() })
-                    viewing != null -> list.firstOrNull { it.id == viewing }?.let { r -> Viewer(r, onRename = { store.rename(r.id, it); reload() }, onDelete = { store.delete(r.id); viewing = null; reload() }) } ?: run { viewing = null }
+                    viewing != null -> list.firstOrNull { it.id == viewing }?.let { r -> Viewer(r, onRename = { store.rename(r.id, it); reload() }, onDelete = { store.delete(r.id); viewing = null; reload() }, onChanged = { reload() }) } ?: run { viewing = null }
                     else -> RoomList(list, onScan = { scanning = true }, onOpen = { viewing = it })
                 }
             }
@@ -134,25 +134,35 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
     @Composable
     private fun RoomList(list: List<SavedRoom>, onScan: () -> Unit, onOpen: (String) -> Unit) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Walk slowly round a room pointing the camera at walls, floor and furniture. The phone builds the room in 3D, measures it and notes what it recognises. Everything stays on this phone.", style = MaterialTheme.typography.bodyMedium)
-            Button(onScan, Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) { Icon(Icons.Rounded.ViewInAr, null); Spacer(Modifier.width(8.dp)); Text("Scan a room") }
-            if (list.isNotEmpty()) Text("Remembered rooms", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            list.forEach { r ->
+            Text("Walk slowly round a space pointing the camera at the floor, the walls up to the ceiling, and the furniture. The phone builds it in 3D and measures only what it has really seen. Scan a saved space again and the new scan is lined up with it and folded in, so it gets more complete and more trustworthy each time. Everything stays on this phone.", style = MaterialTheme.typography.bodyMedium)
+            Button(onScan, Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) { Icon(Icons.Rounded.ViewInAr, null); Spacer(Modifier.width(8.dp)); Text("Scan a space") }
+            if (list.isNotEmpty()) Text("Remembered spaces", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            list.sortedWith(compareBy<SavedRoom> { it.place.isBlank() }.thenBy { it.place }.thenByDescending { it.updatedAt }).forEach { r ->
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).clickable { onOpen(r.id) }.padding(14.dp)) {
-                    Text(r.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("${kindEmoji(r.kind)} ${r.name}" + if (r.place.isNotBlank()) "  ·  ${r.place}" else "", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(dims(r.stats), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-                    if (r.objects.isNotEmpty()) Text(r.objects.groupingBy { it.label }.eachCount().entries.joinToString(" · ") { (l, n) -> "${RoomLabels.emoji(l)} ${if (n > 1) "$n× " else ""}$l" }, style = MaterialTheme.typography.bodySmall)
-                    Text(app.ultimate.core.relativeTime(r.at), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${r.sessions.size} scan${if (r.sessions.size == 1) "" else "s"} · confidence ${r.stats.confidence.name.lowercase()}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (r.objects.any { it.state == "here" }) Text(r.objects.filter { it.state == "here" }.groupingBy { it.label }.eachCount().entries.joinToString(" · ") { (l, n) -> "${RoomLabels.emoji(l)} ${if (n > 1) "$n× " else ""}$l" }, style = MaterialTheme.typography.bodySmall)
+                    Text(app.ultimate.core.relativeTime(r.updatedAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Text("Needs a phone that supports ARCore depth. Distances come from the camera moving (most phones have no depth sensor), so expect a few centimetres of error up close and more across a large room, and worse on blank white walls, mirrors, glass and in dim light.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 
-    private fun dims(s: RoomStats) = "%.1f × %.1f m".format(s.length, s.width) + (s.height?.let { " · %.2f m high".format(it) } ?: "") + " · floor seen %.1f m²".format(s.floorArea)
+    private fun kindEmoji(kind: String) = when (kind) { "vehicle" -> "🚗"; "shelving" -> "🗄️"; "other" -> "📦"; else -> "🏠" }
+
+    /** Only what was measured: a size needs walls seen on both sides, a height needs floor and ceiling. */
+    private fun dims(s: RoomStats): String {
+        val l = s.length; val w = s.width
+        val size = when { l != null && w != null -> "%.2f × %.2f m".format(l, w); l != null -> "%.2f m one way, other way not measured".format(l); else -> "size not measured" }
+        return size + (s.height?.let { " · %.2f m high".format(it) } ?: " · height not measured")
+    }
+    private fun detail(s: RoomStats) = (s.footprint?.let { "footprint %.1f m² · ".format(it) } ?: "") + "floor seen %.1f m² · confidence ${s.confidence.name.lowercase()}".format(s.floorSeen) + (if ("you" in s.floorSource) " · marked by you" else "")
 
     private fun Context.activity(): Activity? { var c: Context? = this; while (c is ContextWrapper) { if (c is Activity) return c; c = c.baseContext }; return null }
 
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
     @Composable
     private fun ScanScreen(saved: List<SavedRoom>, onSaved: (String) -> Unit, onChanged: () -> Unit) {
         val context = LocalContext.current
@@ -198,25 +208,30 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
         var match by remember { mutableStateOf<Pair<SavedRoom, Alignment>?>(null) }
         var looking by remember { mutableStateOf(false) }
         var note by remember { mutableStateOf<String?>(null) }
-        fun findPlace() {
+        fun findPlace(quiet: Boolean) {
             if (looking || saved.isEmpty()) return
-            looking = true; note = null
+            looking = true; if (!quiet) note = null
             scope.launch {
+                var unsure: SavedRoom? = null
                 val found = withContext(Dispatchers.Default) {
-                    val stats = synchronized(scan.map) { scan.map.stats() } ?: return@withContext null
-                    val fresh = synchronized(scan.map) { scan.map.points() }
-                    saved.mapNotNull { r -> store.map(r.id)?.let { m -> Relocalizer.align(fresh, stats.floorY, m.points(), r.stats.floorY)?.let { r to it } } }.maxByOrNull { it.second.score }
+                    val fresh = synchronized(scan.map) { scan.map.cleaned() }
+                    if (fresh.size < 2500) return@withContext null
+                    val all = saved.mapNotNull { r -> store.map(r.id)?.let { m -> Aligner.align(fresh, m.cleaned())?.let { r to it } } }
+                    unsure = all.filter { it.second.ambiguous }.maxByOrNull { it.second.score }?.first
+                    all.filter { !it.second.ambiguous }.maxByOrNull { it.second.score }
                 }
                 looking = false
-                if (found == null) note = "This doesn't match a room you've saved yet. Scan more of it and try again."
+                if (found == null) { if (!quiet || unsure != null) note = unsure?.let { "This could be ${it.name}, but it fits more than one way round. Scan a part with a door or furniture." } ?: "This doesn't match a space you've saved. Scan more of it (walls and tall furniture) and try again." }
                 else { match = found; note = null; host.senses.publish(Signal("spatial", "room_" + found.first.name.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_'), "You're in ${found.first.name}")) }
             }
         }
+        // Keep trying quietly as the scan grows, so a saved space is recognised without being asked.
+        LaunchedEffect(st.keyFrames / 60, saved.size) { if (match == null && st.keyFrames >= 60) findPlace(true) }
         var naming by remember { mutableStateOf(false) }
         if (naming) {
             var name by remember { mutableStateOf("") }
             AlertDialog(onDismissRequest = { naming = false }, title = { Text("Name this room") }, text = { OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Living room, office…") }) },
-                confirmButton = { TextButton({ naming = false; scope.launch { val r = withContext(Dispatchers.IO) { synchronized(scan.map) { store.save(name, scan.map, synchronized(scan.memory) { scan.memory.confirmed() }) } }; if (r != null) onSaved(r.id) else note = "Not enough scanned yet to save." } }, enabled = name.isNotBlank()) { Text("Save") } },
+                confirmButton = { TextButton({ naming = false; scope.launch { val r = withContext(Dispatchers.IO) { synchronized(scan.map) { store.save(name, scan.map, synchronized(scan.memory) { scan.memory.confirmed() }, st.stats) } }; if (r != null) onSaved(r.id) else note = "Not enough scanned yet to save." } }, enabled = name.isNotBlank()) { Text("Save") } },
                 dismissButton = { TextButton({ naming = false }) { Text("Cancel") } })
         }
 
@@ -250,30 +265,39 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                         }
                     }
                 }
-                Column(Modifier.align(UiAlign.TopStart).padding(10.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    Text(st.centreM?.let { "%.2f m to the dot".format(it) } ?: "No depth at the dot", color = Color.White, fontWeight = FontWeight.Bold)
-                    st.stats?.let { Text(dims(it), color = Color.White, fontSize = 12.sp) }
-                    Text("${"%,d".format(st.solid)} points · ${st.objects.size} things" + if (st.depthSize.isNotEmpty()) " · depth ${st.depthSize} · ${st.fps.roundToInt()} fps" else "", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp)
-                    match?.let { (r, a) -> Text("📍 ${r.name} (${(a.score * 100).roundToInt()}% match)", color = Color(0xFF7CF0A0), fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                var showDiag by remember { mutableStateOf(false) }
+                Column(Modifier.align(UiAlign.TopStart).padding(10.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.6f)).clickable { showDiag = !showDiag }.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Text(st.centreM?.let { (if (st.centreApprox) "≈ %.1f m to the dot (estimate)" else "%.2f m to the dot").format(it) } ?: "No depth at the dot", color = Color.White, fontWeight = FontWeight.Bold)
+                    val s = st.stats
+                    if (s == null) Text("Measuring… keep scanning", color = Color.White, fontSize = 12.sp)
+                    else { Text(dims(s), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold); Text(detail(s), color = when (s.confidence) { Confidence.HIGH -> Color(0xFF7CF0A0); Confidence.MEDIUM -> Color(0xFFFFD166); else -> Color(0xFFFF9E80) }, fontSize = 11.sp) }
+                    Text("${"%,d".format(st.solid)} points · ${st.objects.size} things · ${st.keyFrames} views" + if (st.depthSize.isNotEmpty()) " · depth ${st.depthSize} · ${st.fps.roundToInt()} fps" else "", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp)
+                    match?.let { (r, a) -> Text("📍 ${r.name} · ${(a.score * 100).roundToInt()}% fit · ±${"%.0f".format(a.rmsCm)} cm", color = Color(0xFF7CF0A0), fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                    if (showDiag) Text(st.diag.ifEmpty { "No depth pictures yet" } + "\nTap to hide", color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp, modifier = Modifier.width(260.dp))
                 }
-                (st.why ?: note)?.let { Text(it, Modifier.align(UiAlign.BottomCenter).padding(12.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.65f)).padding(horizontal = 14.dp, vertical = 8.dp), color = Color.White, fontSize = 13.sp) }
+                (st.why ?: st.coach ?: note ?: st.stats?.notes?.firstOrNull())?.let { Text(it, Modifier.align(UiAlign.BottomCenter).padding(12.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.65f)).padding(horizontal = 14.dp, vertical = 8.dp), color = Color.White, fontSize = 13.sp) }
             }
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = UiAlign.CenterVertically) {
+            androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 val m = match
-                if (m == null) Button({ naming = true }, enabled = st.stats != null) { Text("Save room") }
+                if (m == null) Button({ naming = true }, enabled = st.stats != null) { Text("Save") }
                 else Button({ scope.launch {
-                    withContext(Dispatchers.IO) {
-                        val base = store.map(m.first.id) ?: return@withContext
-                        synchronized(scan.map) { scan.map.points() }.forEach { val q = m.second.apply(it); base.addSolid(q.x, q.y, q.z) }
-                        val mem = ObjectMemory(confirmAt = 1); m.first.objects.forEach { o -> repeat(o.seen.coerceAtMost(5)) { mem.see(o.label, o.at, o.best) } }
-                        synchronized(scan.memory) { scan.memory.confirmed() }.forEach { o -> repeat(o.seen.coerceAtMost(5)) { mem.see(o.label, m.second.apply(o.at), o.best) } }
-                        store.save(m.first.name, base, mem.confirmed(), m.first.id, m.first.at)
+                    val msg = withContext(Dispatchers.IO) {
+                        val room = store.list().firstOrNull { it.id == m.first.id } ?: return@withContext null
+                        val base = store.map(room.id) ?: return@withContext null
+                        val fresh = synchronized(scan.map) { scan.map.mapped { it } }
+                        val now = System.currentTimeMillis()
+                        val res = Fusion.update(base, room.objects, fresh, synchronized(scan.memory) { scan.memory.confirmed() }, m.second, now) { java.util.UUID.randomUUID().toString() }
+                        store.save(room.name, res.map, res.objects, res.stats ?: room.stats, room.id, room.at, room.kind, room.place, room.sessions + ScanSession(now, res.report.added, res.report.reinforced, res.report.removed, m.second.score, m.second.rmsCm, res.map.solid))
+                        "${room.name} updated: ${"%,d".format(res.report.reinforced)} points confirmed, ${"%,d".format(res.report.added)} new, ${"%,d".format(res.report.removed)} cleared."
                     }
-                    onChanged(); note = "${m.first.name} updated with this scan."
-                } }) { Text("Update ${m.first.name}") }
-                if (saved.isNotEmpty()) FilledTonalButton({ findPlace() }, enabled = !looking && st.stats != null) { Text(if (looking) "Looking…" else "Have I been here?") }
+                    onChanged(); if (msg != null) scan.reset(); note = msg ?: "Couldn't update that space."
+                } }) { Text("Add to ${m.first.name}") }
+                if (saved.isNotEmpty() && m == null) FilledTonalButton({ findPlace(false) }, enabled = !looking && st.stats != null) { Text(if (looking) "Looking…" else "Have I been here?") }
+                if (m != null) TextButton({ match = null; naming = true }) { Text("Save as new") }
+                TextButton({ note = if (scan.markFloor()) "Floor set where the dot was." else "No distance at the dot: aim it at the floor and try again." }) { Text("Mark floor") }
+                TextButton({ note = if (scan.markCeiling()) "Ceiling set where the dot was." else "No distance at the dot: aim it at the ceiling and try again." }) { Text("Mark ceiling") }
                 if (st.measure.isNotEmpty()) TextButton({ scan.clearMeasure() }) { Text("Clear measure") }
-                TextButton({ synchronized(scan.map) { scan.map.clear() }; synchronized(scan.memory) { scan.memory.clear() }; match = null; note = null }) { Text("Start over") }
+                TextButton({ scan.reset(); match = null; note = null }) { Text("Start over") }
             }
             if (!st.detector) Text("Object recognition isn't in this build, so things won't be labelled.", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
         }
@@ -281,9 +305,9 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
 
     /** The saved room from outside: drag to turn it, pinch to zoom. Colour is height above the floor. */
     @Composable
-    private fun Viewer(room: SavedRoom, onRename: (String) -> Unit, onDelete: () -> Unit) {
+    private fun Viewer(room: SavedRoom, onRename: (String) -> Unit, onDelete: () -> Unit, onChanged: () -> Unit) {
         var pts by remember(room.id) { mutableStateOf<List<P3>?>(null) }
-        LaunchedEffect(room.id, room.stats.voxels) { pts = withContext(Dispatchers.IO) { store.map(room.id)?.points()?.let { if (it.size > 30_000) it.filterIndexed { i, _ -> i % (it.size / 30_000 + 1) == 0 } else it } ?: emptyList() } }
+        LaunchedEffect(room.id, room.updatedAt) { pts = withContext(Dispatchers.IO) { store.map(room.id)?.cleaned()?.let { if (it.size > 30_000) it.filterIndexed { i, _ -> i % (it.size / 30_000 + 1) == 0 } else it } ?: emptyList() } }
         var yaw by remember { mutableFloatStateOf(35f) }; var pitch by remember { mutableFloatStateOf(35f) }; var zoom by remember { mutableFloatStateOf(0f) }
         var renaming by remember { mutableStateOf(false) }; var deleting by remember { mutableStateOf(false) }
         if (renaming) { var n by remember { mutableStateOf(room.name) }
@@ -295,24 +319,58 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                 if (list == null) Text("Loading…", Modifier.align(UiAlign.Center), color = Color.White)
                 else if (list.isEmpty()) Text("This room's shape couldn't be read.", Modifier.align(UiAlign.Center), color = Color.White)
                 else Canvas(Modifier.fillMaxSize()) {
-                    val cx = list.sumOf { it.x.toDouble() }.toFloat() / list.size; val cz = list.sumOf { it.z.toDouble() }.toFloat() / list.size
-                    val centre = P3(cx, room.stats.floorY + (room.stats.height ?: 2.4f) / 2, cz)
-                    if (zoom == 0f) zoom = size.minDimension / (room.stats.length.coerceAtLeast(1f) * 1.5f)
+                    // Turn about the middle of what was scanned (the median, so a stray cluster can't pull the pivot away).
+                    fun mid(f: (P3) -> Float) = list.map(f).sorted()[list.size / 2]
+                    val cx = mid { it.x }; val cz = mid { it.z }
+                    val floorY = room.stats.floorY ?: list.minOf { it.y }
+                    val centre = P3(cx, mid { it.y }, cz)
+                    if (zoom == 0f) zoom = size.minDimension / (((room.stats.length ?: (list.maxOf { it.x } - list.minOf { it.x })).coerceAtLeast(1f)) * 1.6f)
+                    // A faint half-metre grid on the floor, so the shape sits on something and has a scale.
+                    run { val x0 = kotlin.math.floor(list.minOf { it.x } * 2) / 2; val x1 = kotlin.math.ceil(list.maxOf { it.x } * 2) / 2; val z0 = kotlin.math.floor(list.minOf { it.z } * 2) / 2; val z1 = kotlin.math.ceil(list.maxOf { it.z } * 2) / 2
+                        fun pt(x: Float, z: Float): Offset { val (sx, sy, _) = Orbit.project(P3(x, floorY, z), centre, yaw, pitch, zoom); return Offset(size.width / 2 + sx, size.height / 2 + sy) }
+                        var gx = x0; while (gx <= x1 + 0.01f) { drawLine(Color.White.copy(alpha = 0.12f), pt(gx, z0), pt(gx, z1), 1f); gx += 0.5f }
+                        var gz = z0; while (gz <= z1 + 0.01f) { drawLine(Color.White.copy(alpha = 0.12f), pt(x0, gz), pt(x1, gz), 1f); gz += 0.5f } }
                     // Eight height bands, far side first is close enough for points this small.
                     val bands = Array(8) { ArrayList<Offset>() }
                     val span = (room.stats.height ?: 2.4f).coerceAtLeast(0.5f)
-                    list.forEach { p -> val (sx, sy, _) = Orbit.project(p, centre, yaw, pitch, zoom); bands[(((p.y - room.stats.floorY) / span) * 8).toInt().coerceIn(0, 7)] += Offset(size.width / 2 + sx, size.height / 2 + sy) }
+                    list.forEach { p -> val (sx, sy, _) = Orbit.project(p, centre, yaw, pitch, zoom); bands[(((p.y - floorY) / span) * 8).toInt().coerceIn(0, 7)] += Offset(size.width / 2 + sx, size.height / 2 + sy) }
                     bands.forEachIndexed { i, b -> if (b.isNotEmpty()) drawPoints(b, PointMode.Points, Color.hsv(160f + i * 14f, 0.7f, 1f), strokeWidth = (zoom * 0.05f).coerceIn(2f, 9f), cap = StrokeCap.Round) }
+                    // The measured outline, drawn on the floor with its sizes: only the sides that were really measured wall to wall.
+                    val u = room.stats.u; val v = room.stats.v
+                    if (u != null && v != null && u.complete && v.complete) {
+                        val a = Math.toRadians(room.stats.headingDeg.toDouble()); val c = kotlin.math.cos(a).toFloat(); val s = kotlin.math.sin(a).toFloat()
+                        fun corner(uu: Float, vv: Float): Offset { val (sx, sy, _) = Orbit.project(P3(uu * c - vv * s, floorY, uu * s + vv * c), centre, yaw, pitch, zoom); return Offset(size.width / 2 + sx, size.height / 2 + sy) }
+                        val q = listOf(corner(u.lo, v.lo), corner(u.hi, v.lo), corner(u.hi, v.hi), corner(u.lo, v.hi))
+                        val paint = android.graphics.Paint().apply { color = android.graphics.Color.WHITE; textSize = 13.sp.toPx(); textAlign = android.graphics.Paint.Align.CENTER; isFakeBoldText = true; setShadowLayer(6f, 0f, 0f, android.graphics.Color.BLACK) }
+                        for (i in 0..3) { val p0 = q[i]; val p1 = q[(i + 1) % 4]; drawLine(Color.White, p0, p1, 3f)
+                            if (i < 2) drawContext.canvas.nativeCanvas.drawText("%.2f m".format(if (i == 0) u.size else v.size), (p0.x + p1.x) / 2, (p0.y + p1.y) / 2 - 8f, paint) }
+                    }
                     room.objects.forEach { o -> val (sx, sy, _) = Orbit.project(o.at, centre, yaw, pitch, zoom); val at = Offset(size.width / 2 + sx, size.height / 2 + sy)
-                        drawCircle(Color.White, 9f, at); drawContext.canvas.nativeCanvas.drawText("${RoomLabels.emoji(o.label)} ${o.label}", at.x + 14f, at.y + 6f, android.graphics.Paint().apply { color = android.graphics.Color.WHITE; textSize = 14.sp.toPx(); setShadowLayer(6f, 0f, 0f, android.graphics.Color.BLACK) }) }
+                        drawCircle(if (o.state == "here") Color.White else Color.Gray, 9f, at); drawContext.canvas.nativeCanvas.drawText("${RoomLabels.emoji(o.label)} ${o.label}", at.x + 14f, at.y + 6f, android.graphics.Paint().apply { color = android.graphics.Color.WHITE; textSize = 14.sp.toPx(); setShadowLayer(6f, 0f, 0f, android.graphics.Color.BLACK) }) }
+                }
+                Row(Modifier.align(UiAlign.BottomEnd).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilledTonalButton({ pitch = 89f; yaw = -room.stats.headingDeg }) { Text("Plan") }; FilledTonalButton({ pitch = 30f; yaw = 35f }) { Text("3D") }
                 }
                 Text("Drag to turn · pinch to zoom", Modifier.align(UiAlign.TopCenter).padding(8.dp), color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
             }
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            var describing by remember { mutableStateOf(false) }
+            if (describing) { var kind by remember { mutableStateOf(room.kind) }; var place by remember { mutableStateOf(room.place) }
+                AlertDialog(onDismissRequest = { describing = false }, title = { Text("What is this space?") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("room", "vehicle", "shelving", "other").forEach { k -> if (k == kind) Button({}) { Text("${kindEmoji(k)} $k") } else FilledTonalButton({ kind = k }) { Text("${kindEmoji(k)} $k") } } }
+                    OutlinedTextField(place, { place = it }, singleLine = true, label = { Text("Part of (home, office, garage…)") })
+                    Text("Spaces with the same \"part of\" are listed together.", style = MaterialTheme.typography.labelSmall) } },
+                    confirmButton = { TextButton({ store.describe(room.id, kind, place); describing = false; onChanged() }) { Text("Save") } }, dismissButton = { TextButton({ describing = false }) { Text("Cancel") } }) }
+            Column(Modifier.fillMaxWidth().height(250.dp).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(dims(room.stats), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(if (room.objects.isEmpty()) "Nothing recognised in it." else room.objects.joinToString(" · ") { "${RoomLabels.emoji(it.label)} ${it.label}" }, style = MaterialTheme.typography.bodyMedium)
-                Text("${"%,d".format(room.stats.voxels)} points of 5 cm · ${app.ultimate.core.formatBytes(store.bytes(room.id))} on this phone only · scanned ${app.ultimate.core.relativeTime(room.at)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row { TextButton({ renaming = true }) { Text("Rename") }; TextButton({ deleting = true }) { Text("Forget this room", color = MaterialTheme.colorScheme.error) } }
+                Text(detail(room.stats), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                room.stats.notes.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                Text(if (room.objects.isEmpty()) "Nothing recognised in it." else room.objects.joinToString(" · ") { "${RoomLabels.emoji(it.label)} ${it.label}" + if (it.state != "here") " (not seen last scan)" else "" }, style = MaterialTheme.typography.bodyMedium)
+                Text("Scan history", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                room.sessions.reversed().forEachIndexed { i, x -> Text((if (i == room.sessions.size - 1) "First scan" else "Scan ${room.sessions.size - i}") + " · ${app.ultimate.core.relativeTime(x.at)}" + (if (i == room.sessions.size - 1) " · ${"%,d".format(x.voxels)} points" else " · ${(x.score * 100).roundToInt()}% fit, ±${"%.0f".format(x.rmsCm)} cm · ${"%,d".format(x.reinforced)} confirmed, ${"%,d".format(x.added)} new, ${"%,d".format(x.removed)} cleared"), style = MaterialTheme.typography.bodySmall) }
+                Text("${"%,d".format(room.stats.voxels)} points of 5 cm · ${app.ultimate.core.formatBytes(store.bytes(room.id))} on this phone only", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.horizontalScroll(rememberScrollState())) { TextButton({ renaming = true }) { Text("Rename") }; TextButton({ describing = true }) { Text("Details") }
+                    if (store.canUndo(room.id)) TextButton({ store.undo(room.id); onChanged() }) { Text("Undo last scan") }
+                    TextButton({ deleting = true }) { Text("Forget", color = MaterialTheme.colorScheme.error) } }
             }
         }
     }
