@@ -62,6 +62,13 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("2.4.0", listOf(
+            "Workouts, in the Health screen. Prop the phone up, pick an exercise and tap Count a set with the camera: it finds your joints on the phone (the picture is dropped, never saved), counts each full repetition, tells you what to fix, and keeps the set. It can count squats, push-ups, sit-ups, lunges, jumping jacks, bicep curls, shoulder presses and high knees, and time a plank.",
+            "Only full reps count. A half squat is not counted and says \"Go deeper\"; a plank only runs while your body is level and straight, and says whether to lift or lower your hips. Standing still, walking about or being out of position counts nothing.",
+            "It can count aloud so you never need to look at the screen, and finishing a set shows how deep your reps went and whether it is a new best.",
+            "The Health screen now has a Workouts card: this week's totals, today's sets, your streak, recent sets, and Log a set by hand (which works even in builds without the camera counter).",
+            "Where to put the phone: push-ups, sit-ups and planks need it on the floor, side-on to you; squats and lunges 2 to 3 metres away with your whole body in the picture; jumping jacks, presses and high knees facing the phone. Tested on simulated bodies only; I haven't been able to try it on a person yet.",
+        ), tries = listOf("health")),
         Entry("2.3.1", listOf(
             "\"Scan again to improve\" now really updates that space. The main button says Update <name> from the moment you start, never asks for a name, and if the scan hasn't lined up with the space yet it does that when you tap (and says so plainly if it can't, instead of making a new space).",
             "Mark ceiling / Mark floor no longer use an old reading. With no distance at the dot, the ceiling used to be set from the last good reading (that is how it came to say 7.47 m high). Now it needs a distance right now, above everywhere the phone has been; otherwise it offers 2.4 m, 2.7 m, 3.0 m or a typed height. A tap on Reset clears a floor or ceiling you marked.",

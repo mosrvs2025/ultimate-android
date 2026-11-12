@@ -120,6 +120,11 @@ class HealthTool(private val context: android.content.Context) : Tool {
         }
         val today = LocalDate.now().toEpochDay()
         val byDay = days.associateBy { it.day }
+        val workoutStore = remember { WorkoutStore(c) }
+        var sets by remember { mutableStateOf(workoutStore.all()) }
+        var counting by remember { mutableStateOf(false) }
+        // The camera counter fills the screen (and has its own Back); it is only there in builds that carry body tracking.
+        if (counting) { WorkoutCameraHook.content?.invoke(workoutStore) { counting = false; sets = workoutStore.all() }; if (WorkoutCameraHook.content != null) return }
 
         Scaffold(topBar = { TopAppBar(title = { Text("Health") }, navigationIcon = { IconButton(onExit) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { pad ->
             Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -204,6 +209,7 @@ class HealthTool(private val context: android.content.Context) : Tool {
                     if (count > 0) Text("Workouts: $count in 30 days, ${HealthInsights.hm(w.sumOf { it.workoutMin }.toInt())} in all", style = MaterialTheme.typography.bodyMedium)
                 }
 
+                WorkoutCard(workoutStore, sets, { sets = it }, if (WorkoutCameraHook.content != null) ({ counting = true }) else null)
                 FoodCard()
                 Card("What Android doesn't share", "ECG readings, the raw signals behind body composition, and blood pressure from Samsung's own monitor stay inside Samsung Health Monitor: they're regulated medical features that other apps can't read. Everything else your watch records can show up here once Samsung Health shares it.")
                 TextButton({ reload++ }) { Text("Refresh") }
