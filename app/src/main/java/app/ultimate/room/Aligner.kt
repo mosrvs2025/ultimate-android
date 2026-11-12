@@ -36,9 +36,17 @@ object Aligner {
         return cols.filter { it.value.size >= minBins }.keys.map { (it shr 32).toInt() to it.toInt() }
     }
 
-    fun align(fresh: List<P3>, saved: List<P3>, minPrecision: Float = 0.72f, minCells: Int = 80): Alignment? {
+    /** The best way the new scan fits the saved one, or null (see [alignAll]). */
+    fun align(fresh: List<P3>, saved: List<P3>, minPrecision: Float = 0.72f, minCells: Int = 80): Alignment? = alignAll(fresh, saved, minPrecision, minCells, 3).firstOrNull()
+
+    /**
+     * Up to [k] clearly different ways the new scan could sit on the saved one, best first, each polished. A bare or partial scan fits
+     * more than one way (a rectangular room fits itself turned half round); the caller can then break the tie with something else the
+     * two scans share, such as the things found in them ([resolve]). Each result's [Alignment.margin] is its fit minus the best of the others.
+     */
+    fun alignAll(fresh: List<P3>, saved: List<P3>, minPrecision: Float = 0.72f, minCells: Int = 80, k: Int = 3): List<Alignment> {
         val a = structure(fresh); val b = structure(saved)
-        if (a.size < minCells || b.size < minCells) return null
+        if (a.size < minCells || b.size < minCells) return emptyList()
         val bSet = HashSet<Long>(b.size * 2); for ((x, z) in b) bSet += key(x, z)
         fun near(x: Int, z: Int) = key(x, z) in bSet || key(x + 1, z) in bSet || key(x - 1, z) in bSet || key(x, z + 1) in bSet || key(x, z - 1) in bSet
         val ax = FloatArray(a.size) { (a[it].first + 0.5f) * CELL }; val az = FloatArray(a.size) { (a[it].second + 0.5f) * CELL }
@@ -68,10 +76,24 @@ object Aligner {
             }
             best?.let { perYaw += it }
         }
-        val top = perYaw.maxByOrNull { it.precision } ?: return null
-        if (top.precision < minPrecision * 0.85f || top.hits < minCells * 0.6f) return null
         fun apart(y1: Float, y2: Float): Float { val d = abs(y1 - y2) % 360f; return min(d, 360f - d) }
-        val rival = perYaw.filter { apart(it.yaw, top.yaw) > 20f }.maxOfOrNull { it.precision } ?: 0f
+        // Distinct candidates: different enough in turn or in place from the better ones already picked.
+        val picked = ArrayList<Cand>()
+        for (c in perYaw.sortedByDescending { it.precision }) {
+            if (picked.size >= k) break
+            if (c.precision < minPrecision * 0.85f || c.hits < minCells * 0.6f) break
+            if (picked.none { apart(it.yaw, c.yaw) <= 20f || sqrt((it.tx - c.tx) * (it.tx - c.tx) + (it.tz - c.tz) * (it.tz - c.tz)) <= 0.6f && apart(it.yaw, c.yaw) <= 40f }) picked += c
+        }
+        if (picked.isEmpty()) return emptyList()
+        val out = ArrayList<Alignment>()
+        for ((n, top) in picked.withIndex()) {
+            val rival = picked.filterIndexed { i, _ -> i != n }.maxOfOrNull { it.precision } ?: 0f
+            polish(top.yaw, top.tx, top.tz, top.precision - rival, a, b, ax, az, bSet, fresh, saved, minPrecision, minCells)?.let { out += it }
+        }
+        return out.sortedByDescending { it.precision }
+    }
+
+    private fun polish(yaw0: Float, tx0: Float, tz0: Float, margin: Float, a: List<Pair<Int, Int>>, b: List<Pair<Int, Int>>, ax: FloatArray, az: FloatArray, bSet: HashSet<Long>, fresh: List<P3>, saved: List<P3>, minPrecision: Float, minCells: Int): Alignment? {
 
         // Refine: slide and turn a little to minimise the distance from each new cell to the nearest saved cell.
         val bx = HashMap<Long, FloatArray>(); for ((x, z) in b) bx[key(x, z)] = floatArrayOf((x + 0.5f) * CELL, (z + 0.5f) * CELL)
@@ -87,7 +109,7 @@ object Aligner {
             }
             return Triple(sum / a.size, hit, if (hit > 0) sqrt(sq / hit) else 0.15f)
         }
-        var yaw = top.yaw; var tx = top.tx; var tz = top.tz; var best = cost(yaw, tx, tz)
+        var yaw = yaw0; var tx = tx0; var tz = tz0; var best = cost(yaw, tx, tz)
         for (step in listOf(Triple(1f, 0.05f, 2), Triple(0.5f, 0.025f, 2), Triple(0.25f, 0.0125f, 2))) {
             var improved = true; var guard = 0
             while (improved && guard++ < 12) {
@@ -105,9 +127,24 @@ object Aligner {
         val r = Math.toRadians(yaw.toDouble()); val c = cos(r).toFloat(); val s = sin(r).toFloat()
         val covered = HashSet<Long>(); for (i in a.indices) { val ix = floor((ax[i] * c - az[i] * s + tx) / CELL).toInt(); val iz = floor((ax[i] * s + az[i] * c + tz) / CELL).toInt(); for (u in -1..1) for (v in -1..1) if (key(ix + u, iz + v) in bSet) covered += key(ix + u, iz + v) }
         val dy = heightShift(fresh, saved)
-        val margin = top.precision - rival
         val coarse = Alignment(((yaw % 360f) + 360f) % 360f, tx, dy, tz, score = precision, precision = precision, recall = covered.size.toFloat() / b.size, rmsCm = best.third * 100f, matched = best.second, margin = margin, ambiguous = margin < 0.08f)
         return refine(coarse, fresh, saved)
+    }
+
+    /**
+     * Breaks a tie between ways of fitting by what the two scans have in common: carry each of the new scan's things (chair, bed, laptop,
+     * ...) across with the candidate alignment and count how many land on a saved thing of the same kind. A fit that explains two or more
+     * more things than every other is taken, and is no longer ambiguous. Otherwise the best fit is returned unchanged (still ambiguous).
+     */
+    fun resolve(cands: List<Alignment>, freshObjects: List<RoomObject>, savedObjects: List<RoomObject>): Alignment? {
+        val best = cands.firstOrNull() ?: return null
+        if (cands.size < 2 || !best.ambiguous && cands.drop(1).none { it.precision >= best.precision - 0.1f }) return best
+        fun agree(al: Alignment): Int { val used = HashSet<Int>(); var n = 0
+            for (o in freshObjects) { val p = al.apply(o.at); val j = savedObjects.indices.firstOrNull { it !in used && savedObjects[it].label == o.label && savedObjects[it].at.dist(p) <= 1.1f * RoomLabels.radius(o.label) + 0.3f }; if (j != null) { used += j; n++ } }
+            return n }
+        val scored = cands.map { it to agree(it) }.sortedByDescending { it.second }
+        val top = scored.first(); val next = scored.getOrNull(1)?.second ?: 0
+        return if (top.second >= 2 && top.second >= next + 2) top.first.copy(ambiguous = false, margin = maxOf(top.first.margin, 0.1f)) else best
     }
 
     /** Points that stand in tall columns (walls, wardrobes, door frames), the same idea as [structure] but keeping the points. */

@@ -10,10 +10,10 @@ class DepthFrame(val w: Int, val h: Int, val mm: ShortArray, val conf: ByteArray
 
 /** Why frames were or were not used: the first thing to read when a scan on a real phone looks wrong. */
 class IntegratorCounters {
-    var frames = 0; var duplicate = 0; var tooFast = 0; var tooClose = 0; var integrated = 0
+    var frames = 0; var body = 0L; var duplicate = 0; var tooFast = 0; var tooClose = 0; var integrated = 0
     var pixels = 0L; var lowConfidence = 0L; var outOfRange = 0L; var edges = 0L; var kept = 0L
     var camMinY = Float.POSITIVE_INFINITY; var camMaxY = Float.NEGATIVE_INFINITY; var maxPitchDeg = -90f
-    fun summary() = "frames $frames · used $integrated · repeats $duplicate · too fast $tooFast · too similar $tooClose · pixels kept ${if (pixels > 0) (kept * 100 / pixels) else 0}% (low confidence ${if (pixels > 0) (lowConfidence * 100 / pixels) else 0}%, out of range ${if (pixels > 0) (outOfRange * 100 / pixels) else 0}%, edges ${if (pixels > 0) (edges * 100 / pixels) else 0}%)"
+    fun summary() = "frames $frames · used $integrated · repeats $duplicate · too fast $tooFast · too similar $tooClose · pixels kept ${if (pixels > 0) (kept * 100 / pixels) else 0}% (low confidence ${if (pixels > 0) (lowConfidence * 100 / pixels) else 0}%, out of range ${if (pixels > 0) (outOfRange * 100 / pixels) else 0}%, edges ${if (pixels > 0) (edges * 100 / pixels) else 0}%, you ${if (pixels > 0) (body * 100 / pixels) else 0}%)"
 }
 
 /**
@@ -24,7 +24,7 @@ class IntegratorCounters {
  * mixed a near and a far surface into a point floating in between). What is left is added as evidence, and a sample of rays is carved
  * so that things seen through later (a hand, a foot) fade. Pure, so it is tested.
  */
-class ScanIntegrator(val map: RoomMap, private val maxRange: Float = 4.5f, private val minConfidence: Int = 50, private val maxTurnDegPerS: Float = 100f, private val maxSpeed: Float = 1.2f) {
+class ScanIntegrator(val map: RoomMap, private val maxRange: Float = 4.5f, private val minConfidence: Int = 50, private val maxTurnDegPerS: Float = 100f, private val maxSpeed: Float = 1.2f, private val bodyRadius: Float = 0.55f) {
     val counters = IntegratorCounters()
     private var lastSum = Long.MIN_VALUE
     private var prevPos: FloatArray? = null; private var prevFwd: FloatArray? = null; private var prevT = 0L
@@ -67,6 +67,9 @@ class ScanIntegrator(val map: RoomMap, private val maxRange: Float = 4.5f, priva
                 val px = pose[0] * nx + pose[4] * ny + pose[8] * nz + pose[12]; val py = pose[1] * nx + pose[5] * ny + pose[9] * nz + pose[13]; val pz = pose[2] * nx + pose[6] * ny + pose[10] * nz + pose[14]
                 // Weight: nearer readings and ones ARCore is surer of count for more; a doubtful reading still counts a little, so plain walls fill in over several views.
                 val cw = if (f.conf != null) ((f.conf[y * w + x].toInt() and 0xFF) / 160f).coerceIn(0.35f, 1f) else 1f
+                // Your own legs and feet: anything in a column straight below the phone (within about half a metre sideways) is you, not the room.
+                val bx = px - pos[0]; val bz = pz - pos[2]
+                if (bx * bx + bz * bz < bodyRadius * bodyRadius && py < pos[1] - 0.35f && py > pos[1] - 1.9f) { c.body++; continue }
                 map.hit(px, py, pz, keyFrames, (1.3f - d / 4f).coerceIn(0.5f, 1f) * cw)
                 c.kept++
                 if (x % 3 == 1 && y % 3 == 1) map.carve(pos[0], pos[1], pos[2], px, py, pz, 0.15f + 0.1f * d)

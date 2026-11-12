@@ -73,6 +73,8 @@ class RoomStore(private val dir: File) {
     private fun edit(id: String, f: (SavedRoom) -> SavedRoom) { list().firstOrNull { it.id == id }?.let { File(File(dir, id), "room.json").writeText(json(f(it))) } }
     fun rename(id: String, name: String) = edit(id) { it.copy(name = name.trim().take(40).ifBlank { it.name }) }
     fun describe(id: String, kind: String, place: String) = edit(id) { it.copy(kind = kind, place = place.trim().take(40)) }
+    /** Changes the things in a space (relabel or remove one). */
+    fun editObjects(id: String, f: (List<RoomObject>) -> List<RoomObject>) = edit(id) { it.copy(objects = f(it.objects)) }
     fun delete(id: String) { File(dir, id).deleteRecursively() }
     fun bytes(id: String): Long = File(dir, id).listFiles().orEmpty().sumOf { it.length() }
 

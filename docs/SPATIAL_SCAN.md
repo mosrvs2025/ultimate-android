@@ -67,6 +67,25 @@ The simulator's noise level is my estimate, not something I measured from the ph
 
 Not done: hand masking, a 60 fps object tracker, merging the buttons into the floating orb (a separate overlay), a pose-graph for drift.
 
+### Fourth recording (2.3.0): the screens
+
+Verified against the code and the video:
+
+- **"Scan again to improve" asked for a name.** The button chose Save or Update only from whether the automatic match had locked; the space
+  the scan was started from was used for nothing but the title. Now the target is used for the button, and Update lines up on demand.
+- **Ceiling 7.47 m high with "No depth at the dot".** The mark used the last reading of the spot under the dot, which was never cleared.
+  A wrong floor mark did the same, which is why the space saved as "3" is entirely purple (every point is far above the false floor) and
+  shows 0.0 m² of floor. Marks now need a reading from the last half second, a floor must be below and a ceiling above everywhere the
+  phone has been, and a ceiling over an estimated or missing distance offers a height instead.
+- **Yellow rulers.** Any tap measured. Now a mode.
+- **Legs and feet mapped.** True: nothing excluded the user. Now a cylinder under the phone is skipped.
+- **Dresser as suitcase.** The detector has no such class. Now size rules relabel (cabinet) or drop, and wrong labels can be edited.
+- **Stale "fits more than one way" message.** Verified: a re-check that found no ambiguity left the old text. Now every check replaces it,
+  and checks also run when a new thing is confirmed; the things in common break a tie between two fits (tested on a bare box room).
+
+Not done: palm-on-wall marking (needs hand tracking beside ARCore), anything for the "hardcoded centroid alignment" idea: a guess at an
+alignment would corrupt the saved map, so an update that can't be lined up is refused with a reason instead.
+
 ## 2. Architecture
 
 ```

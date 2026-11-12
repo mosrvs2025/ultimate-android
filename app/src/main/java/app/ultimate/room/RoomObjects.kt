@@ -10,18 +10,41 @@ data class RoomObject(val label: String, val at: P3, val seen: Int, val best: Fl
 object RoomLabels {
     val KEEP = setOf("chair", "couch", "bed", "dining table", "tv", "laptop", "potted plant", "refrigerator", "microwave", "oven", "toaster", "sink", "toilet", "book", "clock", "vase",
         "bottle", "cup", "bowl", "keyboard", "mouse", "remote", "cell phone", "backpack", "handbag", "suitcase", "bench", "teddy bear", "umbrella", "scissors", "hair drier")
+    /** Not something the detector knows: a chest of drawers, wardrobe or cupboard, which it tends to call a suitcase. Produced by [fix]. */
+    const val CABINET = "cabinet"
     fun emoji(label: String) = when (label) { "chair", "bench" -> "🪑"; "couch" -> "🛋️"; "bed" -> "🛏️"; "dining table" -> "🍽️"; "tv" -> "📺"; "laptop", "keyboard", "mouse" -> "💻"; "potted plant", "vase" -> "🪴"
-        "refrigerator" -> "🧊"; "microwave", "oven", "toaster" -> "🍳"; "sink" -> "🚰"; "toilet" -> "🚽"; "book" -> "📚"; "clock" -> "🕒"; "bottle", "cup", "bowl" -> "🥤"; "remote", "cell phone" -> "📱"; "backpack", "handbag", "suitcase" -> "🎒"; else -> "📦" }
+        "refrigerator" -> "🧊"; CABINET -> "🗄️"; "microwave", "oven", "toaster" -> "🍳"; "sink" -> "🚰"; "toilet" -> "🚽"; "book" -> "📚"; "clock" -> "🕒"; "bottle", "cup", "bowl" -> "🥤"; "remote", "cell phone" -> "📱"; "backpack", "handbag", "suitcase" -> "🎒"; else -> "📦" }
 
     /**
      * How far apart two sightings of the same kind of thing can be and still be one thing: about the thing's own size. One fixed
      * distance (0.7 m, as before) splits a two-metre bed into several "beds" and glues separate bottles on a shelf into one.
      */
     fun radius(label: String): Float = when (label) {
-        "bed" -> 1.6f; "couch" -> 1.4f; "dining table" -> 1.1f; "refrigerator", "bench" -> 0.9f; "tv", "oven", "toilet", "sink" -> 0.7f
+        "bed" -> 1.6f; "couch" -> 1.4f; CABINET -> 0.8f; "dining table" -> 1.1f; "refrigerator", "bench" -> 0.9f; "tv", "oven", "toilet", "sink" -> 0.7f
         "chair", "suitcase", "potted plant", "microwave" -> 0.55f; "laptop", "backpack", "keyboard", "umbrella", "teddy bear" -> 0.4f
         else -> 0.25f
     }
+    /**
+     * Checks a detection against the thing's real size ([widthM] and [heightM] from the box and its depth) and returns the label to use,
+     * or null when it cannot be that. The detector has no class for a dresser or wardrobe and calls a large wooden box a suitcase; a
+     * "bottle" a metre wide is a pile of something. These are plain size rules, not guesses about what the thing is.
+     */
+    fun fix(label: String, widthM: Float, heightM: Float): String? {
+        val big = maxOf(widthM, heightM)
+        return when (label) {
+            "suitcase" -> if (widthM > 0.9f || heightM > 0.85f) CABINET else label
+            "bed" -> if (big < 0.9f) null else label
+            "couch" -> if (widthM < 0.8f) "chair" else label
+            "chair" -> if (widthM > 1.3f) null else label
+            "bottle" -> if (widthM > 0.5f || heightM > 0.5f) null else label
+            "book" -> if (widthM > 0.6f) null else label
+            "laptop" -> if (widthM > 0.75f) null else label
+            "backpack", "handbag" -> if (big > 0.95f) null else label
+            "tv" -> if (big < 0.3f) null else label
+            else -> label
+        }
+    }
+
     /** Big things can be told from one good look; small ones get mislabelled more, so they need more sightings and a surer detector. */
     fun minScore(label: String): Float = if (radius(label) >= 0.55f) 0.45f else 0.5f
 }

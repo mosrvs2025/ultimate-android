@@ -96,6 +96,7 @@ import com.google.ar.core.Session
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -223,31 +224,43 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
         var match by remember { mutableStateOf<Pair<SavedRoom, Alignment>?>(null) }
         var looking by remember { mutableStateOf(false) }
         var busy by remember { mutableStateOf(false) }
+        /** A passing message (a mark was set, a space was updated): gone after a few seconds. [relocNote] is about recognising the space and is replaced whenever that is re-checked. */
         var note by remember { mutableStateOf<String?>(null) }
+        var relocNote by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(note) { if (note != null) { val n = note; delay(6000); if (note == n) note = null } }
+        var measureOn by remember { mutableStateOf(false) }
         var menu by remember { mutableStateOf(false) }
         var expanded by remember { mutableStateOf(false) }
         var askHeight by remember { mutableStateOf(false) }
+        LaunchedEffect(target) { saved.firstOrNull { it.id == target }?.let { scan.holdHeight(it.heightM) } }
         /** The first time this visit something was added to a saved space: later adds update the same scan-history entry instead of making a new one. */
         var visitAt by remember { mutableStateOf<Long?>(null) }
-        fun findPlace(quiet: Boolean) {
-            if (looking || candidates.isEmpty()) return
+        /** Looks for the space(s) in what has been scanned. True when it settled on one. Things in common break a tie between two ways of fitting. */
+        suspend fun locate(quiet: Boolean): Boolean {
+            if (looking || candidates.isEmpty()) return false
             looking = true; if (!quiet) note = null
-            scope.launch {
-                var unsure: SavedRoom? = null
-                val found = withContext(Dispatchers.Default) {
-                    val fresh = synchronized(scan.map) { scan.map.cleaned() }
-                    if (fresh.size < 2500) return@withContext null
-                    val all = candidates.mapNotNull { r -> store.map(r.id)?.let { m -> Aligner.align(fresh, m.cleaned())?.let { r to it } } }
-                    unsure = all.filter { it.second.ambiguous }.maxByOrNull { it.second.score }?.first
-                    all.filter { !it.second.ambiguous }.maxByOrNull { it.second.score }
-                }
-                looking = false
-                if (found == null) { if (!quiet || unsure != null) note = unsure?.let { "This could be ${it.name}, but it fits more than one way round. Scan a part with a door or furniture." } ?: "This doesn't match a space you've saved. Scan more of it (walls and tall furniture) and try again." }
-                else { match = found; note = null; scan.holdHeight(found.first.heightM); host.senses.publish(Signal("spatial", "room_" + found.first.name.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_'), "You're in ${found.first.name}")) }
+            var unsure: SavedRoom? = null; var tooLittle = false
+            val found = withContext(Dispatchers.Default) {
+                val fresh = synchronized(scan.map) { scan.map.cleaned() }
+                if (fresh.size < 2500) { tooLittle = true; return@withContext null }
+                val freshThings = synchronized(scan.memory) { scan.memory.confirmed() }
+                val all = candidates.mapNotNull { r -> store.map(r.id)?.let { m -> Aligner.resolve(Aligner.alignAll(fresh, m.cleaned()), freshThings, r.objects.filter { it.state == "here" })?.let { r to it } } }
+                unsure = all.filter { it.second.ambiguous }.maxByOrNull { it.second.score }?.first
+                all.filter { !it.second.ambiguous }.maxByOrNull { it.second.score }
             }
+            looking = false
+            if (found != null) { match = found; relocNote = null; scan.holdHeight(found.first.heightM); host.senses.publish(Signal("spatial", "room_" + found.first.name.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_'), "You're in ${found.first.name}")); return true }
+            // Every check replaces the last message, so a stale "fits more than one way" can't stay up after the scan has moved on.
+            relocNote = when { tooLittle -> if (quiet) null else "Scan a little more first: walls and furniture, a minute or so."
+                unsure != null -> "This could be ${unsure!!.name}, but it fits more than one way round. Scan a part with a door or furniture."
+                quiet -> null
+                else -> "This doesn't match ${if (target != null) "that space" else "a space you've saved"} yet. Scan more of it (walls and tall furniture) and try again." }
+            return false
         }
+        fun findPlace(quiet: Boolean) { scope.launch { locate(quiet) } }
         // Keep trying quietly as the scan grows, so a saved space is recognised without being asked.
-        LaunchedEffect(st.keyFrames / 40, candidates.size) { if (match == null && st.keyFrames >= 40) findPlace(true) }
+        // Also whenever a new thing is confirmed: two things in common settle a room that otherwise fits two ways.
+        LaunchedEffect(st.keyFrames / 40, st.objects.size, candidates.size) { if (match == null && st.keyFrames >= 40) findPlace(true) }
         var naming by remember { mutableStateOf(false) }
         if (naming) {
             var name by remember { mutableStateOf("") }
@@ -256,15 +269,16 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                 dismissButton = { TextButton({ naming = false }) { Text("Cancel") } })
         }
         if (askHeight) {
-            var h by remember { mutableStateOf("2.4") }
-            AlertDialog(onDismissRequest = { askHeight = false }, title = { Text("How high is the ceiling?") }, text = { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("There is no distance at the dot to take it from. Give the height in metres from the floor (most homes are 2.4 to 2.7).", style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(h, { h = it }, singleLine = true, label = { Text("Metres") }) } },
-                confirmButton = { TextButton({ val v = h.replace(',', '.').toFloatOrNull(); askHeight = false; note = if (v != null && v in 1.8f..6f && scan.markCeilingHeight(v)) "Ceiling set to %.2f m by you.".format(v) else "Needs a number between 1.8 and 6, and the floor found first." }) { Text("Set") } },
-                dismissButton = { TextButton({ askHeight = false }) { Text("Cancel") } })
+            var h by remember { mutableStateOf("") }
+            fun set(v: Float?) { askHeight = false; note = if (v != null && v in 1.8f..6f && scan.markCeilingHeight(v)) "Ceiling set to %.2f m by you.".format(v) else "Needs a number between 1.8 and 6 m, and the floor found first." }
+            AlertDialog(onDismissRequest = { askHeight = false }, title = { Text("How high is the ceiling?") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("There isn't a distance at the dot to take it from. Pick the height from the floor (most homes are 2.4 to 2.7 m).", style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf(2.4f to "2.4 m · 8 ft", 2.7f to "2.7 m · 9 ft", 3.0f to "3.0 m · 10 ft").forEach { (v, l) -> FilledTonalButton({ set(v) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)) { Text(l, fontSize = 12.sp) } } }
+                OutlinedTextField(h, { h = it }, singleLine = true, label = { Text("Or type it, in metres") }) } },
+                confirmButton = { TextButton({ set(h.replace(',', '.').toFloatOrNull()) }, enabled = h.isNotBlank()) { Text("Set") } }, dismissButton = { TextButton({ askHeight = false }) { Text("Cancel") } })
         }
-        fun markCeiling() { if (scan.markCeiling()) note = "Ceiling set where the dot was." else askHeight = true }
-        fun markFloor() { note = if (scan.markFloor()) "Floor set where the dot was." else "No distance at the dot: aim it at the floor and try again." }
+        fun markCeiling() { when (scan.markCeiling()) { MarkResult.SET -> note = "Ceiling set where the dot was."; else -> askHeight = true } }
+        fun markFloor() { note = when (scan.markFloor()) { MarkResult.SET -> "Floor set where the dot was."; MarkResult.NO_DEPTH -> "No distance at the dot right now: aim it at the floor and hold still."; else -> "That spot is higher than the phone has been, so it can't be the floor." } }
 
         /** Folds the live scan into the saved space it was recognised as, and keeps scanning: nothing is reset. */
         fun addToSaved() {
@@ -290,11 +304,18 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
             }
         }
 
+        /** Update the space this scan was started from: line up first if that hasn't happened yet, and say so plainly if it can't be done. Never asks for a name. */
+        fun updateTarget() {
+            scope.launch {
+                if (match == null) { busy = true; val ok = locate(false); busy = false; if (!ok) { if (relocNote == null) relocNote = "Couldn't line this scan up with it yet: scan the walls, a door or the furniture."; return@launch } }
+                addToSaved()
+            }
+        }
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
             val wPx = constraints.maxWidth.toFloat(); val hPx = constraints.maxHeight.toFloat()
             AndroidView({ c -> GLSurfaceView(c).apply { setEGLContextClientVersion(2); preserveEGLContextOnPause = true; setRenderer(scan); renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY; gl = this } }, Modifier.fillMaxSize())
             // Taps measure: the first sets a point, the second gives the straight-line distance between the two.
-            Canvas(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { o -> scan.tap(o.x / size.width, o.y / size.height) } }) {
+            Canvas(Modifier.fillMaxSize().pointerInput(measureOn) { if (measureOn) detectTapGestures { o -> scan.tap(o.x / size.width, o.y / size.height) } }) {
                 val c = Offset(size.width / 2, size.height / 2)
                 drawCircle(Color.White, 14f, c, style = androidx.compose.ui.graphics.drawscope.Stroke(3f)); drawCircle(Color.White, 3f, c)
                 val v = st.view; val p = st.proj
@@ -325,6 +346,7 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                 val sx = st.stats
                 if (sx == null) Text("Measuring… keep scanning", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
                 else Text(dims(sx), color = when (sx.confidence) { Confidence.HIGH -> Color(0xFF7CF0A0); Confidence.MEDIUM -> Color(0xFFFFD166); else -> Color.White }, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                if (sx != null && (sx.floorSource == "you" || sx.ceilingSource == "you")) Text("✕ Reset floor / ceiling you marked", Modifier.clickable { scan.clearMarks() }.padding(vertical = 2.dp), color = Color(0xFFFFD166), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 match?.let { (r, a) -> Text("📍 ${r.name} · fit ±${"%.0f".format(a.rmsCm)} cm", color = Color(0xFF7CF0A0), fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
                 if (expanded) {
                     sx?.let { Text(detail(it), color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp); it.notes.forEach { n -> Text("• $n", color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, modifier = Modifier.width(250.dp)) } }
@@ -340,24 +362,31 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                 else -> null
             }
             chip?.let { (label, act) -> Text(label, Modifier.align(UiAlign.Center).offset(y = 56.dp).clip(RoundedCornerShape(50)).background(Color(0xFF3D6CF2)).clickable { act() }.padding(horizontal = 16.dp, vertical = 9.dp), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+            if (measureOn) Row(Modifier.align(UiAlign.TopCenter).padding(top = 10.dp).clip(RoundedCornerShape(50)).background(Color(0xFFFFC107)).padding(horizontal = 14.dp, vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = UiAlign.CenterVertically) {
+                Text(if (st.measure.size == 1) "📏 Tap the second point" else "📏 Tap two points", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("✕ Done", Modifier.clickable { measureOn = false; scan.clearMeasure() }, color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
             // The one message that matters now, above the controls.
-            (st.why ?: st.coach ?: note ?: sx?.notes?.firstOrNull())?.let { Text(it, Modifier.align(UiAlign.BottomCenter).padding(start = 14.dp, end = 14.dp, bottom = 84.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 8.dp), color = Color.White, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+            (st.why ?: st.coach ?: note ?: relocNote.takeIf { match == null } ?: sx?.notes?.firstOrNull())?.let { Text(it, Modifier.align(UiAlign.BottomCenter).padding(start = 14.dp, end = 14.dp, bottom = 84.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 8.dp), color = Color.White, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis) }
             // Controls: one main action and a menu.
             Row(Modifier.align(UiAlign.BottomCenter).fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = UiAlign.CenterVertically) {
                 val m = match
-                Button({ if (m == null) naming = true else addToSaved() }, Modifier.weight(1f).height(54.dp), enabled = !busy && st.stats != null, shape = RoundedCornerShape(27.dp)) {
-                    Icon(if (m == null) Icons.Rounded.ViewInAr else Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text(when { busy -> "Saving…"; m == null -> "Save space"; else -> "Add to ${m.first.name}" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // Started from a saved space, this is always an update of that space and never asks for a name; otherwise it saves a new one.
+                val to = m?.first ?: saved.firstOrNull { it.id == target }
+                Button({ if (to == null) naming = true else if (m != null) addToSaved() else updateTarget() }, Modifier.weight(1f).height(54.dp), enabled = !busy && !looking && st.stats != null, shape = RoundedCornerShape(27.dp)) {
+                    Icon(if (to == null) Icons.Rounded.ViewInAr else Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text(when { busy -> "Saving…"; looking -> "Lining up…"; to == null -> "Save space"; else -> "Update ${to.name}" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Box {
                     IconButton({ menu = true }, Modifier.size(54.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f))) { Icon(Icons.Rounded.MoreVert, "More", tint = Color.White) }
                     DropdownMenu(menu, { menu = false }) {
-                        if (m != null) DropdownMenuItem({ Text("Save as a new space") }, { menu = false; match = null; naming = true })
-                        if (m == null && candidates.isNotEmpty()) DropdownMenuItem({ Text(if (looking) "Looking…" else "Have I been here?") }, { menu = false; findPlace(false) }, enabled = !looking && st.stats != null)
+                        if (m != null || target != null) DropdownMenuItem({ Text("Save as a new space instead") }, { menu = false; match = null; naming = true })
+                        if (m == null && target == null && candidates.isNotEmpty()) DropdownMenuItem({ Text(if (looking) "Looking…" else "Have I been here?") }, { menu = false; findPlace(false) }, enabled = !looking && st.stats != null)
                         DropdownMenuItem({ Text("Mark floor at the dot") }, { menu = false; markFloor() })
                         DropdownMenuItem({ Text("Mark ceiling at the dot") }, { menu = false; markCeiling() })
-                        if (st.measure.isNotEmpty()) DropdownMenuItem({ Text("Clear measure") }, { menu = false; scan.clearMeasure() })
+                        DropdownMenuItem({ Text(if (measureOn) "Stop measuring distances" else "Measure a distance") }, { menu = false; measureOn = !measureOn; if (!measureOn) scan.clearMeasure() })
+                        if (sx != null && (sx.floorSource == "you" || sx.ceilingSource == "you")) DropdownMenuItem({ Text("Reset floor / ceiling marks") }, { menu = false; scan.clearMarks() })
                         DropdownMenuItem({ Text("Show diagnostics") }, { menu = false; expanded = true })
-                        DropdownMenuItem({ Text("Start over", color = MaterialTheme.colorScheme.error) }, { menu = false; scan.reset(); match = null; note = null; visitAt = null })
+                        DropdownMenuItem({ Text("Start over", color = MaterialTheme.colorScheme.error) }, { menu = false; scan.reset(); match = null; note = null; relocNote = null; visitAt = null })
                     }
                 }
             }
@@ -396,8 +425,13 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                     Text(if (i == room.sessions.size - 1) "${"%,d".format(x.voxels)} points" else "fit ±${"%.0f".format(x.rmsCm)} cm · ${"%,d".format(x.reinforced)} confirmed, ${"%,d".format(x.added)} new, ${"%,d".format(x.removed)} cleared", style = MaterialTheme.typography.bodySmall) } }
                 Text("${"%,d".format(room.stats.voxels)} points of 5 cm · ${app.ultimate.core.formatBytes(store.bytes(room.id))} on this phone only", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
                 confirmButton = { TextButton({ dialog = "" }) { Text("Close") } })
-            "things" -> AlertDialog(onDismissRequest = { dialog = "" }, title = { Text("Things in ${room.name}") }, text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                (if (showMissing) room.objects else here).sortedByDescending { it.seen }.forEach { Text("${RoomLabels.emoji(it.label)} ${it.label}" + if (it.state != "here") "  ·  not found last scan" else "  ·  seen ${it.seen}×") }
+            "things" -> AlertDialog(onDismissRequest = { dialog = "" }, title = { Text("Things in ${room.name}") }, text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Wrong label? Tap it to change it, or remove it.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                (if (showMissing) room.objects else here).sortedByDescending { it.seen }.forEach { o -> var open by remember { mutableStateOf(false) }
+                    Row(Modifier.fillMaxWidth().clickable { open = true }.padding(vertical = 6.dp), verticalAlignment = UiAlign.CenterVertically) {
+                        Text("${RoomLabels.emoji(o.label)} ${o.label}" + if (o.state != "here") "  ·  not found last scan" else "  ·  seen ${o.seen}×", Modifier.weight(1f))
+                        IconButton({ store.editObjects(room.id) { l -> l.filter { it.id != o.id } }; onChanged() }) { Icon(Icons.Rounded.Delete, "Remove", tint = MaterialTheme.colorScheme.error) }
+                        DropdownMenu(open, { open = false }) { (listOf(RoomLabels.CABINET) + RoomLabels.KEEP.sorted()).forEach { l -> DropdownMenuItem({ Text("${RoomLabels.emoji(l)} $l") }, { open = false; store.editObjects(room.id) { list -> list.map { if (it.id == o.id) it.copy(label = l) else it } }; onChanged() }) } } } }
                 if (here.isEmpty()) Text("Nothing recognised yet.")
                 if (room.objects.size > here.size) TextButton({ showMissing = !showMissing }) { Text(if (showMissing) "Hide ones not found last scan" else "Show ${room.objects.size - here.size} not found last scan") } } },
                 confirmButton = { TextButton({ dialog = "" }) { Text("Close") } })

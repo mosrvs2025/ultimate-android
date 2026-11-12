@@ -41,6 +41,12 @@ data class ScanState(
     val pitchDeg: Float = 0f,
 )
 
+/** What marking the floor or ceiling at the dot did. */
+enum class MarkResult { SET, NO_DEPTH, WRONG_SIDE, ESTIMATE }
+
+/** The spot the dot is on, with when it was read and whether the distance was an estimate. Cleared the moment there is no distance there. */
+class DotFix(val p: P3, val at: Long, val approx: Boolean)
+
 /**
  * The live scan. The drawing thread only copies each *new* depth picture (ARCore repeats one for several camera frames) and hands it
  * to a worker, where [ScanIntegrator] decides whether to trust it and adds it to the [map] as evidence. Measuring, cleaning the points
@@ -58,7 +64,7 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
     private val measured = ArrayList<P3>()
     private var detector: ObjectDetector? = null
     @Volatile private var planes: List<PlaneHint> = emptyList()
-    @Volatile private var centreP: P3? = null
+    @Volatile private var dotFix: DotFix? = null
     @Volatile private var userFloor: Float? = null; @Volatile private var userCeiling: Float? = null
     /** A height measured earlier in this scan, or in the saved space being scanned, so a moment of not seeing the ceiling does not lose it. */
     @Volatile private var heldHeight: Float? = null
@@ -94,8 +100,26 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
     fun tap(x: Float, y: Float) { taps = ArrayList(taps).also { it += x to y } }
     fun clearMeasure() { measured.clear(); state.value = state.value.copy(measure = emptyList()) }
     /** You say what the dot is on: the floor or the ceiling. Uses the distance at the dot (measured or estimated). False when there is no distance there. */
-    fun markFloor(): Boolean { userFloor = centreP?.y ?: return false; lastStats = 0; return true }
-    fun markCeiling(): Boolean { userCeiling = centreP?.y ?: return false; lastStats = 0; return true }
+    private fun fresh(): DotFix? = dotFix?.takeIf { System.currentTimeMillis() - it.at < 500 }
+    /**
+     * The floor is where the dot is, but only if there is a distance there *right now* (the last good reading is not enough: with no
+     * depth at the dot, an old reading used to be taken, which put a ceiling 7.5 m up) and it is below everywhere the phone has been.
+     */
+    fun markFloor(): MarkResult {
+        val f = fresh() ?: return MarkResult.NO_DEPTH
+        val low = integrator.counters.camMinY; if (low.isFinite() && f.p.y > low - 0.2f) return MarkResult.WRONG_SIDE
+        userFloor = f.p.y; lastStats = 0; return MarkResult.SET
+    }
+    /** The ceiling at the dot: needs a fresh distance that is not an estimate, above the phone's whole path and a plausible height over the floor; otherwise the caller asks for a height. */
+    fun markCeiling(): MarkResult {
+        val f = fresh() ?: return MarkResult.NO_DEPTH
+        val high = integrator.counters.camMaxY; if (high.isFinite() && f.p.y < high + 0.1f) return MarkResult.WRONG_SIDE
+        state.value.stats?.floorY?.let { fl -> if (f.p.y - fl !in 1.8f..4.6f) return MarkResult.WRONG_SIDE }
+        if (f.approx) return MarkResult.ESTIMATE
+        userCeiling = f.p.y; lastStats = 0; return MarkResult.SET
+    }
+    /** Takes back a floor or ceiling you marked, so the measured one (or none) is used again. */
+    fun clearMarks() { userFloor = null; userCeiling = null; lastStats = 0 }
     /** You give the ceiling as a height above the floor (when there is no depth at the dot to take it from). False when the floor isn't known yet. */
     fun markCeilingHeight(h: Float): Boolean { val f = state.value.stats?.floorY ?: return false; userCeiling = f + h; lastStats = 0; return true }
     fun holdHeight(h: Float?) { heldHeight = h }
@@ -210,15 +234,16 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
             fun viewToDepth(vx: Float, vy: Float): Pair<Float, Float> { val o = FloatArray(2); frame.transformCoordinates2d(Coordinates2d.VIEW_NORMALIZED, floatArrayOf(vx, vy), Coordinates2d.TEXTURE_NORMALIZED, o); return o[0] * dw to o[1] * dh }
             val c = viewToDepth(0.5f, 0.5f)
             val cn = near(c.first, c.second); var centre = cn?.first; var approx = false
-            if (cn != null) centreP = cn.second
+            var fix: DotFix? = cn?.let { DotFix(it.second, now, false) }
             // Raw depth has holes (plain walls, shiny things). ARCore's filled-in depth covers them with an estimate: shown, but marked as one.
             if (centre == null && smooth && frameNo % 4 == 0) runCatching { frame.acquireDepthImage16Bits().use { s ->
                 val x = (c.first / dw * s.width).toInt().coerceIn(0, s.width - 1); val y = (c.second / dh * s.height).toInt().coerceIn(0, s.height - 1)
                 val mm = s.planes[0].buffer.order(ByteOrder.nativeOrder()).getShort(y * s.planes[0].rowStride + x * 2).toInt() and 0xFFFF
-                if (mm in 300..8000) { centre = mm / 1000f; approx = true; centreP = Depth.toWorld(c.first, c.second, mm / 1000f, fx, fy, cx, cy, pose) }
+                if (mm in 300..8000) { centre = mm / 1000f; approx = true; fix = DotFix(Depth.toWorld(c.first, c.second, mm / 1000f, fx, fy, cx, cy, pose), now, true) }
             } } else if (centre == null && smooth) { centre = state.value.centreM.takeIf { state.value.centreApprox }; approx = centre != null }
+            dotFix = fix
             val pending = taps; if (pending.isNotEmpty()) { taps = ArrayList(); pending.forEach { (tx, ty) -> viewToDepth(tx, ty).let { near(it.first, it.second, 3) }?.let { if (measured.size >= 2) measured.clear(); measured += it.second } } }
-            if (detector != null && now - lastDetect > 900 && detecting.compareAndSet(false, true)) { lastDetect = now; if (!detect(frame, dw, dh, P3(pose[12], pose[13], pose[14])) { px, py -> near(px, py, 3)?.second }) detecting.set(false) }
+            if (detector != null && now - lastDetect > 900 && detecting.compareAndSet(false, true)) { lastDetect = now; if (!detect(frame, dw, dh, P3(pose[12], pose[13], pose[14]), frame.camera.imageIntrinsics.focalLength[0]) { px, py -> near(px, py, 3)?.second }) detecting.set(false) }
             return Triple(centre, approx, "${dw}×$dh")
         } finally { depth.close(); conf.close() }
     }
@@ -228,7 +253,7 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
      * middle distance of the trusted depth inside the middle of its box (not just the one pixel at its centre, which is often the wall
      * behind). The depth lookups are made now, on a coarse grid, because the depth picture is gone once this frame ends.
      */
-    private fun detect(frame: Frame, dw: Int, dh: Int, camAt: P3, depthAt: (Float, Float) -> P3?): Boolean {
+    private fun detect(frame: Frame, dw: Int, dh: Int, camAt: P3, focalPx: Float, depthAt: (Float, Float) -> P3?): Boolean {
         val image = try { frame.acquireCameraImage() } catch (e: Exception) { return false }
         val iw = image.width; val ih = image.height
         val rgb: IntArray
@@ -257,7 +282,10 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
                     val inside = ArrayList<P3>(); for (j in j0..j1) for (i in i0..i1) grid[j * gx + i]?.let { inside += it }
                     if (inside.isEmpty()) continue
                     val p = inside.sortedBy { it.dist(camAt) }[inside.size / 2]
-                    synchronized(memory) { memory.see(label, p, cat.score()) }
+                    // Real size from the box and the distance: a thing of the wrong size is relabelled (a big wooden chest is a cabinet, not a suitcase) or dropped.
+                    val d = p.dist(camAt); val widthM = box.width() * d / focalPx; val heightM = box.height() * d / focalPx
+                    val use = RoomLabels.fix(label, widthM, heightM) ?: continue
+                    synchronized(memory) { memory.see(use, p, cat.score()) }
                 }
             } catch (_: Exception) { } finally { detecting.set(false) }
         }
