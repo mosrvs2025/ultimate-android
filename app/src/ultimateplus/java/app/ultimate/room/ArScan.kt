@@ -39,6 +39,8 @@ data class ScanState(
     val fps: Float = 0f, val depthSize: String = "", val keyFrames: Int = 0, val diag: String = "", val coach: String? = null,
     /** How far the phone is tilted up (+) or down (-), in degrees, to offer "mark the ceiling" / "mark the floor" when it is aimed at them. */
     val pitchDeg: Float = 0f,
+    /** How many walls you have pointed at (for the reset link). */
+    val wallMarks: Int = 0,
 )
 
 /** What marking the floor or ceiling at the dot did. */
@@ -70,6 +72,9 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
     @Volatile private var heldHeight: Float? = null
     /** The best wall-to-wall size seen in this scan: a later measurement that sees fewer walls must not shrink it. */
     @Volatile private var bestStats: RoomStats? = null
+    @Volatile private var userWalls: List<WallMark> = emptyList()
+    @Volatile private var userHeight: Float? = null
+    @Volatile private var camX = Float.NaN; @Volatile private var camZ = Float.NaN
     @Volatile private var pitch = 0f
     private var statsRun = 0
     @Volatile private var lastSkip: String? = null; @Volatile private var lastSkipAt = 0L
@@ -121,11 +126,13 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
         userCeiling = f.p.y; lastStats = 0; return MarkResult.SET
     }
     /** Takes back a floor or ceiling you marked, so the measured one (or none) is used again. */
-    fun clearMarks() { userFloor = null; userCeiling = null; lastStats = 0 }
+    fun clearMarks() { userFloor = null; userCeiling = null; userHeight = null; userWalls = emptyList(); lastStats = 0 }
     /** You give the ceiling as a height above the floor (when there is no depth at the dot to take it from). False when the floor isn't known yet. */
-    fun markCeilingHeight(h: Float): Boolean { val f = state.value.stats?.floorY ?: return false; userCeiling = f + h; lastStats = 0; return true }
+    fun markCeilingHeight(h: Float): Boolean { if (state.value.stats?.floorY == null) return false; userHeight = h; userCeiling = null; lastStats = 0; return true }
+    /** The wall at the dot: needs a reading there right now (an estimate will do; plain walls usually only have that). It says which way the wall faces, from where you stood. */
+    fun markWall(): MarkResult { val f = fresh() ?: return MarkResult.NO_DEPTH; if (camX.isNaN()) return MarkResult.NO_DEPTH; userWalls = userWalls + WallMark(f.p.x, f.p.z, camX, camZ); lastStats = 0; return MarkResult.SET }
     fun holdHeight(h: Float?) { heldHeight = h }
-    fun reset() { userFloor = null; userCeiling = null; heldHeight = null; bestStats = null; synchronized(map) { map.clear(); integrator = ScanIntegrator(map) }; synchronized(memory) { memory.clear() }; measured.clear(); points = null; pointCount = 0; state.value = state.value.copy(stats = null, solid = 0, objects = emptyList(), measure = emptyList(), keyFrames = 0) }
+    fun reset() { userFloor = null; userCeiling = null; userHeight = null; userWalls = emptyList(); heldHeight = null; bestStats = null; synchronized(map) { map.clear(); integrator = ScanIntegrator(map) }; synchronized(memory) { memory.clear() }; measured.clear(); points = null; pointCount = 0; state.value = state.value.copy(stats = null, solid = 0, objects = emptyList(), measure = emptyList(), keyFrames = 0) }
     fun close() { worker.shutdown(); fuser.shutdown(); runCatching { detector?.close() } }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -161,7 +168,7 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
         if (tracking) {
             cam.getViewMatrix(view, 0); cam.getProjectionMatrix(proj, 0, 0.1f, 30f)
             val pose = FloatArray(16); cam.pose.toMatrix(pose, 0); integrator.noteCamera(pose)
-            pitch = Math.toDegrees(Math.asin((-pose[9]).toDouble().coerceIn(-1.0, 1.0))).toFloat()
+            pitch = Math.toDegrees(Math.asin((-pose[9]).toDouble().coerceIn(-1.0, 1.0))).toFloat(); camX = pose[12]; camZ = pose[14]
             if (state.value.depth) runCatching { depthStep(frame, pose, now)?.let { centre = it.first; approx = it.second; depthSize = it.third } }
             if (now - lastPlanes > 1000) { lastPlanes = now; planes = runCatching { session.getAllTrackables(Plane::class.java).filter { it.trackingState == TrackingState.TRACKING && it.subsumedBy == null && it.type != Plane.Type.VERTICAL }.map { PlaneHint(it.centerPose.ty(), it.extentX * it.extentZ, it.type == Plane.Type.HORIZONTAL_UPWARD_FACING) } }.getOrDefault(emptyList()) }
             drawPoints(view, proj)
@@ -170,7 +177,7 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
             lastPublish = now
             val skip = lastSkip.takeIf { now - lastSkipAt < 900 }
             state.value = state.value.copy(tracking = tracking, centreM = centre, centreApprox = approx, solid = pointCount, view = if (tracking) view else null, proj = if (tracking) proj else null,
-                objects = synchronized(memory) { memory.confirmed() }, measure = measured.toList(), fps = fps, depthSize = depthSize, keyFrames = integrator.keyFrames, pitchDeg = pitch,
+                objects = synchronized(memory) { memory.confirmed() }, measure = measured.toList(), fps = fps, depthSize = depthSize, keyFrames = integrator.keyFrames, pitchDeg = pitch, wallMarks = userWalls.size,
                 coach = if (skip == "fast") "Slow down: moving this fast blurs the depth" else null,
                 why = if (!state.value.depth) state.value.why else if (!tracking) "Move the phone slowly so it can find its place" else null)
         }
@@ -187,7 +194,7 @@ class ArScan(private val context: Context, val session: Session, val map: RoomMa
                     faint.forEach { fb.put(it.x); fb.put(it.y); fb.put(it.z); fb.put(0f) }; shown.forEach { fb.put(it.x); fb.put(it.y); fb.put(it.z); fb.put(1f) }; fb.position(0)
                     points = fb; pointCount = pts.size
                     if (statsRun++ % 3 == 0) {
-                        val m = RoomGeometry.measure(pts, it.counters.camMinY.takeIf { v -> v.isFinite() }, it.counters.camMaxY.takeIf { v -> v.isFinite() }, planes, userFloor = userFloor, userCeiling = userCeiling, maxPitchDeg = it.counters.maxPitchDeg)
+                        val m = RoomGeometry.measure(pts, it.counters.camMinY.takeIf { v -> v.isFinite() }, it.counters.camMaxY.takeIf { v -> v.isFinite() }, planes, userFloor = userFloor, userCeiling = userCeiling, maxPitchDeg = it.counters.maxPitchDeg, userWalls = userWalls, userCeilingHeight = userHeight)
                         m?.trustedHeight?.let { h -> heldHeight = h }
                         val kept = m?.let { x -> RoomGeometry.keepBest(x, bestStats) }
                         if (kept != null && (kept.u?.complete == true || kept.v?.complete == true)) bestStats = kept

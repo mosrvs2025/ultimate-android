@@ -45,6 +45,20 @@ object RoomLabels {
         }
     }
 
+    /**
+     * Whether a thing can really be where it was placed. A small thing (a bottle, a cup, a book) has to rest on something; the detector
+     * "finds" them on blank walls, and the depth there is the wall itself, so the position lies flat against a wall surface well above the
+     * floor. That is rejected. Bigger things (a wardrobe, a bed) can stand against a wall and are left alone.
+     */
+    fun plausible(o: RoomObject, s: RoomStats?): Boolean {
+        if (s == null || s.walls.isEmpty() || radius(o.label) >= 0.4f) return true
+        val floorY = s.floorY ?: return true
+        val a = Math.toRadians(s.headingDeg.toDouble()); val c = kotlin.math.cos(a).toFloat(); val sn = kotlin.math.sin(a).toFloat()
+        val pu = o.at.x * c + o.at.z * sn; val pv = -o.at.x * sn + o.at.z * c
+        if (o.at.y - floorY < 0.9f) return true
+        return s.walls.none { w -> val on = if (w.axis == 0) pu else pv; val along = if (w.axis == 0) pv else pu; kotlin.math.abs(on - w.pos) < 0.08f && along in (w.from - 0.2f)..(w.to + 0.2f) }
+    }
+
     /** Big things can be told from one good look; small ones get mislabelled more, so they need more sightings and a surer detector. */
     fun minScore(label: String): Float = if (radius(label) >= 0.55f) 0.45f else 0.5f
 }
@@ -54,7 +68,7 @@ object RoomLabels {
  * the thing's own size is the same object (its position settles to the running average), and it only counts after [confirmAt]
  * sightings. Pure, so it is tested.
  */
-class ObjectMemory(private val confirmAt: Int = 3) {
+class ObjectMemory(private val confirmAt: Int = 4) {
     private val all = ArrayList<RoomObject>()
 
     fun see(label: String, at: P3, score: Float) {

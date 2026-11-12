@@ -13,6 +13,12 @@ enum class Confidence { NONE, LOW, MEDIUM, HIGH }
 /** The extent of the room along one wall direction, from the outermost wall seen on each side. [complete] only when walls were seen on both sides. */
 data class Span(val lo: Float, val hi: Float, val complete: Boolean) { val size: Float get() = hi - lo }
 
+/** A wall as a fitted flat surface: [axis] 0 runs along the room's u direction (so it sits at u = [pos]) or 1 along v, spanning [from] to [to] along the other axis. */
+data class WallSeg(val axis: Int, val pos: Float, val from: Float, val to: Float)
+
+/** A wall you pointed at: the spot ([x], [z]) and where the phone was ([fromX], [fromZ]), which says which way the wall faces. */
+data class WallMark(val x: Float, val z: Float, val fromX: Float, val fromZ: Float)
+
 /** A flat horizontal surface ARCore found by itself from the camera picture (a second opinion on where the floor is). [area] in square metres. */
 data class PlaneHint(val y: Float, val area: Float, val upward: Boolean)
 
@@ -23,6 +29,8 @@ data class PlaneHint(val y: Float, val area: Float, val upward: Boolean)
 data class RoomStats(
     val floorY: Float?, val ceilingY: Float?, val headingDeg: Float, val u: Span?, val v: Span?,
     val floorSeen: Float, val voxels: Int, val confidence: Confidence, val notes: List<String> = emptyList(), val floorSource: String = "", val ceilingSource: String = "",
+    /** The walls found, as flat surfaces over the stretch that was actually seen (or marked by you): for drawing, and for saying which are still missing. */
+    val walls: List<WallSeg> = emptyList(),
 ) {
     /** The room height if it came from something trustworthy (depth, wall tops, or you), for keeping across scans; null for a guess. */
     val trustedHeight: Float? get() = height?.takeIf { ceilingSource in setOf("depth", "walls", "you") && floorSource != "plane" }
@@ -54,7 +62,7 @@ object RoomGeometry {
     private fun cell(v: Float) = floor(v / CELL).toInt()
     private fun cellKey(x: Float, z: Float) = (cell(x).toLong() shl 32) or (cell(z).toLong() and 0xFFFFFFFFL)
 
-    fun measure(pts: List<P3>, camMinY: Float? = null, camMaxY: Float? = null, planes: List<PlaneHint> = emptyList(), maxCeilingHeight: Float = 4.6f, minCeilingHeight: Float = 1.8f, userFloor: Float? = null, userCeiling: Float? = null, maxPitchDeg: Float? = null): RoomStats? {
+    fun measure(pts: List<P3>, camMinY: Float? = null, camMaxY: Float? = null, planes: List<PlaneHint> = emptyList(), maxCeilingHeight: Float = 4.6f, minCeilingHeight: Float = 1.8f, userFloor: Float? = null, userCeiling: Float? = null, maxPitchDeg: Float? = null, userWalls: List<WallMark> = emptyList(), userCeilingHeight: Float? = null): RoomStats? {
         if (pts.size < 400) return null
         val notes = ArrayList<String>()
         val perBin = HashMap<Int, HashSet<Long>>()
@@ -104,7 +112,9 @@ object RoomGeometry {
         // nothing to measure on the ceiling itself. Only believed when the columns are many, tightly level, and spread across the room.
         // Only when the phone was really tilted up at the ceiling: walls that merely end at the edge of a level picture are not a ceiling.
         if (ceilingY == null && floorY != null && maxPitchDeg != null && maxPitchDeg >= 25f) wallTops(pts, floorY, camMaxY, minCeilingHeight, maxCeilingHeight)?.let { ceilingY = it; ceilingSource = "walls"; notes += "The ceiling height is estimated from where the walls end, not measured on the ceiling." }
-        if (userCeiling != null && floorY != null && userCeiling - floorY > 1f) { ceilingY = userCeiling; ceilingSource = "you" }
+        // A height you gave stays a height: if the floor estimate moves a little, the ceiling moves with it rather than the room changing size.
+        if (userCeilingHeight != null && floorY != null) { ceilingY = floorY + userCeilingHeight; ceilingSource = "you" }
+        else if (userCeiling != null && floorY != null && userCeiling - floorY > 1f) { ceilingY = userCeiling; ceilingSource = "you" }
         if (ceilingY == null && floorY != null) notes += "Ceiling not confirmed: tilt up to it, or aim the dot at it and tap Mark ceiling."
         if (ceilingY != null && smooth.indices.any { yOf(it) > ceilingY!! + 0.25f && smooth[it] >= ceilNeed && isPeak(it) }) notes += "Readings above the ceiling (a window, mirror or glare?) were ignored."
 
@@ -114,21 +124,30 @@ object RoomGeometry {
         val cols = HashMap<Long, HashSet<Int>>()
         for (p in pts) if (p.y in lowY..highY) cols.getOrPut(cellKey(p.x, p.z)) { HashSet() }.add(floor(p.y / BIN).toInt())
         val wall = cols.filter { it.value.size >= 14 }.keys.map { P3(((it shr 32).toInt() + 0.5f) * CELL, 0f, ((it and 0xFFFFFFFFL).toInt() + 0.5f) * CELL) }
-        var heading = 0f; var u: Span? = null; var v: Span? = null
-        if (wall.size >= 25) {
-            heading = heading(wall)
+        var heading = 0f; var u: Span? = null; var v: Span? = null; var segs: List<WallSeg> = emptyList()
+        if (wall.size >= 25 || userWalls.isNotEmpty()) {
+            // The walls' direction from what was seen; with nothing seen yet, from the way the first wall you pointed at faces.
+            heading = if (wall.size >= 25) heading(wall) else userWalls.first().let { m -> ((Math.toDegrees(atan2((m.z - m.fromZ).toDouble(), (m.x - m.fromX).toDouble())) % 90 + 90) % 90).toFloat() }
             val a = Math.toRadians(heading.toDouble()); val c = cos(a).toFloat(); val s = sin(a).toFloat()
-            u = span(wall.map { it.x * c + it.z * s }); v = span(wall.map { -it.x * s + it.z * c })
-            if (u == null || !u.complete) notes += "Only one wall seen along one direction: walk to the other side of the room to measure it."
-            if (v == null || !v.complete) notes += "Only one wall seen across the room: turn to the walls you haven't scanned."
-        } else notes += "Walls not found yet: slowly sweep the camera across the walls."
+            val us = ArrayList(wall.map { it.x * c + it.z * s }); val vs = ArrayList(wall.map { -it.x * s + it.z * c })
+            // A wall you pointed at counts as a strong row on the side it faces: measuring needs both sides, and you can give both.
+            val markAxis = userWalls.map { m ->
+                val pu = m.x * c + m.z * s; val pv = -m.x * s + m.z * c
+                val du = (m.x - m.fromX) * c + (m.z - m.fromZ) * s; val dv = -(m.x - m.fromX) * s + (m.z - m.fromZ) * c
+                if (abs(du) >= abs(dv)) { repeat(60) { us += pu }; Triple(0, pu, pv) } else { repeat(60) { vs += pv }; Triple(1, pv, pu) }
+            }
+            u = if (us.size >= 12) span(us) else null; v = if (vs.size >= 12) span(vs) else null
+            segs = fitWalls(wall, c, s, u, v, markAxis)
+            if (u == null || !u.complete) notes += "Only one wall seen along one direction: walk to the other side of the room to measure it, or point at the far wall and tap Mark wall."
+            if (v == null || !v.complete) notes += "Only one wall seen across the room: turn to the walls you haven't scanned, or point at one and tap Mark wall."
+        } else notes += "Walls not found yet: slowly sweep the camera across the walls, or point at one and tap Mark wall."
 
         // ---- Floor actually seen.
         val floorSeen = if (floorY == null) 0f else pts.filter { abs(it.y - floorY) <= 0.075f }.map { cellKey(it.x, it.z) }.toSet().size * CELL * CELL
 
         val have = listOf(floorY != null, ceilingY != null, u?.complete == true, v?.complete == true).count { it }
         val conf = when { floorY == null && have == 0 -> Confidence.LOW; have >= 4 && pts.size >= 8000 && floorSource != "plane" && ceilingSource == "depth" -> Confidence.HIGH; have >= 3 -> Confidence.MEDIUM; else -> Confidence.LOW }
-        return RoomStats(floorY, ceilingY, heading, u, v, floorSeen, pts.size, conf, notes, floorSource, ceilingSource)
+        return RoomStats(floorY, ceilingY, heading, u, v, floorSeen, pts.size, conf, notes, floorSource, ceilingSource, segs)
     }
 
     /** The height at which many tall wall columns end together, or null. */
@@ -158,12 +177,26 @@ object RoomGeometry {
         fun pick(n: Span?, o: Span?): Span? = if (o != null && o.complete && (n == null || !n.complete || n.size < 0.85f * o.size)) o else n
         val u = pick(new.u, old.u); val v = pick(new.v, old.v)
         if (u === new.u && v === new.v) return new
-        return new.copy(u = u, v = v, headingDeg = old.headingDeg, notes = new.notes.filterNot { it.startsWith("Only one wall seen") } + "Size kept from an earlier measurement of the same walls.")
+        return new.copy(u = u, v = v, headingDeg = old.headingDeg, walls = (new.walls.filter { w -> (w.axis == 0 && u === new.u) || (w.axis == 1 && v === new.v) } + old.walls.filter { w -> (w.axis == 0 && u !== new.u) || (w.axis == 1 && v !== new.v) }), notes = new.notes.filterNot { it.startsWith("Only one wall seen") } + "Size kept from an earlier measurement of the same walls.")
     }
 
     /** Puts back a room height measured earlier when this scan could not see the ceiling: the ceiling does not move between scans. */
     fun holdHeight(s: RoomStats, height: Float?): RoomStats =
         if (height != null && s.ceilingY == null && s.floorY != null) s.copy(ceilingY = s.floorY + height, ceilingSource = "kept", notes = s.notes.filterNot { it.startsWith("Ceiling not confirmed") } + "Ceiling height kept from an earlier scan.") else s
+
+    /** Each wall line as a surface over the stretch of it that has wall cells (3rd to 97th percentile along it), plus the ones you pointed at. */
+    private fun fitWalls(cells: List<P3>, c: Float, s: Float, u: Span?, v: Span?, marks: List<Triple<Int, Float, Float>>): List<WallSeg> {
+        val out = ArrayList<WallSeg>()
+        fun line(axis: Int, pos: Float) {
+            if (out.any { it.axis == axis && abs(it.pos - pos) < 0.3f }) return
+            val along = cells.mapNotNull { p -> val pu = p.x * c + p.z * s; val pv = -p.x * s + p.z * c; if (axis == 0 && abs(pu - pos) <= 0.25f) pv else if (axis == 1 && abs(pv - pos) <= 0.25f) pu else null }.sorted()
+            if (along.size >= 8) { val a0 = along[(along.size * 0.03f).toInt()]; val a1 = along[(along.size * 0.97f).toInt().coerceAtMost(along.size - 1)]; if (a1 - a0 >= 0.6f) out += WallSeg(axis, pos, a0, a1) }
+        }
+        u?.let { line(0, it.lo); if (it.hi - it.lo > 0.3f) line(0, it.hi) }
+        v?.let { line(1, it.lo); if (it.hi - it.lo > 0.3f) line(1, it.hi) }
+        for ((axis, pos, mid) in marks) if (out.none { it.axis == axis && abs(it.pos - pos) < 0.3f }) out += WallSeg(axis, pos, mid - 1.0f, mid + 1.0f)
+        return out
+    }
 
     /** The wall direction (0..90°): the angle at which the most wall cells line up in straight rows, counting both the direction and the one across it. */
     fun heading(cells: List<P3>): Float {

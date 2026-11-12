@@ -265,7 +265,7 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
         if (naming) {
             var name by remember { mutableStateOf("") }
             AlertDialog(onDismissRequest = { naming = false }, title = { Text("Name this space") }, text = { OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Living room, office…") }) },
-                confirmButton = { TextButton({ naming = false; busy = true; scope.launch { val r = withContext(Dispatchers.IO) { synchronized(scan.map) { store.save(name, scan.map, synchronized(scan.memory) { scan.memory.confirmed() }, st.stats) } }; busy = false; if (r != null) onSaved(r.id) else note = "Not enough scanned yet to save." } }, enabled = name.isNotBlank()) { Text("Save") } },
+                confirmButton = { TextButton({ naming = false; busy = true; scope.launch { val r = withContext(Dispatchers.IO) { synchronized(scan.map) { store.save(name, scan.map, synchronized(scan.memory) { scan.memory.confirmed() }.filter { RoomLabels.plausible(it, st.stats) }, st.stats) } }; busy = false; if (r != null) onSaved(r.id) else note = "Not enough scanned yet to save." } }, enabled = name.isNotBlank()) { Text("Save") } },
                 dismissButton = { TextButton({ naming = false }) { Text("Cancel") } })
         }
         if (askHeight) {
@@ -278,6 +278,7 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                 confirmButton = { TextButton({ set(h.replace(',', '.').toFloatOrNull()) }, enabled = h.isNotBlank()) { Text("Set") } }, dismissButton = { TextButton({ askHeight = false }) { Text("Cancel") } })
         }
         fun markCeiling() { when (scan.markCeiling()) { MarkResult.SET -> note = "Ceiling set where the dot was."; else -> askHeight = true } }
+        fun markWall() { note = when (scan.markWall()) { MarkResult.SET -> "Wall marked. Point at the others and mark them too; two opposite walls give a size."; else -> "No distance at the dot right now: aim it at the wall, hold still a moment and try again." } }
         fun markFloor() { note = when (scan.markFloor()) { MarkResult.SET -> "Floor set where the dot was."; MarkResult.NO_DEPTH -> "No distance at the dot right now: aim it at the floor and hold still."; else -> "That spot is higher than the phone has been, so it can't be the floor." } }
 
         /** Folds the live scan into the saved space it was recognised as, and keeps scanning: nothing is reset. */
@@ -292,13 +293,15 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                     val now = System.currentTimeMillis()
                     // The alignment is polished against the saved shape every time, not carried over from the first match.
                     val al = Aligner.refine(m.second, fresh.cleaned(), base.cleaned())
-                    val res = Fusion.update(base, room.objects, fresh, synchronized(scan.memory) { scan.memory.confirmed() }, al, now, room.heightM, st.stats?.trustedHeight, room.stats) { java.util.UUID.randomUUID().toString() }
+                    // How well the two scans agree decides how much may be changed: a loose fit adds only; a very loose one changes nothing.
+                    if (al.rmsCm > 20f) return@withContext "These two scans only line up to ±${"%.0f".format(al.rmsCm)} cm, too loose to merge without blurring the walls. Scan more of the walls and furniture, then try again."
+                    val res = Fusion.update(base, room.objects, fresh, synchronized(scan.memory) { scan.memory.confirmed() }.filter { RoomLabels.plausible(it, st.stats) }, al, now, room.heightM, st.stats?.trustedHeight, room.stats, clear = al.rmsCm <= 9f) { java.util.UUID.randomUUID().toString() }
                     val first = visitAt == null; val at = visitAt ?: now
                     val prev = room.sessions.lastOrNull()?.takeIf { !first && it.at == at }
                     val entry = ScanSession(at, (prev?.added ?: 0) + res.report.added, res.report.reinforced, (prev?.removed ?: 0) + res.report.removed, al.score, al.rmsCm, res.map.solid)
                     store.save(room.name, res.map, res.objects, res.stats ?: room.stats, room.id, room.at, room.kind, room.place, (if (prev != null) room.sessions.dropLast(1) else room.sessions) + entry, now, res.heightM, snapshot = first)
                     visitAt = at; match = room to al
-                    "${room.name} updated: ${"%,d".format(res.report.reinforced)} points confirmed, ${"%,d".format(res.report.added)} new, ${"%,d".format(res.report.removed)} cleared · fit ±${"%.0f".format(al.rmsCm)} cm. Keep scanning to add more."
+                    "${room.name} updated: ${"%,d".format(res.report.reinforced)} points confirmed, ${"%,d".format(res.report.added)} new, ${"%,d".format(res.report.removed)} cleared · fit ±${"%.0f".format(al.rmsCm)} cm" + (if (al.rmsCm > 9f) ". The fit is loose, so nothing was cleared." else "") + " Keep scanning to add more."
                 }
                 busy = false; onChanged(); note = msg ?: "Couldn't update that space."
             }
@@ -332,7 +335,7 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
             // Labels float on the things they name: found in this scan (white) and remembered from the matched space (green, only ones last seen there).
             val v = st.view; val p = st.proj
             if (v != null && p != null) {
-                val live = st.objects.map { it to false }
+                val live = st.objects.filter { RoomLabels.plausible(it, st.stats) }.map { it to false }
                 val remembered = match?.let { (room, a) -> room.objects.filter { it.state == "here" }.map { it.copy(at = a.invert(it.at)) to true } }.orEmpty().filter { (r, _) -> st.objects.none { it.label == r.label && it.at.dist(r.at) < 1.5f * RoomLabels.radius(r.label) + 0.2f } }
                 (live + remembered).forEach { (o, old) ->
                     Depth.toScreen(o.at, v, p)?.takeIf { it.first in 0f..1f && it.second in 0f..1f }?.let { (sx, sy) ->
@@ -346,7 +349,8 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                 val sx = st.stats
                 if (sx == null) Text("Measuring… keep scanning", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
                 else Text(dims(sx), color = when (sx.confidence) { Confidence.HIGH -> Color(0xFF7CF0A0); Confidence.MEDIUM -> Color(0xFFFFD166); else -> Color.White }, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                if (sx != null && (sx.floorSource == "you" || sx.ceilingSource == "you")) Text("✕ Reset floor / ceiling you marked", Modifier.clickable { scan.clearMarks() }.padding(vertical = 2.dp), color = Color(0xFFFFD166), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                if ((sx != null && (sx.floorSource == "you" || sx.ceilingSource == "you")) || st.wallMarks > 0) Text("✕ Reset the marks you made", Modifier.clickable { scan.clearMarks() }.padding(vertical = 2.dp), color = Color(0xFFFFD166), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                sx?.let { Text("${if (it.floorY != null) "Floor ✓" else "Floor ✗"}  ·  Walls ${minOf(it.walls.size, 4)}/4  ·  ${if (it.ceilingY != null) "Ceiling ✓" else "Ceiling ✗"}", color = Color.White.copy(alpha = 0.85f), fontSize = 11.sp) }
                 match?.let { (r, a) -> Text("📍 ${r.name} · fit ±${"%.0f".format(a.rmsCm)} cm", color = Color(0xFF7CF0A0), fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
                 if (expanded) {
                     sx?.let { Text(detail(it), color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp); it.notes.forEach { n -> Text("• $n", color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, modifier = Modifier.width(250.dp)) } }
@@ -359,6 +363,8 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
             val chip = when {
                 st.pitchDeg > 15f && sx?.ceilingY == null -> "Tap to mark the ceiling" to { markCeiling() }
                 st.pitchDeg < -15f && sx?.floorY == null -> "Tap to mark the floor" to { markFloor() }
+                // Looking level at a wall that is not measured yet, with a distance on it: one tap says "this is a wall".
+                kotlin.math.abs(st.pitchDeg) < 14f && st.centreM != null && ((sx?.walls?.size ?: 0) < 4) -> "Tap to mark this wall" to { markWall() }
                 else -> null
             }
             chip?.let { (label, act) -> Text(label, Modifier.align(UiAlign.Center).offset(y = 56.dp).clip(RoundedCornerShape(50)).background(Color(0xFF3D6CF2)).clickable { act() }.padding(horizontal = 16.dp, vertical = 9.dp), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
@@ -383,8 +389,9 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                         if (m == null && target == null && candidates.isNotEmpty()) DropdownMenuItem({ Text(if (looking) "Looking…" else "Have I been here?") }, { menu = false; findPlace(false) }, enabled = !looking && st.stats != null)
                         DropdownMenuItem({ Text("Mark floor at the dot") }, { menu = false; markFloor() })
                         DropdownMenuItem({ Text("Mark ceiling at the dot") }, { menu = false; markCeiling() })
+                        DropdownMenuItem({ Text("Mark wall at the dot") }, { menu = false; markWall() })
                         DropdownMenuItem({ Text(if (measureOn) "Stop measuring distances" else "Measure a distance") }, { menu = false; measureOn = !measureOn; if (!measureOn) scan.clearMeasure() })
-                        if (sx != null && (sx.floorSource == "you" || sx.ceilingSource == "you")) DropdownMenuItem({ Text("Reset floor / ceiling marks") }, { menu = false; scan.clearMarks() })
+                        if ((sx != null && (sx.floorSource == "you" || sx.ceilingSource == "you")) || st.wallMarks > 0) DropdownMenuItem({ Text("Reset floor / ceiling / wall marks") }, { menu = false; scan.clearMarks() })
                         DropdownMenuItem({ Text("Show diagnostics") }, { menu = false; expanded = true })
                         DropdownMenuItem({ Text("Start over", color = MaterialTheme.colorScheme.error) }, { menu = false; scan.reset(); match = null; note = null; relocNote = null; visitAt = null })
                     }
@@ -411,7 +418,7 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
         var yaw by remember { mutableFloatStateOf(35f) }; var pitch by remember { mutableFloatStateOf(35f) }; var zoom by remember { mutableFloatStateOf(0f) }
         var dialog by remember { mutableStateOf("") }
         var showMissing by remember { mutableStateOf(false) }
-        val here = room.objects.filter { it.state == "here" }
+        val here = room.objects.filter { it.state == "here" && RoomLabels.plausible(it, room.stats) }
         when (dialog) {
             "rename" -> { var n by remember { mutableStateOf(room.name) }; var kind by remember { mutableStateOf(room.kind) }; var place by remember { mutableStateOf(room.place) }
                 AlertDialog(onDismissRequest = { dialog = "" }, title = { Text("Name and type") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -456,6 +463,14 @@ class RoomScanTool(private val host: UltimateApp) : Tool {
                         var gz = z0; while (gz <= z1 + 0.01f) { drawLine(Color.White.copy(alpha = 0.12f), at(P3(x0, floorY, gz)), at(P3(x1, floorY, gz)), 1f); gz += 0.5f } }
                     val bands = Array(8) { ArrayList<Offset>() }
                     val span = (room.stats.height ?: 2.4f).coerceAtLeast(0.5f)
+                    // The walls found, as faint surfaces over the stretch that was seen, and the floor when the room is closed: so it reads as a room, not scattered points.
+                    run { val ah = Math.toRadians(room.stats.headingDeg.toDouble()); val ch = kotlin.math.cos(ah).toFloat(); val sh = kotlin.math.sin(ah).toFloat(); val hgt = room.stats.height ?: 2.4f
+                        fun wp(uu: Float, vv: Float, y: Float) = at(P3(uu * ch - vv * sh, y, uu * sh + vv * ch))
+                        room.stats.walls.forEach { w -> val (u1, v1, u2, v2) = if (w.axis == 0) listOf(w.pos, w.from, w.pos, w.to) else listOf(w.from, w.pos, w.to, w.pos)
+                            val path = androidx.compose.ui.graphics.Path().apply { moveTo(wp(u1, v1, floorY).x, wp(u1, v1, floorY).y); lineTo(wp(u2, v2, floorY).x, wp(u2, v2, floorY).y); lineTo(wp(u2, v2, floorY + hgt).x, wp(u2, v2, floorY + hgt).y); lineTo(wp(u1, v1, floorY + hgt).x, wp(u1, v1, floorY + hgt).y); close() }
+                            drawPath(path, Color(0xFF4FC3F7).copy(alpha = 0.10f)); drawPath(path, Color(0xFF4FC3F7).copy(alpha = 0.35f), style = androidx.compose.ui.graphics.drawscope.Stroke(2f)) }
+                        val fu = room.stats.u; val fv = room.stats.v
+                        if (fu != null && fv != null && fu.complete && fv.complete) { val path = androidx.compose.ui.graphics.Path().apply { moveTo(wp(fu.lo, fv.lo, floorY).x, wp(fu.lo, fv.lo, floorY).y); lineTo(wp(fu.hi, fv.lo, floorY).x, wp(fu.hi, fv.lo, floorY).y); lineTo(wp(fu.hi, fv.hi, floorY).x, wp(fu.hi, fv.hi, floorY).y); lineTo(wp(fu.lo, fv.hi, floorY).x, wp(fu.lo, fv.hi, floorY).y); close() }; drawPath(path, Color.White.copy(alpha = 0.05f)) } }
                     list.forEach { p -> bands[(((p.y - floorY) / span) * 8).toInt().coerceIn(0, 7)] += at(p) }
                     bands.forEachIndexed { i, b -> if (b.isNotEmpty()) drawPoints(b, PointMode.Points, Color.hsv(160f + i * 14f, 0.7f, 1f), strokeWidth = (zoom * 0.05f).coerceIn(2f, 9f), cap = StrokeCap.Round) }
                     // The measured outline, drawn on the floor with its sizes: only the sides that were really measured wall to wall.

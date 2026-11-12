@@ -104,6 +104,24 @@ Tapping the readout showed: *45,738 points · 103k raw · 329 views · checks ke
 - Not done: Gemini's "project rays onto the room shell": that would draw walls that were never seen; and a floor drawn under your feet
   (the skipped area is now 45 cm instead of 55 cm). Palm-on-wall marking still needs hand tracking running beside the scan.
 
+### Sixth recording (2.5.0)
+
+Reading the (tiny, heavily squeezed) video's diagnostics line closely: `pixels kept 23% (low confidence 24%, out of range 24%, edges 3%, filled in 39%, you …%) · planes 0`.
+
+- "Filled in 39%" is the new filled-in depth contributing; it is not a rejection. Together with the 23% of raw readings, about 62% of the picture now
+  contributes (26% before). So the depth filters are no longer what leaves the room looking like islands. "planes 0" is ARCore's own plane
+  detection finding no horizontal planes in a cluttered room; the app does not rely on it.
+- What is left: depth from motion on this phone is simply sparse and noisy on plain walls, and merging a sparse scan into an older, weaker space ("3", saved
+  before several fixes) at a loose fit (±14 to 15 cm) both adds blur and clears real surfaces. Changes: a loose fit only adds, a very loose fit is refused.
+- Walls are now fitted as surfaces (the stretch that has wall cells, along each measured line) and drawn as faint planes in the viewer, with a checklist
+  while scanning. This is the geometry that was seen, not a guess at the rest.
+- **Mark wall**: the answer to "it should recognise that this is a wall". Point at a wall, tap; the wall faces back toward where you stood. Two opposite walls
+  give one size. It replaces the palm gesture, which still needs hand tracking running beside ARCore.
+- Rejected: extruding assumed walls to close the box where nothing was seen (it would show walls that were never seen) and a lower tilt filter (there is no
+  tilt filter; "tilted 39%" in the analysis was a misreading of "filled in 39%").
+- The ceiling drifting from 3.00 to 2.49 m: a ceiling you gave as a height was stored as a level, so when the floor estimate moved the height changed. Now it is stored as a height.
+- Labels on blank walls (bottle, cup, chair): a small thing flat on a wall above 0.9 m is dropped; things need four sightings.
+
 ## 2. Architecture
 
 ```

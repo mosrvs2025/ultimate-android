@@ -62,6 +62,16 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("2.6.0", listOf(
+            "Room scan can be told where the walls are. Point the dot at a wall and tap Mark wall (a button appears when you look level at a wall; also in the menu). Mark two opposite walls and you have one size, the other two the other. Once the walls are marked, a ceiling height you give (2.4 / 2.7 / 3.0 m, or typed) stays a height above the floor instead of drifting when the floor estimate moves.",
+            "The scan and the saved room now show the walls as faint surfaces over the part that was seen, and the scan screen has a Floor / Walls n/4 / Ceiling checklist, so you can see what is still missing and the room reads as a room instead of scattered points.",
+            "Adding to a space is more careful. The fit between the two scans is shown, a loose fit (over 9 cm) only adds and never clears, and a very loose one (over 20 cm) is refused with a reason instead of blurring the walls.",
+            "Fewer made-up things: a thing needs four sightings, and a small thing (bottle, cup, book) that sits flat on a wall well above the floor, where the depth is just the wall, is dropped.",
+            "Storage: tapping a file in the map now shows its picture (a frame of a video) and name before you open anything, and tiny tiles show what kind of file they are.",
+            "Phone checkup's last report is now cards: what to look at first (with the apps involved; tap one for its settings), who can reach what, your phone's details, and the app list.",
+            "Squeeze opens its live details while it works.",
+            "Not in this build: the palm-on-wall gesture (use Mark wall), and a better Battery screen inside the app.",
+        ), tries = listOf("roomscan", "checkup", "storage")),
         Entry("2.5.0", listOf(
             "Room scan sees plain walls and ceilings. The diagnostics from your last scan showed three quarters of the depth being thrown away, mostly on plain paint, where the camera's raw depth has holes. Those holes are now filled from ARCore's own filled-in depth, as weak evidence that needs several views to agree and never clears anything; the sharp-edge filter is looser too. In the simulator a nearly blank wall went from 14% covered to fully covered.",
             "A size you have measured wall to wall no longer shrinks or vanishes: a later measurement that sees fewer walls keeps the earlier size, in the live readout, when you add to a space and when you save. (Start over clears it.) The floor under your feet is skipped over a smaller area.",
