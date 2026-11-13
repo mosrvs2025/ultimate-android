@@ -173,6 +173,17 @@ class RoomMap(val size: Float = 0.05f) {
         return FuseReport(added, reinforced, removed)
     }
 
+    /**
+     * Adds every solid cube and freely-seen cell of [other], which must use this map's coordinates and cube size, exactly: no tolerance.
+     * For joining the pieces of one scan. [fuse] is for a *second* scan of the same place and treats a cube beside an existing one as the
+     * same surface, which would thin out a first map built from scratch to a sparse scatter.
+     */
+    fun absorb(other: RoomMap) {
+        require(abs(other.size - size) < 1e-6f) { "Maps use different cube sizes" }
+        other.forEachSolidIndex { x, y, z, e -> putSolid(x, y, z, e) }
+        for ((k, v) in other.free) free.merge(k, v) { a, b -> minOf(255, maxOf(a, b)) }
+    }
+
     /** Saves the solid cubes and the freely-seen cells compactly (about 10 bytes each before compression). */
     fun write(out: OutputStream) {
         val d = DataOutputStream(out); d.writeInt(MAGIC); d.writeFloat(size)

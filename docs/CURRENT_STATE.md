@@ -8,13 +8,13 @@
 
 | | |
 | --- | --- |
-| Version | **2.6.0**, build (versionCode) **126** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
+| Version | **2.7.0**, build (versionCode) **127** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
 | Watch app | **1.6.0**, versionCode **7** (`wear/build.gradle.kts`); it also ships inside the phone app, which installs it on the watch |
 | Source commit of this version | `76b5f27e68cb7c079f86087862b3ea84013e3dd2` (branch `claude/spatial`, pull request #24); the code is unchanged since. This file and the release tooling were added on top, and `main` contains all of it after the merge of #24. `git log -1 --format=%H -- app/build.gradle.kts` on `main` shows the exact commit |
 | Package | `app.ultimate.plus` (Ultimate+), `app.ultimate` (Ultimate, offline); other editions below |
 | SDK | minSdk 29 (Android 10), targetSdk 35, compileSdk 35 |
 | Signing certificate (SHA-256, public) | `d2143ab20357ef4678fe3e4f87197860b3e6121fc1342591993bf7b8086bfd7d` |
-| Tools in Ultimate+ | **38** (measured, see section 4) |
+| Tools in Ultimate+ | **40** (measured by `ToolInventoryTest` at 2.7.0; the table in section 4 is as of 1.89.0 and is not regenerated) |
 | Tools in Ultimate (offline) | **31** (measured) |
 | Language and size | Kotlin and Compose, about 58,000 lines in `app/` and `wear/`, plus Java (SSH) and a small C bridge (`app/src/main/cpp/needle_jni.c`) |
 
@@ -44,7 +44,7 @@ and permissions each gets.
 | Studio, Traffic Inspector, Squeeze, Video to audio, Pluck | `app.ultimate.studio`, `.traffic`, `app.squeeze`, `.audio`, `app.pluck` | Single-purpose apps from the same code |
 | Wear OS watch app (`wear` module) | `app.ultimate.plus` | Installed on the watch; same package and key as Ultimate+ |
 
-## 4. Tool inventory (Ultimate+, 38 tools, measured)
+## 4. Tool inventory (Ultimate+; table as of 1.89.0, 38 tools; 40 at 2.7.0 including Room scan and World Scan)
 
 Produced by `ToolInventoryTest`, which lists `UltimateApp.tools` per edition (`app/build/tool-inventory-<edition>.txt`).
 Descriptions are each tool's own tagline.

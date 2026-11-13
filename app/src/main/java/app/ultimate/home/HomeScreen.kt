@@ -404,7 +404,7 @@ internal fun toolSections(tools: List<app.ultimate.core.Tool>): List<Pair<String
         "Health" to listOf("health"),
         "Phone" to listOf("files", "storage", "cleanup", "inbox", "clips", "checkup", "pluck", "footprint"),
         // Spatial sensing: sonar, camera hand tracking and the sensors they build on, together in one place.
-        "Senses" to listOf("gesture-studio", "echo", "air", "playground", "spatial", "roomscan", "watch", "echo-teach", "echo-camera", "ruler", "sensors", "sound-meter"),
+        "Senses" to listOf("gesture-studio", "echo", "air", "playground", "spatial", "roomscan", "worldscan", "watch", "echo-teach", "echo-camera", "ruler", "sensors", "sound-meter"),
         "Network" to listOf("hosts", "ssh", "traffic", "network", "lan", "send", "mesh"),
         "Smart" to listOf("timeline", "focus", "rules", "recipes", "orb", "screentime", "terminal"),
     )
