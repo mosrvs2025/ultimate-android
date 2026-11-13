@@ -273,3 +273,64 @@ class ScanQATest {
         assertEquals("This place has no walks yet.", ScanQA.answer("accuracy", app.ultimate.worldscan.Place("e", "Empty", 0, 0, "", emptyList(), emptyList())).text)
     }
 }
+
+class MovementSignalsTest {
+    private fun report(c: SimConfig) = MovementAnalyzer.analyze(Trace.read(WalkSim.run(c).lines.asSequence()))
+
+    @Test fun eachLapAndKilometreIsAnnouncedOnceAsTheRecordingGrows() {
+        val one = report(SimConfig(laps = 1)); val three = report(SimConfig(laps = 3))
+        val first = MovementSignals.between(null, one)
+        assertEquals(1, first.count { it.kind == "lap" })
+        val later = MovementSignals.between(one, three)
+        assertEquals(listOf("2", "3"), later.filter { it.kind == "lap" }.map { it.data["lap"] })
+        assertEquals(1, later.count { it.kind == "kilometre" })           // 400 m -> 1200 m crosses one kilometre
+        assertTrue("nothing new, nothing announced", MovementSignals.between(three, three).isEmpty())
+    }
+
+    @Test fun aSensorStartingToDisagreeIsAnnouncedOnce() {
+        val ok = report(SimConfig(laps = 2)); val bad = report(SimConfig(laps = 2, camScale = 1.5))
+        val s = MovementSignals.between(ok, bad).filter { it.kind == "disagree" }
+        assertEquals(1, s.size); assertTrue(s.first().label.contains("camera tracking"))
+        assertTrue(MovementSignals.between(bad, bad).none { it.kind == "disagree" })
+    }
+
+    @Test fun everySignalHasATriggerPeopleCanPick() {
+        val keys = app.ultimate.rules.SenseNames.choices.map { it.first }.toSet()
+        for (k in listOf("lap", "running", "walking", "stopped", "kilometre", "disagree")) assertTrue("movement:$k", "movement:$k" in keys)
+        for (k in listOf("device_joined", "device_back", "device_lost", "device_near", "device_away")) assertTrue("mesh:$k", "mesh:$k" in keys)
+    }
+}
+
+/** Measures the analysis itself, so its cost is a recorded number and a regression shows up. Not a phone measurement: this is the build machine. */
+class FusionBenchmarkTest {
+    @Test fun readingAndAnalysingAHalfHourRecording() {
+        val sim = WalkSim.run(SimConfig(laps = 6, course = SimConfig.square(100.0), camera = true))   // 2.4 km, about 31 minutes
+        val lines = sim.lines
+        val t0 = System.nanoTime()
+        val trace = Trace.read(lines.asSequence())
+        val t1 = System.nanoTime()
+        val report = MovementAnalyzer.analyze(trace)
+        val t2 = System.nanoTime()
+        // The live screen: the same recording arriving in 6 s slices. Before: parse everything each time. Now: parse only what is new.
+        val step = (lines.size + 39) / 40
+        var full = 0L; var incremental = 0L
+        val b = TraceBuilder()
+        var upto = 0
+        var passes = 0
+        while (upto < lines.size) {                              // 40 refreshes spread over the recording are enough to measure
+            val next = minOf(lines.size, upto + step)
+            var s = System.nanoTime(); Trace.read(lines.subList(0, next).asSequence()); full += System.nanoTime() - s
+            s = System.nanoTime(); for (i in upto until next) b.add(lines[i]); b.build(); incremental += System.nanoTime() - s
+            upto = next; passes++
+        }
+        val text = "Fusion benchmark on the build machine (simulated ${"%.0f".format(sim.durationS / 60)} min recording, ${lines.size} log lines)\n" +
+            "read whole log: ${(t1 - t0) / 1_000_000} ms\nanalyse: ${(t2 - t1) / 1_000_000} ms\n" +
+            "live refresh, $passes passes: re-reading everything ${full / 1_000_000} ms total, incremental ${incremental / 1_000_000} ms total (${"%.1f".format(full.toDouble() / incremental.coerceAtLeast(1))}x less)\n"
+        println(text)
+        java.io.File("build/fusion-benchmark.txt").apply { parentFile.mkdirs(); writeText(text) }
+        assertEquals(sim.truthMetres, report.distance!!.value, sim.truthMetres * 0.04)
+        assertEquals("the incremental reader must give the same recording", trace.imu.size, b.build().imu.size)
+        assertTrue("incremental must be cheaper than re-reading", incremental < full)
+        assertTrue("analysis of half an hour took ${(t2 - t1) / 1_000_000} ms", (t2 - t1) < 20_000_000_000L)
+    }
+}

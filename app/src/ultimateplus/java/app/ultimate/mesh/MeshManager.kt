@@ -15,6 +15,8 @@ import android.provider.MediaStore
 import androidx.core.app.NotificationCompat
 import app.ultimate.MainActivity
 import app.ultimate.R
+import app.ultimate.UltimateApp
+import app.ultimate.core.Signal
 import app.ultimate.movement.MovementStore
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -172,6 +174,7 @@ class MeshManager private constructor(private val app: Context) {
                             val peers = n.peers()
                             val near = ble?.nearby().orEmpty()
                             val byPeer = peers.mapNotNull { p -> near[MeshBleCodec.tagHex(k, p.id)]?.let { p.id to it.band } }.toMap()
+                            nearness(peers, byPeer)
                             val matched = peers.map { MeshBleCodec.tagHex(k, it.id) }.toSet()
                             _state.update { s -> s.copy(peers = peers, alive = peers.filter(n::alive).map { it.id }.toSet(), stats = n.stats(), profile = profile(), lends = store.lends,
                                 bleBands = byPeer, strangersNearby = near.filterKeys { it !in matched }.values.map { it.band }, bleNote = ble?.note,
@@ -198,14 +201,28 @@ class MeshManager private constructor(private val app: Context) {
                 store.roster = roster.encode()
                 when (s) {
                     is Roster.Sighting.New -> {
+                        senses()?.publish(Signal("mesh", "device_joined", "${p.name} joined your mesh", mapOf("device" to p.name)))
                         val text = "New device joined your mesh: ${p.name} (${p.profile.describe()})"
                         log(text); notice(text); announce("New device on your mesh", "${p.name} · ${p.profile.describe()}")
                     }
-                    is Roster.Sighting.Back -> log("${p.name} is back after ${s.awayMs / 60_000} min")
+                    is Roster.Sighting.Back -> { log("${p.name} is back after ${s.awayMs / 60_000} min"); senses()?.publish(Signal("mesh", "device_back", "${p.name} is back in reach", mapOf("device" to p.name))) }
                     Roster.Sighting.Same -> log("${p.name} reconnected")
                 }
             }
-            is MeshNode.PeerEvent.Lost -> log("${p.name} went out of reach")
+            is MeshNode.PeerEvent.Lost -> { log("${p.name} went out of reach"); senses()?.publish(Signal("mesh", "device_lost", "${p.name} went out of reach", mapOf("device" to p.name))) }
+        }
+    }
+
+    private fun senses() = (app as? UltimateApp)?.senses
+
+    /** Tells the senses bus when a known device crosses between "within arm's reach" and further away, once per crossing. */
+    private val wasNear = HashMap<String, Boolean>()
+    private fun nearness(peers: List<MeshNode.Peer>, bands: Map<String, MeshBleCodec.Band>) {
+        for (p in peers) {
+            val band = bands[p.id] ?: continue
+            val near = band == MeshBleCodec.Band.Touching || band == MeshBleCodec.Band.Near
+            val before = wasNear.put(p.id, near)
+            if (before != null && before != near) senses()?.publish(Signal("mesh", if (near) "device_near" else "device_away", if (near) "${p.name} is within arm's reach" else "${p.name} moved away", mapOf("device" to p.name, "band" to band.name)))
         }
     }
 

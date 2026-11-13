@@ -16,7 +16,7 @@ Status as of this branch (`ccr-3ce359cb-6lixjx`). Every claim below says how it 
 
 **Decision.** A pure-Kotlin mesh core in `app/src/main/java/app/ultimate/mesh/`, with no Android imports, so the *same* code runs in the app, in JVM tests with real sockets, and later on a computer:
 
-- `MeshWire` — one signed line per frame: `om1|TYPE|from|seq|sentAt|b64(payload)|HMAC-SHA256`. Key = PBKDF2(pairing code). Rejects bad signatures, frames older than 60 s, and replays (`ReplayGuard`). Payloads are authenticated, **not encrypted**; only non-secret work travels over it.
+- `MeshWire` — (superseded in 2.12.0 by the sealed `om2` format, see section 9) originally one signed line per frame: `om1|TYPE|from|seq|sentAt|b64(payload)|HMAC-SHA256`. Key = PBKDF2(pairing code). Rejects bad signatures, frames older than 60 s, and replays (`ReplayGuard`). Payloads are authenticated, **not encrypted**; only non-secret work travels over it.
 - `Routing` — one decision function used by both the node and the simulator: a task runs locally if it takes < 15 ms here (the "reflex"); otherwise it goes to the node with the lowest expected `queue + work/capacity + RTT`, avoiding battery devices under 20%.
 - `MeshNode` — TCP endpoint (java.net). Heartbeats carry capacity, queued work, battery and the peers it knows, so a mesh forms from one seed address. Failed sends fail over to the next best node, finally to itself. `stop()` closes the listener and forgets every peer.
 - `MeshSim` — seeded simulation comparing Centralized, Octopus and Hybrid on identical workloads and outages.
@@ -57,7 +57,7 @@ Install Ultimate+ (`app-ultimateplus-release.apk`, sideload). Octopus Mesh uses 
 
 ## 5. Known limitations
 - Not run on a phone. UDP broadcast behaviour differs by vendor and by Wi-Fi.
-- Frames are signed but not encrypted. Anyone who knows the pairing code is trusted. A 6-character code can be brute-forced offline from a captured frame; treat it as a LAN convenience, not strong security. Use a longer code.
+- (Fixed in 2.12.0: frames are now encrypted, section 9.) Originally frames were signed but not encrypted. Anyone who knows the pairing code is trusted. A 6-character code can be brute-forced offline from a captured frame; treat it as a LAN convenience, not strong security. Use a longer code.
 - Only one kernel (prime counting) exists, so it can be checked; the mesh does not move arbitrary code or data between devices, on purpose.
 - A foreground service now keeps the mesh alive with a Stop notification (2.10.0), but it is not started at boot: Android restricts that, so after a restart the mesh resumes when the app is opened.
 - The simulator processes tasks in arrival order and uses an energy proxy.
@@ -99,10 +99,15 @@ Synthetic results (`MeshRemoteTest`): within 2 cm from 0.3 to 7 m for start-up o
 Audible to people? The band is above most adults' hearing; some young people, dogs and cats may hear it. The chirps are short and tapered.
 
 ### 8.5 Privacy and safety
-Lending is off by default and separate from pairing. Pairing code stored sealed with a hardware-backed Keystore key, removable with Forget. Frames are still signed, not encrypted (see section 5): sensor summaries and recordings cross your Wi-Fi in a form a person with the code could read. Do not lend a phone on a network you do not control.
+Lending is off by default and separate from pairing. Pairing code stored sealed with a hardware-backed Keystore key, removable with Forget. From 2.12.0 frames are encrypted (section 9), so sensor summaries and recordings are unreadable on the network without the pairing code.
 
 ### 8.6 Tests
 `MeshRemoteTest` (23): profile round trip, one Joined/Lost event per change, Returned, commands reach the handler, non-lending refusal with reason, no-handler refusal, stranger refused, roster, motion chunk round trip + frame size + cap, five repetition scenarios, eight ranging scenarios. `MeshBleCodecTest` (3).
 
 ### 8.7 Next
 Run on the two phones (Z Fold + Z Flip): first the join alert and Record motion, then Distance at 0.5 m / 2 m / 5 m with a tape measure, then record a real set of squats against a counted number. Then: an IMU-based exercise label, two phones as an array for Echo (docs/ECHO_RESEARCH.md experiment 4), sharing a World Scan walk from a second phone.
+
+## 9. Sealed transport and signals (2.12.0)
+* **Wire format `om2`**: `om2|b64(nonce)|b64(AES-256-GCM(TYPE|from|seq|sentAt|payload))`. Everything, including device ids and frame types, is inside the ciphertext; the GCM tag authenticates it; a random 96-bit nonce per frame. The sealing key is derived from the pairing key separately from the fingerprint and Bluetooth identifiers. `om1` frames are refused. PBKDF2 rounds raised from 20,000 to 120,000. Tests: nothing readable on the wire, two sealings differ, any changed character is refused, stale and replayed frames refused, wrong code refused.
+* **Still true**: no forward secrecy; a short code can be guessed offline from one captured frame (the screen now warns when a code is weaker than about 40 bits). A per-pairing key exchange (SPAKE2 or similar) is the next step.
+* **Signals**: joins, returns, losses and Bluetooth nearness crossings are published on the senses bus (`mesh:device_joined`, `device_back`, `device_lost`, `device_near`, `device_away`) and are pickable triggers in Rules.

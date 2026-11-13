@@ -27,8 +27,16 @@ class MeshTest {
         val f = MeshWire.Frame(MeshWire.Type.TASK, "abc", 1, 1_000_000, mapOf("n" to "10", "odd" to "a=b&c|d"))
         val line = MeshWire.encode(f, key)
         assertEquals(f, MeshWire.decode(line, key, now = 1_000_000))
-        val tampered = line.replaceFirst("TASK", "BEAT")
-        assertThrows { MeshWire.decode(tampered, key, now = 1_000_000) }
+        // Sealed: nothing about the frame is readable on the wire, and two sealings of the same frame differ.
+        assertFalse(line.contains("TASK")); assertFalse(line.contains("abc")); assertFalse(line.contains("odd"))
+        assertNotEquals(line, MeshWire.encode(f, key))
+        // Any changed character anywhere is refused.
+        for (i in listOf(5, line.length / 2, line.length - 2)) {
+            val tampered = line.substring(0, i) + (if (line[i] == 'A') 'B' else 'A') + line.substring(i + 1)
+            assertThrows { MeshWire.decode(tampered, key, now = 1_000_000) }
+        }
+        assertThrows { MeshWire.decode("om1|TASK|abc|1|1000000||00", key, now = 1_000_000) }   // the old readable format is not accepted
+        assertTrue(MeshWire.codeBits("471-902") < MeshWire.codeBits("violet-otter-471-lamp"))
         assertThrows { MeshWire.decode(line, key, now = 1_000_000 + MeshWire.MAX_SKEW_MS + 1) }
         assertThrows { MeshWire.decode(line, MeshWire.keyFromCode("000-000"), now = 1_000_000) }
         val guard = ReplayGuard()

@@ -1,6 +1,6 @@
 # Movement and sensor fusion
 
-Status: 2.11.0. What is **tested on simulated recordings** is separated below from what **has not been tried on a real phone**. Nothing here has been run on a device yet.
+Status: 2.12.0. What is **tested on simulated recordings** is separated below from what **has not been tried on a real phone**. Nothing here has been run on a device yet.
 
 ## 1. What the audit found (before building)
 | Area | What exists | Weakness |
@@ -43,3 +43,7 @@ Consolidation done: one `Trace` reader over the existing log format, one analysi
 
 ## 5. Not built yet (honest list)
 Prerecorded **video** analysis (the pose models in Workouts could feed `Trace` as a fourth source); Wi-Fi/Bluetooth signal strength as a position sensor; watch heart-rate and motion capture (the reader already accepts `hr` lines; the capture is not wired); a two-device comparison of the same movement; loop-closure drift correction from a user-confirmed return to the start; visual SLAM; whole-building graphs of places; semantic change detection between scans (today: counts of cells added/removed per merge, with the caveat that new is not the same as changed).
+
+## 6. Added in 2.12.0
+* **Signals**: while recording, laps, gait changes, each kilometre and a sensor starting to disagree are published on the senses bus (`movement:*`) once each (`fusion/MovementSignals`, tested), so Rules, the orb and Live now can react.
+* **Incremental reading** (`TraceBuilder`): the live view parses only the log lines written since its last refresh. Build-machine benchmark on a simulated 31-minute recording (215,860 lines): 40 refreshes cost 14.3 s re-reading everything and 2.4 s incrementally (about 6x less); a full read is about 1.1 s and the analysis 0.18 s. These are build-machine numbers, not phone numbers; `app/build/fusion-benchmark.txt` is rewritten by `FusionBenchmarkTest` on every test run.

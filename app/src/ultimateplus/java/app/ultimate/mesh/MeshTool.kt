@@ -92,8 +92,9 @@ class MeshTool(context: Context) : Tool {
                 items(s.notices) { n -> NoticeCard(n) { manager.dismissNotice(n) } }
                 if (!s.running) item {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Type the same pairing code on each of your devices. Only devices with the code can see this phone or send it anything. Nothing listens until you press Start, and what travels is signed, not encrypted.",
+                        Text("Type the same pairing code on each of your devices. Only devices with the code can see this phone or send it anything, and everything they exchange is encrypted with it. Nothing listens until you press Start.",
                             style = MaterialTheme.typography.bodySmall)
+                        if (code.trim().length >= 6) { val bits = MeshWire.codeBits(code.trim()); Text(if (bits < 40) "This code is short enough to be guessed by someone who records your Wi-Fi. A longer one (a few words) is much safer." else "Code strength: good.", style = MaterialTheme.typography.labelSmall, color = if (bits < 40) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(code, { code = it }, label = { Text("Pairing code (6+)") }, singleLine = true, modifier = Modifier.weight(1f))
                             Spacer(Modifier.width(8.dp))

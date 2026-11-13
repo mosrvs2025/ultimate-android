@@ -4,8 +4,10 @@ import android.content.Context
 import android.content.Intent
 import app.ultimate.UltimateApp
 import app.ultimate.fusion.MovementAnalyzer
+import app.ultimate.core.Signal
 import app.ultimate.fusion.MovementReport
-import app.ultimate.fusion.Trace
+import app.ultimate.fusion.MovementSignals
+import app.ultimate.fusion.TraceBuilder
 import app.ultimate.worldscan.GnssLive
 import app.ultimate.worldscan.WorldSensorRecorder
 import kotlinx.coroutines.CoroutineScope
@@ -42,12 +44,16 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
     private var id: String? = null
     private var startedAt = 0L
     private var startNs = 0L
+    private var builder = TraceBuilder()
+    /** How many lines of the log are already in [builder] (up to the last one that parsed, so a half-written last line is retried). */
+    private var consumed = 0
 
     fun start(): Boolean {
         if (_live.value.recording) return true
         val (rid, file) = store.newRecording()
         return try {
             recorder.start(file)
+            builder = TraceBuilder(); consumed = 0
             id = rid; startedAt = System.currentTimeMillis(); startNs = android.os.SystemClock.elapsedRealtime()
             _live.value = Live(recording = true)
             runCatching { app.startForegroundService(Intent(app, MovementService::class.java)) }
@@ -59,7 +65,13 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
                     val t0 = System.currentTimeMillis()
                     val size = file.length()
                     _live.value = _live.value.copy(elapsedS = (android.os.SystemClock.elapsedRealtime() - startNs) / 1000.0, bytes = size, gps = recorder.gnss.value, busy = true)
-                    val rep = runCatching { MovementAnalyzer.analyze(readTrace(file), store.calibrator(), android.os.Build.MODEL) }.getOrNull()
+                    // Only the lines written since the last pass are parsed; the rest of the recording is already in the builder.
+                    val rep = runCatching {
+                        var index = 0
+                        for (line in store.lines(file)) { if (index >= consumed) { if (builder.add(line)) consumed = index + 1 }; index++ }
+                        MovementAnalyzer.analyze(builder.build(), store.calibrator(), android.os.Build.MODEL)
+                    }.getOrNull()
+                    if (rep != null) for (sig in MovementSignals.between(_live.value.report, rep)) app.senses.publish(Signal("movement", sig.kind, sig.label, sig.data))
                     _live.value = _live.value.copy(report = rep ?: _live.value.report, busy = false)
                     // Re-reading a long recording costs more each time, so it is done less often as the file grows (never less than 6 s apart).
                     every = (6_000L + (System.currentTimeMillis() - t0) * 3).coerceAtMost(40_000L)
@@ -72,7 +84,6 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
         }
     }
 
-    private fun readTrace(f: java.io.File) = Trace.read(store.lines(f))
     private fun cleanup(rid: String) { runCatching { java.io.File(java.io.File(app.filesDir, "movement"), rid).deleteRecursively() } }
 
     /** Stops, keeps the recording, and returns its id (null if it was too short to be worth keeping). */
