@@ -141,7 +141,8 @@ private fun loadPlace(tool: WorldScanTool, place: Place): PlaceView {
     val base = store.baseMap(place.id)
     val raster = base?.let { TopDown.render(listOf(it), cell = 0.25f) }
     val image = raster?.let { WorldScanTool.bitmapOf(it) }
-    val pts = base?.cleaned()?.let { if (it.size > 40_000) it.filterIndexed { i, _ -> i % (it.size / 40_000 + 1) == 0 } else it } ?: emptyList()
+    // At most ~40,000 cubes for the 3D view, taken evenly from the whole map without building a second copy of it.
+    val pts = ArrayList<P3>().also { out -> base?.let { b -> val step = maxOf(1, b.solid / 40_000); var i = 0; b.forEachSolid { x, y, z -> if (i++ % step == 0) out += P3(x, y, z) } } }
     val baseWalk = place.walks.firstOrNull { it.id == place.baseWalkId }
     val views = ArrayList<WalkView>()
     for ((n, w) in place.walks.withIndex()) {
