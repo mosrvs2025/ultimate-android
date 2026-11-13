@@ -4,6 +4,8 @@ import android.content.Context
 import android.opengl.GLES11Ext
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
+import android.os.BatteryManager
+import android.os.PowerManager
 import android.os.SystemClock
 import android.view.WindowManager
 import app.ultimate.room.RoomMap
@@ -36,6 +38,7 @@ data class WalkState(
     val cubes: Int = 0, val pieces: Int = 0, val keyFrames: Int = 0, val fps: Float = 0f, val depthSize: String = "",
     val gnss: GnssLive = GnssLive(), val gpsOn: Boolean = false, val clockNote: String = "",
     val coach: String? = null, val endedBecause: String? = null,
+    val thermal: Int = 0, val batteryPct: Int = -1, val usedPct: Int = -1,
     val mini: Raster? = null, val camX: Float = 0f, val camZ: Float = 0f, val headingDeg: Float = 0f, val trail: FloatArray = FloatArray(0), val diag: String = "",
 )
 
@@ -68,6 +71,11 @@ class WalkScan(private val context: Context, val session: Session, private val s
     private var chunkT0 = -1L; private var chunkPath = 0.0; private var pathTotal = 0.0
     private var lastTrackNs = 0L; private var lastTx = Float.NaN; private var lastTz = Float.NaN
     private val watch = TrackingWatch()
+    private val health = MappingHealth()
+    private val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    private val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+    private var thermalMax = 0; private var batteryStart = -1; private var thermalAt = 0L; private var thermalNow = 0; private var batteryNow = -1; private var lowMemory = 0
+    private fun batteryPct(): Int = runCatching { batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) }.getOrDefault(-1).takeIf { it in 0..100 } ?: -1
     private var lastDepthTs = -1L; private var lastSkip: String? = null; private var lastSkipAt = 0L
     private val trail = ArrayList<Float>(); private var trailX = Float.NaN; private var trailZ = Float.NaN
     private var smooth = false
@@ -99,7 +107,7 @@ class WalkScan(private val context: Context, val session: Session, private val s
             try { recorder = WorldSensorRecorder(context).also { it.start(store.incomingLog(walkId)) } }
             catch (e: Exception) { recorder = null; return "Couldn't start the sensors: ${e.message ?: e.javaClass.simpleName}" }
         }
-        startedAt = System.currentTimeMillis(); recording = true
+        startedAt = System.currentTimeMillis(); recording = true; batteryStart = batteryPct(); thermalNow = power.currentThermalStatus; thermalMax = thermalNow
         upd { copy(phase = WalkPhase.RECORDING, gpsOn = recorder != null) }
         recorder?.note("start", "walk $walkId")
         return null
@@ -118,7 +126,7 @@ class WalkScan(private val context: Context, val session: Session, private val s
         val frames = integrators.sumOf { it.counters.integrated }
         val input = synchronized(track) {
             if (track.points.size < 10 || pieces.isEmpty()) null
-            else WalkInput(walkId, defaultName(startedAt), startedAt, System.currentTimeMillis(), track, pieces, clock, fixes, summary, summary?.file, frames, diag)
+            else WalkInput(walkId, defaultName(startedAt), startedAt, System.currentTimeMillis(), track, pieces, clock, fixes, summary, summary?.file, frames, diag, thermalMax, batteryStart, batteryPct())
         }
         finalInput = input
         upd { copy(phase = WalkPhase.ENDED) }
@@ -215,6 +223,16 @@ class WalkScan(private val context: Context, val session: Session, private val s
                 mapping.set(false)
             } } catch (e: java.util.concurrent.RejectedExecutionException) { mapping.set(false) }
         }
+        if (recording && now - thermalAt > 2000) {
+            thermalAt = now; batteryNow = batteryPct(); thermalNow = power.currentThermalStatus; if (thermalNow > thermalMax) thermalMax = thermalNow
+            if (thermalNow >= PowerManager.THERMAL_STATUS_SEVERE) end("The phone is too hot (thermal status severe), so the walk was stopped and saved. Let it cool before another.")
+            // The whole walk's map lives in memory until it is saved (roughly 100 MB a kilometre in simulation; not yet measured on a phone). Rather than let a very long walk
+            // run the app out of memory, stop and save once the heap stays nearly full.
+            val rt = Runtime.getRuntime(); lowMemory = if (rt.totalMemory() - rt.freeMemory() > rt.maxMemory() * 0.85) lowMemory + 1 else 0
+            if (lowMemory >= 2) end("The phone is running low on memory, so the walk was stopped and saved. Start another from where you stopped; it can be added to the same place.")
+            val all = integrators.toList() + integrator
+            health.update(now, all.sumOf { it.counters.frames }, all.sumOf { it.counters.tooFast }, all.sumOf { it.counters.pixels }, all.sumOf { it.counters.lowConfidence }, all.sumOf { it.counters.outOfRange })
+        }
         if (now - lastPublish > 100) {
             lastPublish = now; recorder?.refreshAge()
             val skip = lastSkip.takeIf { now - lastSkipAt < 900 }
@@ -224,7 +242,9 @@ class WalkScan(private val context: Context, val session: Session, private val s
                 state.value.phase == WalkPhase.ENDED -> null
                 !state.value.depth -> null
                 !tracking -> "Looking for features… point at buildings and textured surfaces, and hold the phone steady" + (cam.trackingFailureReason.takeIf { it.name != "NONE" }?.let { " (${friendly(it.name)})" } ?: "")
-                skip == "fast" -> "Slow down: depth blurs when the phone moves or turns fast"
+                recording && thermalNow >= PowerManager.THERMAL_STATUS_MODERATE -> "The phone is getting warm: depth and tracking may get worse. Finish soon and let it cool"
+                skip == "fast" && health.fastShare >= 0.15f -> "Slow down: depth blurs when the phone moves or turns fast"
+                recording && health.advice != null -> health.advice
                 pitchDeg < -50f -> "Look ahead: the pavement doesn't help the map, buildings and walls do"
                 pitchDeg > 55f -> "Look ahead and a little down: the sky has no depth"
                 recording && g.enabled && secs > 20 && (g.accuracyM == null || g.accuracyM > 25f) -> "GPS is weak here: the walk will be kept, but may not be placeable on the map"
@@ -234,10 +254,12 @@ class WalkScan(private val context: Context, val session: Session, private val s
             val speedNow = speed; val fpsNow = fps
             upd { copy(tracking = tracking, trackingWhy = if (tracking) null else cam.trackingFailureReason.name, distanceM = pathTotal, seconds = secs, speed = speedNow,
                 pieces = synchronized(finished) { finished.size } + (if (recording) 1 else 0), keyFrames = integrators.sumOf { it.counters.integrated } + integrator.counters.integrated, fps = fpsNow, depthSize = depthSize,
-                gnss = g, clockNote = clock.summary(), coach = coach, camX = px, camZ = pz, headingDeg = PosePoint(ts, px, py, pz, pose.qx(), pose.qy(), pose.qz(), pose.qw(), TrackingQuality.TRACKING).headingDeg(), trail = trailArr,
+                gnss = g, clockNote = clock.summary(), coach = coach, thermal = thermalNow, batteryPct = batteryNow, usedPct = usedPctNow(), camX = px, camZ = pz, headingDeg = PosePoint(ts, px, py, pz, pose.qx(), pose.qy(), pose.qz(), pose.qw(), TrackingQuality.TRACKING).headingDeg(), trail = trailArr,
                 diag = integrator.counters.summary()) }
         }
     }
+
+    private fun usedPctNow(): Int { val all = integrators.toList() + integrator; val f = all.sumOf { it.counters.frames }; return if (f < 20) -1 else all.sumOf { it.counters.integrated } * 100 / f }
 
     private fun friendly(name: String) = when (name) { "INSUFFICIENT_LIGHT" -> "too dark"; "EXCESSIVE_MOTION" -> "moving too fast"; "INSUFFICIENT_FEATURES" -> "not enough to see"; "CAMERA_UNAVAILABLE" -> "camera in use"; "BAD_STATE" -> "ARCore state"; else -> name.lowercase().replace('_', ' ') }
 

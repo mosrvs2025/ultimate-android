@@ -17,22 +17,41 @@ import kotlin.math.hypot
  * personal); the point cloud is in the walk's own metric frame (Y up) and carries no location. Pure, so it is tested.
  */
 object WorldExport {
+    /**
+     * The earth-coordinates of a pose of [walk]: through the place's combined placement when the walk is the place's first or was added to it (a walk added
+     * to a place is carried into the place's frame by the alignment it was merged with, piece by piece), otherwise through the walk's own placement; null
+     * when neither can place it. A walk that was refused for merging has its own frame and must not be put through the place's.
+     */
+    fun latLon(walk: WalkMeta, baseWalkId: String?, placeGeo: GeoRegistration?, p: PosePoint): Pair<Double, Double>? {
+        val usablePlace = placeGeo?.takeIf { it.usable }
+        if (usablePlace != null && walk.id == baseWalkId) return usablePlace.toLatLon(p.x, p.z)
+        if (usablePlace != null && walk.merge != null) {
+            val r = walk.merge
+            val a = r.pieces.firstOrNull { it.alignment != null && p.tNs in it.t0Ns..it.t1Ns }?.alignment ?: r.global
+            val q = a.apply(app.ultimate.room.P3(p.x, p.y, p.z))
+            return usablePlace.toLatLon(q.x, q.z)
+        }
+        return walk.geo?.takeIf { it.usable }?.toLatLon(p.x, p.z)
+    }
+
     /** A walk's path as GeoJSON, one LineString per walk that could be placed on the map (coordinates are longitude, latitude), thinned to a point about every [stepM] metres. */
-    fun geoJson(name: String, walks: List<Pair<WalkMeta, WalkTrack>>, stepM: Double = 2.0): String {
+    fun geoJson(name: String, walks: List<Pair<WalkMeta, WalkTrack>>, stepM: Double = 2.0, baseWalkId: String? = null, placeGeo: GeoRegistration? = null): String {
         val features = JSONArray()
         for ((meta, track) in walks) {
-            val g = meta.geo?.takeIf { it.usable } ?: continue
             val coords = JSONArray(); var lx = Float.NaN; var lz = Float.NaN
             for (p in track.points) {
                 if (p.tracking != TrackingQuality.TRACKING) continue
                 if (!lx.isNaN() && hypot((p.x - lx).toDouble(), (p.z - lz).toDouble()) < stepM) continue
                 lx = p.x; lz = p.z
-                val (lat, lon) = g.toLatLon(p.x, p.z); coords.put(JSONArray().put(round7(lon)).put(round7(lat)))
+                val (lat, lon) = latLon(meta, baseWalkId, placeGeo, p) ?: break
+                coords.put(JSONArray().put(round7(lon)).put(round7(lat)))
             }
             if (coords.length() < 2) continue
+            val viaPlace = placeGeo?.usable == true && (meta.id == baseWalkId || meta.merge != null)
+            val g = if (viaPlace) placeGeo!! else meta.geo!!
             features.put(JSONObject().put("type", "Feature").put("geometry", JSONObject().put("type", "LineString").put("coordinates", coords))
                 .put("properties", JSONObject().put("walk", meta.name).put("lengthM", Math.round(meta.lengthM * 10) / 10.0).put("headingUncertaintyDeg", Math.round(g.yawSigmaDeg * 10) / 10.0)
-                    .put("positionUncertaintyM", Math.round(g.posSigmaM * 10) / 10.0).put("level", g.level.name)))
+                    .put("positionUncertaintyM", Math.round(g.posSigmaM * 10) / 10.0).put("level", g.level.name).put("placedBy", if (viaPlace) "place (all walks)" else "this walk's own GPS")))
         }
         return JSONObject().put("type", "FeatureCollection").put("name", name).put("features", features).toString()
     }

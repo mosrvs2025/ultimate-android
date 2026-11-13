@@ -620,16 +620,17 @@ private fun Sub(text: String) = Text(text, style = MaterialTheme.typography.body
 private fun OriginalActions(job: Item, s: Status.Done) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var watching by remember { mutableStateOf(false) }
-    var gone by androidx.compose.runtime.saveable.rememberSaveable(job.id) { mutableStateOf(false) }
-    val freed = (job.source.sizeBytes - s.outputBytes).coerceAtLeast(0)
+    OriginalsState.deleted.size                                    // reading this makes the row notice a deletion made from the big card
+    val gone = !Originals.exists(context, job.uri, job.source.sizeBytes)
+    val freed = job.source.sizeBytes
     val delete = rememberDeleteOriginal { ok ->
-        gone = gone || ok
-        android.widget.Toast.makeText(context, if (ok) "Original moved to the trash. ${formatBytes(job.source.sizeBytes)} freed" else "The original was kept", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(context, if (ok) "Original deleted. ${formatBytes(job.source.sizeBytes)} freed" else "The original was kept", android.widget.Toast.LENGTH_SHORT).show()
     }
     androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         androidx.compose.material3.AssistChip({ watching = true }, { Text("Watch both") }, enabled = !gone)
         if (gone) Sub("Original deleted")
-        else if (Originals.canDelete(context, job.uri)) androidx.compose.material3.AssistChip({ delete(job.uri) }, { Text("Delete original · frees ${formatBytes(freed)}") })
+        else if (Originals.canDelete(context, job.uri, job.source.sizeBytes)) androidx.compose.material3.AssistChip({ delete(job.uri, job.source.sizeBytes) }, { Text("Delete original · frees ${formatBytes(freed)}") })
+        else Sub("This original can't be deleted from here; delete it in Gallery or Files")
     }
     if (watching) WatchBoth(job.uri, s.output, "Original · ${formatBytes(job.source.sizeBytes)}", "Squeezed · ${formatBytes(s.outputBytes)}") { watching = false }
 }

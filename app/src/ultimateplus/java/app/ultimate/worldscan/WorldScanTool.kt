@@ -181,7 +181,6 @@ class WorldScanTool(private val host: UltimateApp) : Tool {
 
     @Composable
     private fun PlaceCard(p: Place, onClick: () -> Unit) {
-        val base = p.walks.firstOrNull { it.id == p.baseWalkId }
         var thumb by remember(p.id, p.updatedAt) { mutableStateOf<ImageBitmap?>(null) }
         LaunchedEffect(p.id, p.updatedAt) { thumb = withContext(Dispatchers.Default) { store.baseMap(p.id)?.let { m -> TopDown.render(listOf(m), cell = 0.5f, maxCells = 40_000)?.let { bitmapOf(it) } } } }
         val merged = p.walks.count { it.merge != null }
@@ -192,7 +191,7 @@ class WorldScanTool(private val host: UltimateApp) : Tool {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(p.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1)
                 Text("${p.walks.size} walk${if (p.walks.size == 1) "" else "s"} · ${"%,.0f".format(p.walks.sumOf { it.lengthM })} m" + if (merged > 0) " · $merged added" else "", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
-                Text(base?.geo?.let { g -> if (g.usable) "📍 On the map ±${"%.0f".format(g.yawSigmaDeg)}° heading" else "Not placed on the map" } ?: "No GPS with this walk", color = if (base?.geo?.usable == true) WorldColors.green else WorldColors.dim, fontSize = 11.sp)
+                Text(p.bestGeo?.let { g -> if (g.usable) "📍 On the map ±${"%.1f".format(g.yawSigmaDeg)}° heading" + (if (p.geoWalks > 1) " (from ${p.geoWalks} walks)" else "") else "Not placed on the map" } ?: "No GPS with this walk", color = if (p.bestGeo?.usable == true) WorldColors.green else WorldColors.dim, fontSize = 11.sp)
                 Text("${relativeTime(p.updatedAt)} · ${formatBytes(store.bytes(p.id))} on this phone", color = WorldColors.dim, fontSize = 11.sp)
             }
         }
@@ -244,6 +243,7 @@ class WorldScanTool(private val host: UltimateApp) : Tool {
         var leave by remember { mutableStateOf(false) }
         var startError by remember { mutableStateOf<String?>(null) }
         var failure by remember { mutableStateOf<String?>(null) }
+        var diagOpen by remember { mutableStateOf(false) }
         DisposableEffect(s, owner) {
             view.keepScreenOn = true
             val obs = LifecycleEventObserver { _, e ->
@@ -279,7 +279,14 @@ class WorldScanTool(private val host: UltimateApp) : Tool {
                 Chip(if (st.tracking) "Tracking ✓" else "Tracking ✗", if (st.tracking) WorldColors.green else WorldColors.red)
                 val g = st.gnss
                 Chip(when { !location -> "GPS off"; st.phase == WalkPhase.READY && !(has(Manifest.permission.ACCESS_FINE_LOCATION)) -> "GPS off"; g.accuracyM == null -> "GPS searching…"; else -> "GPS ±${g.accuracyM.roundToInt()} m" }, when { !location -> WorldColors.dim; g.accuracyM == null -> WorldColors.amber; g.accuracyM <= 8f -> WorldColors.green; g.accuracyM <= 20f -> WorldColors.amber; else -> WorldColors.red })
-                if (st.phase == WalkPhase.RECORDING) Chip("${"%,d".format(st.cubes)} cubes · ${st.pieces} piece${if (st.pieces == 1) "" else "s"}", WorldColors.teal)
+                if (st.phase == WalkPhase.RECORDING) Box(Modifier.clickable { diagOpen = !diagOpen }) { Chip("${"%,d".format(st.cubes)} cubes · ${st.pieces} piece${if (st.pieces == 1) "" else "s"}${if (diagOpen) " ▴" else " ▾"}", WorldColors.teal) }
+                if (st.phase == WalkPhase.RECORDING && st.thermal >= 2) Chip("Phone warm", if (st.thermal >= 3) WorldColors.red else WorldColors.amber)
+                if (diagOpen && st.phase == WalkPhase.RECORDING) Column(Modifier.width(230.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.7f)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Depth ${st.depthSize.ifEmpty { "—" }} · ${st.fps.roundToInt()} fps · ${if (st.usedPct >= 0) "${st.usedPct}% of pictures used" else "measuring"}", color = Color.White, fontSize = 11.sp)
+                    Text(st.diag.ifEmpty { "No depth pictures yet" }, color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, lineHeight = 13.sp)
+                    Text(st.clockNote, color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, lineHeight = 13.sp)
+                    Text("GPS: ${st.gnss.fixes} fixes" + (st.gnss.accuracyM?.let { ", last ±${it.roundToInt()} m" } ?: "") + " · phone ${thermalName(st.thermal)}" + (if (st.batteryPct >= 0) " · battery ${st.batteryPct}%" else ""), color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, lineHeight = 13.sp)
+                }
             }
             // --- minimap
             if (st.phase != WalkPhase.READY) MiniMap(st, Modifier.align(UiAlign.BottomStart).padding(start = 12.dp, bottom = 96.dp).size(150.dp))
@@ -345,6 +352,7 @@ class WorldScanTool(private val host: UltimateApp) : Tool {
     }
 
     companion object {
+        internal fun thermalName(s: Int) = when { s < 0 -> "unknown"; s == 0 -> "cool"; s == 1 -> "light load"; s == 2 -> "warm"; s == 3 -> "hot (throttling)"; else -> "critical" }
         internal fun clockText(seconds: Double): String { val s = seconds.toInt(); return "%d:%02d".format(s / 60, s % 60) }
         /** A raster as a picture (transparent where nothing was seen). */
         internal fun bitmapOf(r: Raster): ImageBitmap = Bitmap.createBitmap(r.argb, r.w, r.h, Bitmap.Config.ARGB_8888).asImageBitmap()

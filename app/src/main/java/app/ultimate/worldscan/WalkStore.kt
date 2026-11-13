@@ -29,15 +29,23 @@ data class WalkMeta(
     val logBytes: Long, val logTruncated: Boolean, val sensorCounts: Map<Int, Int>,
     val pieces: List<LongArray>,        // each [t0Ns, t1Ns], on the elapsed-realtime clock
     val merge: MergeRecord?, val unmergedReason: String?,
+    /** Highest thermal status the phone reported during the walk (0 none .. 3 severe .. 6 shutdown; -1 unknown) and the battery percentage at the start and end (-1 unknown). */
+    val thermalMax: Int = -1, val batteryStart: Int = -1, val batteryEnd: Int = -1,
 )
 
 /** A place: a first walk that defines the map's frame, and later walks added to it (or kept apart with the reason). */
-data class Place(val id: String, val name: String, val createdAt: Long, val updatedAt: Long, val baseWalkId: String, val walks: List<WalkMeta>, val mergeOrder: List<String>)
+data class Place(val id: String, val name: String, val createdAt: Long, val updatedAt: Long, val baseWalkId: String, val walks: List<WalkMeta>, val mergeOrder: List<String>,
+    /** Where the place is on the Earth, fitted from every walk's GPS together ([PlaceGeo]); null when none of its walks had usable GPS. */
+    val geo: GeoRegistration? = null, val geoWalks: Int = 0) {
+    /** The best placement known: the combined one, else the first walk's own. */
+    val bestGeo: GeoRegistration? get() = geo ?: walks.firstOrNull { it.id == baseWalkId }?.geo
+}
 
 /** Everything captured by one walk, ready to be stored. Times in [track] and [pieces] are on ARCore's frame clock; they are converted to the sensors' clock with [clock] when stored. */
 class WalkInput(
     val id: String, val name: String, val startedAt: Long, val endedAt: Long, val track: WalkTrack, val pieces: List<WalkChunk>, val clock: ClockSync?, val fixes: List<GeoFix>,
     val recorder: RecorderSummary?, val rawLog: File?, val keyFrames: Int, val diag: String,
+    val thermalMax: Int = -1, val batteryStart: Int = -1, val batteryEnd: Int = -1,
 )
 
 class SaveResult(val place: Place, val walk: WalkMeta, val merge: MergeOutcome?)
@@ -97,13 +105,15 @@ class WalkStore(private val root: File) {
         // 3. Files: track, pieces, sensor log
         GZIPOutputStream(File(wdir, "track.bin.gz").outputStream()).use { track.write(it) }
         pieces.forEachIndexed { i, c -> GZIPOutputStream(File(wdir, pieceName(i)).outputStream()).use { c.map.write(it) } }
+        File(wdir, "fixes.json").writeText(fixesJson(input.fixes))
         input.rawLog?.takeIf { it.exists() }?.let { if (!it.renameTo(File(wdir, "sensors.jsonl.gz"))) { it.copyTo(File(wdir, "sensors.jsonl.gz"), true); it.delete() } }
         val cubes = pieces.sumOf { it.map.solid }
         val (ex, ez) = track.extent()
         var meta = WalkMeta(input.id, input.name.trim().take(40).ifBlank { "Walk" }, input.startedAt, input.endedAt, track.lengthM, track.durationS, track.trackedShare, track.longestLossS, track.jumps, track.speedP95,
             ex, ez, cubes, input.keyFrames, input.diag, geo, input.fixes.size, input.recorder?.medianAccuracyM,
             clock?.let { ClockInfo(it.sameClock, it.jitterNs / 1e6, it.samples, it.driftMsPerHour) },
-            input.recorder?.bytes ?: 0L, input.recorder?.truncated ?: false, input.recorder?.sensorCounts ?: emptyMap(), pieces.map { longArrayOf(it.t0Ns, it.t1Ns) }, null, null)
+            input.recorder?.bytes ?: 0L, input.recorder?.truncated ?: false, input.recorder?.sensorCounts ?: emptyMap(), pieces.map { longArrayOf(it.t0Ns, it.t1Ns) }, null, null,
+            input.thermalMax, input.batteryStart, input.batteryEnd)
         var merge: MergeOutcome? = null
         val existing = if (placeId != null) place(pid) else null
         if (existing == null) {
@@ -116,7 +126,7 @@ class WalkStore(private val root: File) {
             val base = baseMap(pid) ?: RoomMap(0.10f)
             val baseMeta = existing.walks.firstOrNull { it.id == existing.baseWalkId }
             val prevSnapshot = File(dir, "base.bin.gz").takeIf { it.exists() }
-            merge = WalkFusion.merge(base, pieces, geo, baseMeta?.geo)
+            merge = WalkFusion.merge(base, pieces, geo, existing.bestGeo ?: baseMeta?.geo)
             if (merge.accepted) {
                 prevSnapshot?.copyTo(File(dir, "base.prev.gz"), true)
                 writeMap(File(dir, "base.bin.gz"), base)
@@ -125,6 +135,7 @@ class WalkStore(private val root: File) {
             writeWalk(wdir, meta)
             writePlace(dir, pid, existing.name, existing.createdAt, now, existing.baseWalkId, if (merge.accepted) existing.mergeOrder + input.id else existing.mergeOrder)
         }
+        refreshPlaceGeo(pid)
         return SaveResult(place(pid)!!, meta, merge)
     }
 
@@ -133,13 +144,14 @@ class WalkStore(private val root: File) {
         val p = place(placeId) ?: return null; val w = p.walks.firstOrNull { it.id == walkId } ?: return null
         if (w.merge != null || walkId == p.baseWalkId) return null
         val base = baseMap(placeId) ?: return null; val dir = File(placesDir, placeId)
-        val outcome = WalkFusion.merge(base, pieces(placeId, walkId), w.geo, p.walks.firstOrNull { it.id == p.baseWalkId }?.geo)
+        val outcome = WalkFusion.merge(base, pieces(placeId, walkId), w.geo, p.bestGeo)
         if (outcome.accepted) {
             File(dir, "base.bin.gz").takeIf { it.exists() }?.copyTo(File(dir, "base.prev.gz"), true)
             writeMap(File(dir, "base.bin.gz"), base)
             writeWalk(walkDir(placeId, walkId), w.copy(merge = toRecord(outcome, now), unmergedReason = null))
             writePlace(dir, placeId, p.name, p.createdAt, now, p.baseWalkId, p.mergeOrder + walkId)
         } else writeWalk(walkDir(placeId, walkId), w.copy(unmergedReason = outcome.reason))
+        refreshPlaceGeo(placeId)
         return outcome
     }
 
@@ -151,11 +163,35 @@ class WalkStore(private val root: File) {
         prev.copyTo(File(dir, "base.bin.gz"), true); prev.delete()
         p.walks.firstOrNull { it.id == last }?.let { writeWalk(walkDir(placeId, last), it.copy(merge = null, unmergedReason = "merge undone by you")) }
         writePlace(dir, placeId, p.name, p.createdAt, now, p.baseWalkId, p.mergeOrder.dropLast(1))
+        refreshPlaceGeo(placeId)
         return true
     }
 
     fun renamePlace(placeId: String, name: String) { val p = place(placeId) ?: return; writePlace(File(placesDir, placeId), placeId, name.trim().take(40).ifBlank { p.name }, p.createdAt, p.updatedAt, p.baseWalkId, p.mergeOrder) }
     fun deletePlace(placeId: String) { File(placesDir, placeId).deleteRecursively() }
+
+    /** The GPS fixes of a walk (kept apart from the big sensor log, so they can be read at once). */
+    fun fixes(placeId: String, walkId: String): List<GeoFix> = runCatching {
+        val a = JSONArray(File(walkDir(placeId, walkId), "fixes.json").readText())
+        List(a.length()) { i -> a.getJSONArray(i).let { GeoFix(it.getDouble(0), it.getDouble(1), if (it.isNull(4)) null else it.getDouble(4), it.getDouble(2).toFloat(), it.getLong(3)) } }
+    }.getOrDefault(emptyList())
+    private fun fixesJson(f: List<GeoFix>) = JSONArray().also { a -> f.forEach { a.put(JSONArray().put(it.latitudeDeg).put(it.longitudeDeg).put(it.horizontalAccuracyMeters.toDouble()).put(it.elapsedRealtimeNanos).put(it.altitudeMeters ?: JSONObject.NULL)) } }.toString()
+
+    /** Refits where the place is on the Earth from the GPS of every walk in it that was added (and the first). Called whenever the set of merged walks changes. */
+    internal fun refreshPlaceGeo(placeId: String) {
+        val p = place(placeId) ?: return; val dir = File(placesDir, placeId)
+        val inputs = ArrayList<PlaceGeoInput>()
+        for (id in listOf(p.baseWalkId) + p.mergeOrder) {
+            val w = p.walks.firstOrNull { it.id == id } ?: continue
+            val t = track(placeId, id) ?: continue
+            inputs += PlaceGeoInput(t, fixes(placeId, id), if (id == p.baseWalkId) null else w.merge)
+        }
+        val base = p.walks.firstOrNull { it.id == p.baseWalkId }?.geo?.anchor
+        val g = PlaceGeo.fit(inputs, base)
+        val file = File(dir, "place.json"); val j = JSONObject(file.readText())
+        if (g == null) { j.remove("geo"); j.remove("geoWalks") } else { j.put("geo", geoJson(g)); j.put("geoWalks", inputs.count { it.fixes.isNotEmpty() }) }
+        file.writeText(j.toString())
+    }
 
     // ---- JSON
     private fun toRecord(o: MergeOutcome, at: Long) = MergeRecord(at, o.global!!.alignment.copy(dy = o.dy ?: 0f), o.dy ?: 0f, o.global.meanDist, o.global.inlier, o.global.margin, o.prior,
@@ -163,7 +199,11 @@ class WalkStore(private val root: File) {
 
     private fun writeMap(f: File, m: RoomMap) { val tmp = File(f.parentFile, f.name + ".tmp"); GZIPOutputStream(tmp.outputStream()).use { m.write(it) }; if (!tmp.renameTo(f)) { tmp.copyTo(f, true); tmp.delete() } }
     private fun writePlace(dir: File, id: String, name: String, created: Long, updated: Long, base: String, order: List<String>) {
-        dir.mkdirs(); File(dir, "place.json").writeText(JSONObject().put("v", 1).put("id", id).put("name", name).put("created", created).put("updated", updated).put("base", base).put("order", JSONArray(order)).toString())
+        dir.mkdirs(); val file = File(dir, "place.json")
+        val keep = runCatching { JSONObject(file.readText()) }.getOrNull()      // the combined placement is refitted separately; rewriting the place must not lose it
+        val j = JSONObject().put("v", 1).put("id", id).put("name", name).put("created", created).put("updated", updated).put("base", base).put("order", JSONArray(order))
+        keep?.optJSONObject("geo")?.let { j.put("geo", it); j.put("geoWalks", keep.optInt("geoWalks", 0)) }
+        file.writeText(j.toString())
     }
     private fun writeWalk(dir: File, m: WalkMeta) { dir.mkdirs(); File(dir, "walk.json").writeText(walkJson(m).toString()) }
 
@@ -171,7 +211,7 @@ class WalkStore(private val root: File) {
         val j = JSONObject(File(dir, "place.json").readText())
         val walks = File(dir, "walks").listFiles().orEmpty().filter { it.isDirectory }.mapNotNull { w -> runCatching { walkFrom(JSONObject(File(w, "walk.json").readText())) }.getOrNull() }.sortedBy { it.startedAt }
         val order = j.optJSONArray("order") ?: JSONArray()
-        return Place(j.getString("id"), j.getString("name"), j.getLong("created"), j.getLong("updated"), j.getString("base"), walks, List(order.length()) { order.getString(it) })
+        return Place(j.getString("id"), j.getString("name"), j.getLong("created"), j.getLong("updated"), j.getString("base"), walks, List(order.length()) { order.getString(it) }, j.optJSONObject("geo")?.let(::geoFrom), j.optInt("geoWalks", 0))
     }
 
     companion object {
@@ -181,15 +221,16 @@ class WalkStore(private val root: File) {
 
         fun geoJson(g: GeoRegistration) = JSONObject().put("lat", g.anchor.latitudeDeg).put("lon", g.anchor.longitudeDeg).put("alt", g.anchor.altitudeMeters ?: JSONObject.NULL)
             .put("theta", g.thetaRad).put("tx", g.tx).put("ty", g.ty).put("yawSigma", g.yawSigmaDeg).put("posSigma", dbl(g.posSigmaM)).put("rms", dbl(g.rmsM)).put("max", dbl(g.maxResidualM))
-            .put("used", g.used).put("total", g.total).put("scale", g.scale).put("chi", dbl(g.chi)).put("level", g.level.name).put("reason", g.reason)
+            .put("used", g.used).put("total", g.total).put("scale", g.scale).put("chi", dbl(g.chi)).put("level", g.level.name).put("reason", g.reason).put("rho", g.rho)
         fun geoFrom(j: JSONObject) = GeoRegistration(GeoAnchor(j.getDouble("lat"), j.getDouble("lon"), if (j.isNull("alt")) null else j.getDouble("alt")), j.getDouble("theta"), j.getDouble("tx"), j.getDouble("ty"), j.getDouble("yawSigma"),
             j.optDouble("posSigma", Double.NaN), j.optDouble("rms", Double.NaN), j.optDouble("max", Double.NaN), j.getInt("used"), j.getInt("total"), j.getDouble("scale"), j.optDouble("chi", Double.NaN),
-            runCatching { GeoLevel.valueOf(j.getString("level")) }.getOrDefault(GeoLevel.NONE), j.optString("reason"))
+            runCatching { GeoLevel.valueOf(j.getString("level")) }.getOrDefault(GeoLevel.NONE), j.optString("reason"), j.optDouble("rho", 0.0))
 
         fun walkJson(m: WalkMeta): JSONObject {
             val o = JSONObject().put("v", 1).put("id", m.id).put("name", m.name).put("start", m.startedAt).put("end", m.endedAt).put("length", m.lengthM).put("duration", m.durationS).put("tracked", m.trackedShare)
                 .put("loss", m.longestLossS).put("jumps", m.jumps).put("speedP95", m.speedP95).put("ex", m.extentX).put("ez", m.extentZ).put("cubes", m.cubes).put("keyFrames", m.keyFrames).put("diag", m.diag)
                 .put("fixes", m.fixes).put("gpsMed", dbl(m.gpsMedianAccM)).put("logBytes", m.logBytes).put("logTruncated", m.logTruncated)
+                .put("thermal", m.thermalMax).put("battery0", m.batteryStart).put("battery1", m.batteryEnd)
                 .put("sensors", JSONObject().also { s -> m.sensorCounts.forEach { (k, v) -> s.put(k.toString(), v) } })
                 .put("pieces", JSONArray().also { a -> m.pieces.forEach { a.put(JSONArray().put(it[0]).put(it[1])) } })
             m.geo?.let { o.put("geo", geoJson(it)) }
@@ -211,7 +252,7 @@ class WalkStore(private val root: File) {
             return WalkMeta(j.getString("id"), j.getString("name"), j.getLong("start"), j.getLong("end"), j.getDouble("length"), j.getDouble("duration"), j.getDouble("tracked"), j.getDouble("loss"), j.getInt("jumps"), j.getDouble("speedP95"),
                 j.getDouble("ex"), j.getDouble("ez"), j.getInt("cubes"), j.getInt("keyFrames"), j.optString("diag"), j.optJSONObject("geo")?.let(::geoFrom), j.getInt("fixes"), j.optDouble("gpsMed", Double.NaN).takeIf { !it.isNaN() }, clock,
                 j.optLong("logBytes"), j.optBoolean("logTruncated"), sc?.keys()?.asSequence()?.associate { it.toInt() to sc.getInt(it) } ?: emptyMap(), List(pcs.length()) { i -> pcs.getJSONArray(i).let { longArrayOf(it.getLong(0), it.getLong(1)) } },
-                merge, j.optString("unmerged").ifBlank { null })
+                merge, j.optString("unmerged").ifBlank { null }, j.optInt("thermal", -1), j.optInt("battery0", -1), j.optInt("battery1", -1))
         }
     }
 }

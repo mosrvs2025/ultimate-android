@@ -1,6 +1,6 @@
 # Ultimate World Scan
 
-**Status: a working end-to-end tool in Ultimate+ (2.7.0). Tested in simulation and by unit tests; not yet measured on a phone in a street.** Every number below says which of those it is.
+**Status: a working end-to-end tool in Ultimate+ (2.7.1). Tested in simulation and by unit tests; not yet measured on a phone in a street.** Every number below says which of those it is.
 
 World Scan is a personal, local-first mapping instrument: you walk with the phone held up, and it builds a 3D map from ARCore's motion tracking and depth, places the walk on the Earth with GPS, keeps the walk's raw record, and lets you come back and walk the same place again to improve the map. Nothing is uploaded; files leave the phone only when you share one.
 
@@ -58,9 +58,11 @@ Test (simulated delays, an offset of 123 s and 20 ppm drift): offset followed to
 
 Motion tracking is smooth and metric but starts facing an arbitrary way; GPS knows north but wanders by metres. The walk's path (matched in time to each fix) is fitted to the fixes by a weighted rigid fit (a turn and a shift; Procrustes in closed form) with a Huber loss, so a fix thrown off by a building does not drag the fit. Weights come from each fix's reported accuracy (floored at 2 m, because GPS error is correlated from fix to fix).
 
-The important output is not the fit but the **uncertainty the walk's own geometry allows**: the heading's standard deviation is `1/sqrt(Σ wᵢ|rᵢ|²)` (Fisher information of the rotation), so a 6 m straight walk reports about ±35° and is refused, and a 140 m L-shaped walk reports well under 1°. A walk is `GOOD` only if heading σ ≤ 4°, at least 70% of fixes agree, GPS-vs-walk length agrees within 8% and the residuals are consistent with the reported accuracies; `WEAK` up to 20°; otherwise it is **not placed** and says why. A fitted scale far from 1 is reported as evidence that something is wrong, never used to rescale the map. ARCore's frame is right-handed Y-up: looking from above, x is east and −z north when the turn is 0, and a mirrored GPS track cannot pass as good (tested).
+The important output is not the fit but the **uncertainty the walk's own geometry allows**, widened for the fact that GPS errors are not fresh noise at every fix (a bias lasts many seconds, so 140 fixes are worth far fewer independent ones). How much one fix's error carries over to the next (`rho`) is read off the fit's own residuals, and the uncertainty is multiplied by `sqrt((1+rho)/(1-rho))`; white noise leaves it unchanged. Without this the first version was over-confident, which a combined-walks test exposed (claimed ±0.29° against a real 1.0° error). the heading's standard deviation is `1/sqrt(Σ wᵢ|rᵢ|²)` (Fisher information of the rotation, before that widening), so a 6 m straight walk reports about ±35° and is refused, and a 140 m L-shaped walk reports well under 1°. A walk is `GOOD` only if heading σ ≤ 4°, at least 70% of fixes agree, GPS-vs-walk length agrees within 8% and the residuals are consistent with the reported accuracies; `WEAK` up to 20°; otherwise it is **not placed** and says why. A fitted scale far from 1 is reported as evidence that something is wrong, never used to rescale the map. ARCore's frame is right-handed Y-up: looking from above, x is east and −z north when the turn is 0, and a mirrored GPS track cannot pass as good (tested).
 
-Test: a 140 m L-shaped walk with simulated GPS (1.5 m white noise plus a slow 1.2 m bias, reported accuracy 5 m) recovered the heading to within 2° (asserted) and the reported σ covered the error; a 60 m outlier fix did not move the fit; a short straight walk was refused.
+Calibration test (simulated; 40 different draws of a 1.2 m slowly-varying bias plus 1.5 m white noise on a 140 m L-shaped walk): the true heading fell within 2 claimed sigmas in 38 of 40 (95% is the ideal), mean claimed ±0.65° against a mean error of 0.58°.
+
+Other tests: a 140 m L-shaped walk with simulated GPS (1.5 m white noise plus a slow 1.2 m bias, reported accuracy 5 m) recovered the heading to within 2° (asserted) and the reported σ covered the error; a 60 m outlier fix did not move the fit; a short straight walk was refused.
 
 **Not used: ARCore Geospatial API (VPS).** It would give global pose from Google's street imagery, but it needs an API key, a network connection and Google Cloud, and it only works where Street View coverage exists. That contradicts local-first. The `GeoRegistration` type is the seam where a Geospatial pose could be added later as one more constraint.
 
@@ -98,6 +100,14 @@ All numbers in this table come from tests on a made-up street (ray-cast depth ov
 | Long flat wall only | refused as ambiguous, map unchanged |
 | A different street | refused, map unchanged (checked point by point) |
 
+### 3.6 Placing the place from every walk (`PlaceGeo`, 2.7.1)
+
+A walk's GPS error is mostly a slow bias (buildings, which satellites were in view that day), so one walk cannot average it away. Walks made at different times have independent errors. Every walk added to a place has its path carried into the place's frame by the alignment it was merged with (piece by piece), and all the fixes are fitted together with the same robust fit as one walk. The heading uncertainty is then `1/sqrt(Σ information)`, which falls with every walk; a place whose first walk had no GPS is placed by a later one. The place's placement is what the next merge's search window is built from. In the test (three simulated walks of the same L-shaped route, independent GPS bias and noise) the claimed heading uncertainty falls from ±0.92° to ±0.64° to ±0.52° as walks are added. Across 20 different draws of three walks the true heading fell within 2 claimed sigmas in 18 (mean claimed ±0.50°, mean error 0.59°): slightly over-confident, so read the combined number as a floor. Position uncertainty barely moves (3.08 m to 3.02 m) because it is limited by the 2 m per-fix floor, not by the number of fixes.
+
+### 3.7 What is recorded about the phone
+
+Each walk stores the highest thermal status Android reported and the battery percentage at the start and end (whole percents), shown in Details, so the checklist's heat and battery question is answered by the app. A walk is stopped and saved at "severe" heat.
+
 ## 4. Capture format (JSON lines, gzip, schema 2)
 
 All times are Android elapsed-realtime nanoseconds except `startedEpochMillis`. Cadence differs per stream.
@@ -123,7 +133,7 @@ All times are Android elapsed-realtime nanoseconds except `startedEpochMillis`. 
 - **Repeat walks must overlap.** Walk the same route the same way. Walking it backwards shows the other side of the street, which shares almost nothing.
 - **Straight featureless routes cannot be merged** (a long wall slides along itself); the walk is kept and the reason shown.
 - **No colour, no mesh, no splats.** The map is height-coloured cubes. Colour from the camera image would need a calibrated mapping that cannot be verified here.
-- **No neighbourhood-scale index or streaming yet.** The map lives in memory while viewed; a few kilometres of street is fine, a city is not.
+- **No neighbourhood-scale index or streaming yet.** A walk's whole map stays in memory until it is saved (about 100 MB a kilometre in simulation; **not measured on a phone**), so a very long walk is stopped and saved when the heap stays above 85%, and the viewer holds a place's merged map in memory. A few kilometres of street is the intended scale, a city is not.
 - **Not verified on a device.** No part of this ran on a phone before 2.7.0 shipped. The first real walk is the test (checklist below).
 - Samsung and Pixel phones differ in depth quality and in how ARCore behaves under heat; nothing has been profiled for thermals or battery.
 

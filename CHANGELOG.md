@@ -3,6 +3,16 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 2.7.1
+- World Scan places a whole place from every walk of it. Each added walk's GPS is carried into the place's frame and all of it is fitted together, so GPS errors that differ from day to day average out: the heading and position get tighter with every walk, and a place whose first walk had no GPS is placed by a later one that did. The place card says how many walks it is placed from.
+- The heading uncertainty it reports is now honest about GPS: a GPS error lasts many seconds, so many fixes are not many independent measurements. The claim is widened by what the walk's own residuals show, and in 40 simulated walks the true heading fell within the claimed 2 sigma 38 times.
+- While you walk: a panel under the cubes chip (tap it) shows what the depth filters are throwing away, the camera-clock sync, GPS fixes, phone temperature and battery. The coach now speaks from the last five seconds of what was actually rejected (moving too fast, or depth too weak: dark, plain or far) instead of one frame, and says nothing when you simply stand still.
+- Heat and battery are recorded with every walk (and shown in Details), and a walk stops and is saved if Android reports the phone as severely hot.
+- Details has a new graph: how far apart the walk and GPS were at each fix over the whole walk. A steady rise is drift; spikes are GPS noise.
+- The map's 3D view no longer builds a second copy of the whole map in memory.
+- Sharing a path uses the place's combined placement, so walks added to a place appear in the GeoJSON even when they couldn't be placed on their own. A walk that was refused for merging is drawn on the map as a dashed grey path where GPS says it went, so you can see why it didn't match.
+- Squeeze, when it finishes: a clear Delete original button on the big card (one Android confirmation for all the originals), and the card now says the truth: the space comes back when the original is deleted, not before (it used to say "reclaimed" and "your originals were not touched" at once). Videos picked through Android's photo picker used to get no delete option and no explanation; their real gallery entry is now found (and checked by exact size before anything is deleted), and if Android still won't allow it the card says so.
+
 ## 2.7.0
 - New: World Scan (Ultimate+). Walk down a street, round a building or across a park with the phone held up, and it builds a 3D map of what it sees from the camera's depth and motion tracking, notes where on Earth you were from GPS, and keeps everything on this phone. Start a walk from Home, then watch a live top-down map fill in behind you.
 - Walk it again to make it better. Add a second walk to a place and the new walk is lined up with the old one, piece by piece (motion tracking drifts, so every 15 metres is fitted on its own), and only added if it truly fits. If the match isn't clearly the best one (a long straight wall can slide along itself) or the walks don't overlap, it is kept as its own walk, with the reason, and the saved map is not changed. Undo the last add any time.

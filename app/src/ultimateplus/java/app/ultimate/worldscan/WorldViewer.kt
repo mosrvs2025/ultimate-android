@@ -143,11 +143,13 @@ private fun loadPlace(tool: WorldScanTool, place: Place): PlaceView {
     val image = raster?.let { WorldScanTool.bitmapOf(it) }
     // At most ~40,000 cubes for the 3D view, taken evenly from the whole map without building a second copy of it.
     val pts = ArrayList<P3>().also { out -> base?.let { b -> val step = maxOf(1, b.solid / 40_000); var i = 0; b.forEachSolid { x, y, z -> if (i++ % step == 0) out += P3(x, y, z) } } }
-    val baseWalk = place.walks.firstOrNull { it.id == place.baseWalkId }
     val views = ArrayList<WalkView>()
     for ((n, w) in place.walks.withIndex()) {
         val isBase = w.id == place.baseWalkId
-        if (!isBase && w.merge == null) continue
+        // A walk that was refused for merging is not in the place's frame, but if both it and the place are on the Earth it can still be drawn where GPS says it went (dashed, grey).
+        val gpsOnly = !isBase && w.merge == null
+        val pg = place.bestGeo?.takeIf { it.usable }
+        if (gpsOnly && !(w.geo?.usable == true && pg != null)) continue
         val track = store.track(place.id, w.id) ?: continue
         val fits = w.merge?.pieces ?: emptyList()
         val n0 = track.points.size
@@ -155,23 +157,25 @@ private fun loadPlace(tool: WorldScanTool, place: Place): PlaceView {
         var k = 0; var run = 0.0
         for (p in track.points) {
             val a = if (isBase) null else (fits.firstOrNull { it.alignment != null && p.tNs in it.t0Ns..it.t1Ns }?.alignment ?: w.merge?.global)
-            val q = if (a == null) P3(p.x, p.y, p.z) else a.apply(P3(p.x, p.y, p.z))
+            val q = when {
+                gpsOnly -> { val ll = w.geo!!.toLatLon(p.x, p.z); val e = pg!!.anchor.project(GeoFix(ll.first, ll.second, null, 1f, 0L)); val (lx, lz) = pg.toLocal(e.eastMeters, e.northMeters); P3(lx, p.y, lz) }
+                a == null -> P3(p.x, p.y, p.z)
+                else -> a.apply(P3(p.x, p.y, p.z))
+            }
             if (k > 0 && p.tracking == TrackingQuality.TRACKING && ok[k - 1]) { val d = hypot((q.x - x[k - 1]).toDouble(), (q.z - z[k - 1]).toDouble()); if (d < 3.0) run += d }
             t[k] = p.tNs; x[k] = q.x; y[k] = q.y; z[k] = q.z; ok[k] = p.tracking == TrackingQuality.TRACKING; cum[k] = run; k++
         }
         // GPS fixes written in the place's frame (only for the first walk: later walks' fixes would need their own placement drawn).
         var ft = LongArray(0); var fx = FloatArray(0); var fz = FloatArray(0); var fa = FloatArray(0)
         if (isBase && w.geo?.usable == true) {
-            val log = store.rawLog(place.id, w.id)?.let { runCatching { SessionLog.read(it) }.getOrNull() }
-            if (log != null) {
-                val g = w.geo
-                ft = LongArray(log.fixes.size); fx = FloatArray(log.fixes.size); fz = FloatArray(log.fixes.size); fa = FloatArray(log.fixes.size)
-                log.fixes.forEachIndexed { i, f -> val e = g.anchor.project(f); val (lx, lz) = g.toLocal(e.eastMeters, e.northMeters); ft[i] = f.elapsedRealtimeNanos; fx[i] = lx; fz[i] = lz; fa[i] = f.horizontalAccuracyMeters }
-            }
+            val g = w.geo
+            val list = store.fixes(place.id, w.id).ifEmpty { store.rawLog(place.id, w.id)?.let { f -> runCatching { SessionLog.read(f).fixes }.getOrNull() } ?: emptyList() }
+            ft = LongArray(list.size); fx = FloatArray(list.size); fz = FloatArray(list.size); fa = FloatArray(list.size)
+            list.forEachIndexed { i, f -> val e = g.anchor.project(f); val (lx, lz) = g.toLocal(e.eastMeters, e.northMeters); ft[i] = f.elapsedRealtimeNanos; fx[i] = lx; fz[i] = lz; fa[i] = f.horizontalAccuracyMeters }
         }
-        views += WalkView(w, if (isBase) walkColours[0] else walkColours[1 + (n % (walkColours.size - 1))], t.copyOf(k), x.copyOf(k), y.copyOf(k), z.copyOf(k), ok.copyOf(k), cum.copyOf(k), ft, fx, fz, fa, null)
+        views += WalkView(w, if (isBase) walkColours[0] else if (gpsOnly) WorldColors.dim else walkColours[1 + (n % (walkColours.size - 1))], t.copyOf(k), x.copyOf(k), y.copyOf(k), z.copyOf(k), ok.copyOf(k), cum.copyOf(k), ft, fx, fz, fa, if (gpsOnly) "GPS only" else null)
     }
-    return PlaceView(raster, image, pts, views, baseWalk?.geo)
+    return PlaceView(raster, image, pts, views, place.bestGeo)
 }
 
 // ---------------------------------------------------------------------- map + replay
@@ -215,7 +219,7 @@ private fun MapTab(v: PlaceView, selected: String, onSelect: (String) -> Unit) {
                 if (showPaths) for (w in v.walks) {
                     val p = Path(); var started = false
                     for (i in w.x.indices) { if (!w.tracked[i]) { started = false; continue }; val o = xf.pt(w.x[i], w.z[i]); if (!started) { p.moveTo(o.x, o.y); started = true } else p.lineTo(o.x, o.y) }
-                    drawPath(p, w.color.copy(alpha = if (w === walk) 0.45f else 0.9f), style = Stroke(if (w === walk) 3f else 4f, cap = StrokeCap.Round))
+                    drawPath(p, w.color.copy(alpha = if (w === walk) 0.45f else 0.9f), style = Stroke(if (w === walk) 3f else 4f, cap = StrokeCap.Round, pathEffect = if (w.note != null) androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(14f, 10f)) else null))
                 }
                 // The part of the selected walk replayed so far, bright, with the phone and which way it faces.
                 if (walk != null && walk.t.isNotEmpty()) {
@@ -246,7 +250,7 @@ private fun MapTab(v: PlaceView, selected: String, onSelect: (String) -> Unit) {
         }
         // --- replay bar
         if (walk != null && duration > 0) Column(Modifier.fillMaxWidth().background(WorldColors.card).padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            if (v.walks.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { v.walks.forEach { w -> Text(w.meta.name, Modifier.clip(RoundedCornerShape(50)).background(if (w === walk) w.color else WorldColors.bg).clickable { onSelect(w.meta.id) }.padding(horizontal = 10.dp, vertical = 4.dp), color = if (w === walk) Color.Black else w.color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) } }
+            if (v.walks.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { v.walks.forEach { w -> Text(w.meta.name + (w.note?.let { " ($it)" } ?: ""), Modifier.clip(RoundedCornerShape(50)).background(if (w === walk) w.color else WorldColors.bg).clickable { onSelect(w.meta.id) }.padding(horizontal = 10.dp, vertical = 4.dp), color = if (w === walk) Color.Black else w.color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) } }
             Row(verticalAlignment = UiAlign.CenterVertically) {
                 Text(if (playing) "❚❚" else "▶", Modifier.clip(RoundedCornerShape(50)).background(WorldColors.bg).clickable { playing = !playing }.padding(horizontal = 14.dp, vertical = 8.dp), color = Color.White)
                 Slider(tSec, { tSec = it; playing = false }, Modifier.weight(1f).padding(horizontal = 8.dp), valueRange = 0f..duration.toFloat().coerceAtLeast(0.1f))
@@ -344,6 +348,33 @@ private fun DetailsTab(tool: WorldScanTool, place: Place, v: PlaceView, selected
                 retryMsg?.let { Text(it, color = WorldColors.amber, fontSize = 12.sp) }
             }
         }
+        Section("The phone", listOf(
+            "Heat" to if (w.thermalMax < 0) "not recorded" else "peak: ${WorldScanTool.thermalName(w.thermalMax)} (Android's thermal status ${w.thermalMax})",
+            "Battery" to if (w.batteryStart < 0 || w.batteryEnd < 0) "not recorded" else "${w.batteryStart}% to ${w.batteryEnd}% over ${WorldScanTool.clockText(w.durationS)}" + if (w.durationS > 120 && w.batteryStart >= w.batteryEnd) " (${"%.1f".format((w.batteryStart - w.batteryEnd) * 3600.0 / w.durationS)}% an hour; whole-percent resolution)" else ""))
+        val walkView = v.walks.firstOrNull { it.meta.id == w.id }
+        val drift = walkView?.let { wv -> if (wv.fixT.isEmpty()) null else DriftSeries.of(wv.t, wv.x, wv.z, wv.tracked, wv.fixT, wv.fixX, wv.fixZ) }
+        if (drift != null && drift.size >= 4) {
+            val ends = DriftSeries.firstAndLastThird(drift)
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(WorldColors.card).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Walk vs GPS over time", color = WorldColors.teal, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                val top = (drift.maxOf { it.second }).coerceAtLeast(2.0).toFloat()
+                Canvas(Modifier.fillMaxWidth().height(70.dp)) {
+                    val tMax = drift.last().first.coerceAtLeast(1.0).toFloat()
+                    drawLine(WorldColors.line, Offset(0f, size.height), Offset(size.width, size.height), 2f)
+                    val p = Path(); drift.forEachIndexed { i, (ts, m) -> val o = Offset(ts.toFloat() / tMax * size.width, size.height - (m.toFloat() / top) * size.height); if (i == 0) p.moveTo(o.x, o.y) else p.lineTo(o.x, o.y) }
+                    drawPath(p, WorldColors.amber, style = Stroke(3f, cap = StrokeCap.Round))
+                }
+                Text("How far apart the walk and GPS were at each fix (0 to ${"%.0f".format(top)} m). A steady rise means the walk drifted; spikes are GPS noise." + (ends?.let { " First third median ${"%.1f".format(it.first)} m, last third ${"%.1f".format(it.second)} m." } ?: ""), color = Color.White.copy(alpha = 0.75f), fontSize = 11.sp, lineHeight = 15.sp)
+            }
+        }
+        place.geo?.let { pg ->
+            val own = place.walks.firstOrNull { it.id == place.baseWalkId }?.geo
+            Section("The place on the Earth", listOf(
+                "Placement" to pg.summary(),
+                "From" to "${place.geoWalks} walk${if (place.geoWalks == 1) "" else "s"} with GPS, each carried into the place's frame by the way it was added",
+                "Heading" to "±${"%.2f".format(pg.yawSigmaDeg)}°" + (own?.takeIf { it.usable }?.let { " (the first walk alone: ±${"%.2f".format(it.yawSigmaDeg)}°)" } ?: ""),
+                "North" to if (pg.usable) "the first walk's −Z axis points ${"%.0f".format(pg.northOffsetDeg)}° from north" else "unknown"))
+        }
         Section("This place", listOf("Walks" to "${place.walks.size} (${place.mergeOrder.size} added to the first)", "Stored" to "${formatBytes(store.bytes(place.id))} on this phone only", "Free space" to formatBytes(store.freeBytes())))
         Spacer(Modifier.height(20.dp))
     }
@@ -362,7 +393,7 @@ private fun Section(title: String, rows: List<Pair<String, String>>) {
 // ---------------------------------------------------------------------- export
 private fun exportPath(tool: WorldScanTool, context: Context, place: Place): String {
     val walks = place.walks.mapNotNull { w -> tool.store.track(place.id, w.id)?.let { w to it } }
-    val json = WorldExport.geoJson(place.name, walks)
+    val json = WorldExport.geoJson(place.name, walks, baseWalkId = place.baseWalkId, placeGeo = place.geo)
     if (!json.contains("\"LineString\"")) return "No walk in this place could be placed on the map, so there is no path to share."
     return share(context, "${safe(place.name)}.geojson", json.toByteArray())
 }
