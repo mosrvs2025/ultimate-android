@@ -91,7 +91,7 @@ class InsightsStore(context: Context, private val version: String) {
     fun jobs(id: String): Triple<Int, Int, Long> = Triple(prefs.getInt("job.ok.$id", 0), prefs.getInt("job.fail.$id", 0), prefs.getLong("job.ms.$id", 0))
 
     /** A problem the user was shown (not a crash), kept as the last few. */
-    fun problem(tool: String, message: String) = push("problems", "$tool: ${message.take(160)}")
+    fun problem(tool: String, message: String) { if (!ProblemNoise.isNoise(message)) push("problems", "$tool: ${message.take(160)}") }
     fun problems() = list("problems")
 
     /** Something typed into Home's bar that matched nothing: the clearest sign of a missing tool. */

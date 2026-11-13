@@ -37,10 +37,11 @@ class ApkInstaller(private val context: Context) {
         val installer = context.packageManager.packageInstaller
         // Every cancelled or unfinished install leaves a session behind, and Android refuses new ones after enough of them
         // ("Too many active sessions for UID"). Ours are never needed again, so clear them first.
-        abandonStale(installer)
+        val cleared = abandonStale(installer)
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
         if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
-        val id = installer.createSession(params)
+        // If Android still refuses, say how many of our sessions were cleared and how many remain: the 'too many sessions' error was recorded after it was meant to be fixed, and this is what is needed to see why.
+        val id = try { installer.createSession(params) } catch (e: Exception) { throw IllegalStateException("${e.message} (cleared $cleared of ours first; ${runCatching { installer.mySessions.size }.getOrDefault(-1)} still open)", e) }
         val session = installer.openSession(id)
         var count = 0
         try {

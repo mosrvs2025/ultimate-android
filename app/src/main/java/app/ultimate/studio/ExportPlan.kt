@@ -59,3 +59,31 @@ object ExportPlanner {
         } finally { ex.release() }
     }.getOrDefault(SourceInfo(null, null, c.durationMs))
 }
+
+/** A one-line description of a failed export, for the usage report: enough to see what was unusual about the project without any of its content. Pure, so it is tested. */
+object ExportDiagnosis {
+    fun summarize(project: StudioProject, mimes: List<String?>, codeName: String?): String {
+        fun codec(m: String?) = when (m) { MimeTypes.VIDEO_H265 -> "hevc"; MimeTypes.VIDEO_H264 -> "avc"; null -> "?"; else -> m.substringAfter('/') }
+        val speeds = project.clips.map { it.speed }.distinct().sorted()
+        val parts = buildList {
+            add(codeName ?: "error")
+            add("${project.clips.size} clip${if (project.clips.size == 1) "" else "s"} ${minOf(project.width, project.height)}p")
+            add(mimes.map(::codec).distinct().joinToString(","))
+            if (speeds.any { it != 1f }) add("speed ${speeds.first()}-${speeds.last()}")
+            if (project.clips.any { it.rotation != 0 }) add("rotated")
+            if (project.clips.any { it.volume == 0f }) add("muted clip")
+            if (project.layers.isNotEmpty()) add("${project.layers.size} layer${if (project.layers.size == 1) "" else "s"}")
+            if (project.music != null) add("music")
+            if (project.fadeInMs > 0 || project.fadeOutMs > 0) add("fades")
+            if (project.clips.any { it.captions.isNotEmpty() }) add("captions")
+        }
+        return parts.joinToString(" · ").take(150)
+    }
+
+    /** Reads the source codecs (off the main thread) and describes the failure. */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    suspend fun describe(context: Context, project: StudioProject, e: Throwable): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val code = ((e as? androidx.media3.transformer.ExportException) ?: (e.cause as? androidx.media3.transformer.ExportException))?.errorCodeName
+        summarize(project, project.clips.map { ExportPlanner.probe(context, it).mime }, code)
+    }
+}
