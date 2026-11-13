@@ -1,6 +1,6 @@
 # Ultimate World Scan
 
-**Status: a working end-to-end tool in Ultimate+ (2.7.1). Tested in simulation and by unit tests; not yet measured on a phone in a street.** Every number below says which of those it is.
+**Status: a working end-to-end tool in Ultimate+ (2.8.0). Tested in simulation and by unit tests; not yet measured on a phone in a street.** Every number below says which of those it is.
 
 World Scan is a personal, local-first mapping instrument: you walk with the phone held up, and it builds a 3D map from ARCore's motion tracking and depth, places the walk on the Earth with GPS, keeps the walk's raw record, and lets you come back and walk the same place again to improve the map. Nothing is uploaded; files leave the phone only when you share one.
 
@@ -108,6 +108,20 @@ A walk's GPS error is mostly a slow bias (buildings, which satellites were in vi
 
 Each walk stores the highest thermal status Android reported and the battery percentage at the start and end (whole percents), shown in Details, so the checklist's heat and battery question is answered by the app. A walk is stopped and saved at "severe" heat.
 
+### 3.8 Correcting a long walk's drift (`DriftModel`, 2.8.0)
+
+Motion tracking's heading slowly goes wrong and its steps run a little long or short; GPS has noise but no drift. The walk is re-integrated step by step with its heading turned a further `a` degrees for every metre walked and every step scaled by `1 + b`, and `(a, b)` is searched for the pair that brings the walk closest to GPS (each candidate is scored after finding the best turn and shift onto the Earth, so drift cannot be used to hide a wrong start heading).
+
+**Opt-in, not automatic**, because a GPS bias that grows slowly (urban canyon) looks like drift, and bending a correct map toward a wrong track would make it worse. It is offered only when: the walk is at least 150 m, 20 or more fixes line up, the walk already fits GPS well enough to be placed, `|a|` is within 0.04 degrees a metre and `|b|` within 3%, the gain is statistically significant (chi-square over 13.8 for two parameters, divided by the GPS error's `(1+rho)/(1-rho)` persistence factor) *and* the 90th-percentile change to the path is at least 2 m, and neither half of the walk gets worse. An early version judged by RMS gain alone and wrongly refused a real 1% drift, because GPS noise sets a floor on the RMS (3.4 m in the test) however much the path bends; the significance test fixed that and still refuses a walk with no drift (significance 1 against 14 needed).
+
+Applying it rewrites the first walk's path and each ~15 m map piece in the corrected frame (each piece is moved rigidly and stretched, which follows the drift model to within centimetres) and rebuilds the place's map; the raw walk is kept in `raw/` and Undo puts it back. It is only possible on a place's first walk before other walks are added, because later walks are lined up with the map as it is.
+
+Simulated (a 300 m + 300 m L, 0.006 degrees a metre and 1% long, GPS bias plus noise): the end of the walk was 13.5 m from the truth before and 1.9 m after; a walk with heading drift of a different shape (a random walk) was also improved; a walk with no injected drift was refused. Real motion tracking drifts roughly 1% of the distance, which only reaches a few metres, GPS-sized, beyond about 500 m, so on short walks you will mostly see "not worth correcting", which is the right answer.
+
+### 3.9 Long walks and memory (2.8.0)
+
+Every ~15 m the finished stretch of the map is written to a file by the capture worker (after the last depth pictures for it have been added) and dropped from memory; the live map is composed from a small picture of each written-out stretch plus the stretches still in memory; and saving takes the stretches one at a time (a first walk's map is built by adding each to the union and dropping it), so the walk is never held in memory twice. If writing a stretch fails (no space) it simply stays in memory. This should keep capture memory roughly flat in the length of the walk; **not measured on a phone**. The earlier safety stop (heap above 85% twice in a row) remains.
+
 ## 4. Capture format (JSON lines, gzip, schema 2)
 
 All times are Android elapsed-realtime nanoseconds except `startedEpochMillis`. Cadence differs per stream.
@@ -133,14 +147,14 @@ All times are Android elapsed-realtime nanoseconds except `startedEpochMillis`. 
 - **Repeat walks must overlap.** Walk the same route the same way. Walking it backwards shows the other side of the street, which shares almost nothing.
 - **Straight featureless routes cannot be merged** (a long wall slides along itself); the walk is kept and the reason shown.
 - **No colour, no mesh, no splats.** The map is height-coloured cubes. Colour from the camera image would need a calibrated mapping that cannot be verified here.
-- **No neighbourhood-scale index or streaming yet.** A walk's whole map stays in memory until it is saved (about 100 MB a kilometre in simulation; **not measured on a phone**), so a very long walk is stopped and saved when the heap stays above 85%, and the viewer holds a place's merged map in memory. A few kilometres of street is the intended scale, a city is not.
+- **No neighbourhood-scale index or streaming yet.** Capture no longer keeps the whole walk in memory (3.9), but the viewer and the merge hold a place's whole merged map in memory (about 100 MB a kilometre by a simulation estimate; **not measured on a phone**), and a walk is stopped and saved if the heap stays above 85%. A few kilometres of street is the intended scale, a city is not.
 - **Not verified on a device.** No part of this ran on a phone before 2.7.0 shipped. The first real walk is the test (checklist below).
 - Samsung and Pixel phones differ in depth quality and in how ARCore behaves under heat; nothing has been profiled for thermals or battery.
 
 ## 7. Roadmap, in the order it would pay off
 
 1. **Measure on a phone** (checklist below) and set the thresholds from data instead of reasoning.
-2. **Loop closure within a walk**: keep sparse visual features per piece and add loop constraints to a pose graph over the pieces.
+2. **Loop closure within a walk**: keep sparse visual features per piece and add loop constraints to a pose graph over the pieces. (GPS-aided drift correction, 3.8, is the part of this that needs no new data; loop closure is what fixes drift without relying on GPS.)
 3. **Colour**, once the camera-to-depth mapping is verified on a device.
 4. **Streaming tiles** keyed by `GlobalTile`, so a place can be larger than memory.
 5. **Optional Geospatial pose** as one more prior, explicitly opt-in because it uses the network.

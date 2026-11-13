@@ -8,6 +8,7 @@ import android.os.BatteryManager
 import android.os.PowerManager
 import android.os.SystemClock
 import android.view.WindowManager
+import app.ultimate.room.IntegratorCounters
 import app.ultimate.room.RoomMap
 import app.ultimate.room.ScanIntegrator
 import app.ultimate.room.DepthFrame
@@ -17,13 +18,16 @@ import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import com.google.ar.core.exceptions.NotYetAvailableException
 import kotlinx.coroutines.flow.MutableStateFlow
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.zip.GZIPOutputStream
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.hypot
@@ -61,8 +65,18 @@ class WalkScan(private val context: Context, val session: Session, private val s
     private val fusing = AtomicBoolean(false); private val mapping = AtomicBoolean(false)
     private val clock = ClockSync()
     private val track = WalkTrack()
-    private val finished = ArrayList<WalkChunk>()
-    private val integrators = ArrayList<ScanIntegrator>()
+    /** A finished stretch of the walk. Once its last depth pictures are in, the worker writes it out to [file] and drops it from memory (a long walk would otherwise hold all of itself in memory until Stop). If writing fails it simply stays in memory. */
+    private class Piece(val t0: Long, val t1: Long, val file: File, @Volatile var map: RoomMap?) { @Volatile var spilled = false }
+    private val finished = ArrayList<Piece>()                              // guarded by synchronized(finished)
+    private val closing = CopyOnWriteArrayList<ScanIntegrator>()            // closed stretches whose last pictures may still be arriving
+    private class Sum { var frames = 0; var used = 0; var fast = 0; var pixels = 0L; var low = 0L; var out = 0L
+        fun add(c: IntegratorCounters) { frames += c.frames; used += c.integrated; fast += c.tooFast; pixels += c.pixels; low += c.lowConfidence; out += c.outOfRange }
+        fun add(o: Sum) { frames += o.frames; used += o.used; fast += o.fast; pixels += o.pixels; low += o.low; out += o.out }
+        fun summary() = "frames $frames · used $used${if (frames > 0) " (${used * 100 / frames}%)" else ""} · too fast $fast · unusable depth ${if (pixels > 0) (low + out) * 100 / pixels else 0}%" }
+    private val done = Sum()                                                // counters of stretches already written out; guarded by synchronized(done)
+    private val overview = CopyOnWriteArrayList<Raster>()                   // a small picture of each written-out stretch, so the live map still shows the whole walk
+    @Volatile private var cubesDone = 0
+    private fun totals(): Sum { val s = Sum(); synchronized(done) { s.add(done) }; closing.forEach { s.add(it.counters) }; s.add(integrator.counters); return s }
     @Volatile private var currentMap: RoomMap = WalkSettings.newMap()
     @Volatile private var integrator: ScanIntegrator = WalkSettings.integrator(currentMap)
     @Volatile private var recording = false
@@ -120,13 +134,16 @@ class WalkScan(private val context: Context, val session: Session, private val s
         val summary = recorder?.stop(); val fixes = recorder?.fixes() ?: emptyList()
         fuser.shutdown(); runCatching { fuser.awaitTermination(15, TimeUnit.SECONDS) }
         val ts = synchronized(track) { track.points.lastOrNull()?.tNs ?: 0L }
-        synchronized(finished) { if (currentMap.solid > 50) { finished += WalkChunk(currentMap, chunkT0.coerceAtLeast(0L), ts); integrators += integrator } }
-        val pieces = synchronized(finished) { finished.toList() }
-        val diag = integrators.joinToString(" · ") { it.counters.summary() }.take(600) + " · " + clock.summary()
-        val frames = integrators.sumOf { it.counters.integrated }
+        val last = currentMap
+        val sources = ArrayList<PieceSource>()
+        synchronized(finished) { finished.forEach { p -> sources += if (p.spilled) SpilledPiece(p.file, p.t0, p.t1) else WalkChunk(p.map!!, p.t0, p.t1) } }
+        if (last.solid > 50) sources += WalkChunk(last, chunkT0.coerceAtLeast(0L), ts)
+        val t = totals()
+        val diag = t.summary() + " · " + clock.summary()
+        val frames = t.used
         val input = synchronized(track) {
-            if (track.points.size < 10 || pieces.isEmpty()) null
-            else WalkInput(walkId, defaultName(startedAt), startedAt, System.currentTimeMillis(), track, pieces, clock, fixes, summary, summary?.file, frames, diag, thermalMax, batteryStart, batteryPct())
+            if (track.points.size < 10 || sources.isEmpty()) null
+            else WalkInput(walkId, defaultName(startedAt), startedAt, System.currentTimeMillis(), track, sources, clock, fixes, summary, summary?.file, frames, diag, thermalMax, batteryStart, batteryPct())
         }
         finalInput = input
         upd { copy(phase = WalkPhase.ENDED) }
@@ -135,16 +152,18 @@ class WalkScan(private val context: Context, val session: Session, private val s
     @Volatile private var finalInput: WalkInput? = null
 
     /** Throws the walk away (and its sensor log). */
-    fun discard() { recording = false; recorder?.stop()?.file?.delete(); fuser.shutdownNow(); worker.shutdownNow(); finalInput = null }
+    fun discard() { recording = false; recorder?.stop()?.file?.delete(); fuser.shutdownNow(); worker.shutdownNow(); finalInput = null; synchronized(finished) { finished.forEach { it.file.delete() } } }
     fun close() { recording = false; recorder?.stop(); fuser.shutdown(); worker.shutdown() }
 
     private fun defaultName(at: Long) = java.text.SimpleDateFormat("d MMM, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at))
 
     /** Ends the walk now, for [why], and stops the sensors and GPS at once (not when the screen gets round to saving). */
-    private fun end(why: String) { if (!recording) return; recording = false; recorder?.note("end", why); recorder?.stop(); upd { copy(phase = WalkPhase.ENDED, endedBecause = why) } }
+    /** Called once when the walk ends by itself, so it can be saved even if the screen is gone. */
+    @Volatile var onEnded: (() -> Unit)? = null
+    private fun end(why: String) { if (!recording) return; recording = false; recorder?.note("end", why); recorder?.stop(); upd { copy(phase = WalkPhase.ENDED, endedBecause = why) }; onEnded?.invoke() }
 
     /** World Scan only collects in the foreground: if the app is sent away mid-walk, the walk is stopped (and then saved). */
-    fun endForBackground() = end("The app was sent to the background, so the walk was stopped and saved. World Scan only records while it is on screen.")
+    fun endForBackground(screenRecreated: Boolean = false) = end(if (screenRecreated) "The screen was rebuilt (a change of language, theme or size), so the walk was stopped and saved." else "The app was sent to the background, so the walk was stopped and saved. World Scan only records while it is on screen.")
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         val t = IntArray(1); GLES20.glGenTextures(1, t, 0); tex = t[0]
@@ -210,14 +229,17 @@ class WalkScan(private val context: Context, val session: Session, private val s
         }
         if (now - lastMap > 900 && mapping.compareAndSet(false, true)) {
             lastMap = now
-            val cx = px; val cz = pz; val maps = synchronized(finished) { finished.map { it.map } } + currentMap; val cur = currentMap; val fin = synchronized(finished) { finished.toList() }
+            val cx = px; val cz = pz; val cur = currentMap
+            val loose = synchronized(finished) { finished.mapNotNull { it.map } }          // stretches not yet written out
+            val ov = overview.toList(); val written = cubesDone
             try { worker.execute {
                 runCatching {
-                    val r = TopDown.render(maps, cell = 0.4f, window = floatArrayOf(cx, cz, 38f), guard = true)
-                    val near = ArrayList<Float>(); val ground = r?.groundY ?: -1.4f
+                    val top = TopDown.render(loose + cur, cell = 0.4f, window = floatArrayOf(cx, cz, 38f), guard = true)
+                    val r = compose(ov, top, cx, cz)
+                    val near = ArrayList<Float>(); val ground = top?.groundY ?: -1.4f
                     synchronized(cur) { cur.forEachSolid { x, y, z -> if (near.size < 4 * 22000 && Math.abs(x - cx) < 9f && Math.abs(z - cz) < 9f) { near.add(x); near.add(y); near.add(z); near.add(y - ground) } } }
                     val fb = ByteBuffer.allocateDirect(near.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer(); near.forEach { fb.put(it) }; fb.position(0); points = fb
-                    val total = fin.sumOf { c -> synchronized(c.map) { c.map.solid } } + synchronized(cur) { cur.solid }
+                    val total = written + loose.sumOf { m -> synchronized(m) { m.solid } } + synchronized(cur) { cur.solid }
                     upd { copy(mini = r, cubes = total) }
                 }
                 mapping.set(false)
@@ -230,8 +252,8 @@ class WalkScan(private val context: Context, val session: Session, private val s
             // run the app out of memory, stop and save once the heap stays nearly full.
             val rt = Runtime.getRuntime(); lowMemory = if (rt.totalMemory() - rt.freeMemory() > rt.maxMemory() * 0.85) lowMemory + 1 else 0
             if (lowMemory >= 2) end("The phone is running low on memory, so the walk was stopped and saved. Start another from where you stopped; it can be added to the same place.")
-            val all = integrators.toList() + integrator
-            health.update(now, all.sumOf { it.counters.frames }, all.sumOf { it.counters.tooFast }, all.sumOf { it.counters.pixels }, all.sumOf { it.counters.lowConfidence }, all.sumOf { it.counters.outOfRange })
+            val t = totals()
+            health.update(now, t.frames, t.fast, t.pixels, t.low, t.out)
         }
         if (now - lastPublish > 100) {
             lastPublish = now; recorder?.refreshAge()
@@ -253,21 +275,48 @@ class WalkScan(private val context: Context, val session: Session, private val s
             val trailArr = synchronized(trail) { trail.toFloatArray() }
             val speedNow = speed; val fpsNow = fps
             upd { copy(tracking = tracking, trackingWhy = if (tracking) null else cam.trackingFailureReason.name, distanceM = pathTotal, seconds = secs, speed = speedNow,
-                pieces = synchronized(finished) { finished.size } + (if (recording) 1 else 0), keyFrames = integrators.sumOf { it.counters.integrated } + integrator.counters.integrated, fps = fpsNow, depthSize = depthSize,
+                pieces = synchronized(finished) { finished.size } + (if (recording) 1 else 0), keyFrames = totals().used, fps = fpsNow, depthSize = depthSize,
                 gnss = g, clockNote = clock.summary(), coach = coach, thermal = thermalNow, batteryPct = batteryNow, usedPct = usedPctNow(), camX = px, camZ = pz, headingDeg = PosePoint(ts, px, py, pz, pose.qx(), pose.qy(), pose.qz(), pose.qw(), TrackingQuality.TRACKING).headingDeg(), trail = trailArr,
                 diag = integrator.counters.summary()) }
         }
     }
 
-    private fun usedPctNow(): Int { val all = integrators.toList() + integrator; val f = all.sumOf { it.counters.frames }; return if (f < 20) -1 else all.sumOf { it.counters.integrated } * 100 / f }
+    private fun usedPctNow(): Int { val t = totals(); return if (t.frames < 20) -1 else t.used * 100 / t.frames }
+
+    /** The live map: the stretches already written out (as small pictures) under the ones still in memory, in a fixed window round [cx], [cz]. */
+    private fun compose(ov: List<Raster>, top: Raster?, cx: Float, cz: Float): Raster {
+        val half = 38f; val cell = 0.4f; val n = (2 * half / cell).toInt(); val out = IntArray(n * n); val x0 = cx - half; val z0 = cz - half
+        fun blit(r: Raster) { for (iz in 0 until r.h) for (ix in 0 until r.w) { val v = r.argb[iz * r.w + ix]; if (v == 0) continue; val tx = ((r.x0 + (ix + 0.5f) * r.cell - x0) / cell).toInt(); val tz = ((r.z0 + (iz + 0.5f) * r.cell - z0) / cell).toInt(); if (tx in 0 until n && tz in 0 until n) out[tz * n + tx] = v } }
+        ov.forEach { blit(it) }; top?.let { blit(it) }
+        return Raster(x0, z0, cell, n, n, out, top?.groundY ?: 0f, 0)
+    }
 
     private fun friendly(name: String) = when (name) { "INSUFFICIENT_LIGHT" -> "too dark"; "EXCESSIVE_MOTION" -> "moving too fast"; "INSUFFICIENT_FEATURES" -> "not enough to see"; "CAMERA_UNAVAILABLE" -> "camera in use"; "BAD_STATE" -> "ARCore state"; else -> name.lowercase().replace('_', ' ') }
 
-    /** Ends the current piece and starts the next. The old piece's map keeps receiving the few depth pictures already queued for it. */
+    /**
+     * Ends the current stretch and starts the next. The old stretch's map keeps receiving the few depth pictures already queued for it; after those (the
+     * worker runs in order) it is written to a file and dropped from memory, which keeps a long walk's memory use flat instead of growing with its length.
+     */
     private fun closePiece(ts: Long) {
-        synchronized(finished) { finished += WalkChunk(currentMap, chunkT0, ts); integrators += integrator }
+        val integ = integrator
+        val piece = Piece(chunkT0, ts, File(store.incomingLog(walkId).parentFile, "$walkId.piece${synchronized(finished) { finished.size }}.bin.gz"), currentMap)
+        synchronized(finished) { finished += piece }; closing += integ
         currentMap = WalkSettings.newMap(); integrator = WalkSettings.integrator(currentMap); chunkT0 = ts; chunkPath = 0.0
-        recorder?.note("piece", "${finished.size}")
+        try {
+            fuser.execute {
+                runCatching {
+                    val m = piece.map ?: return@runCatching
+                    piece.file.parentFile?.mkdirs()
+                    GZIPOutputStream(piece.file.outputStream()).use { m.write(it) }
+                    val cubes = synchronized(m) { m.solid }
+                    val picture = TopDown.render(listOf(m), cell = 0.4f, maxCells = 40_000)
+                    synchronized(done) { done.add(integ.counters) }
+                    cubesDone += cubes; picture?.let { overview += it }
+                    piece.spilled = true; piece.map = null; closing.remove(integ)
+                }
+            }
+        } catch (e: java.util.concurrent.RejectedExecutionException) { /* the walk is ending: the stretch stays in memory and is stored with the rest */ }
+        recorder?.note("piece", "${synchronized(finished) { finished.size }}")
     }
 
     /** Copies a *new* raw depth picture and queues it. Returns the depth picture's size. */

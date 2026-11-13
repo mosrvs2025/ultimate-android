@@ -20,6 +20,11 @@ data class MergeRecord(val at: Long, val global: Alignment, val dy: Float, val g
     val used: Int get() = pieces.count { it.alignment != null }
 }
 
+/** What fitting a drift model to a walk (see [DriftModel]) found, and whether the correction has been applied to the stored walk. */
+data class DriftRecord(val aDegPerM: Double, val b: Double, val rmsBeforeM: Double, val rmsAfterM: Double, val pairs: Int, val applicable: Boolean, val why: String, val applied: Boolean = false) {
+    fun summary(): String = DriftFit(aDegPerM, b, 0.0, rmsBeforeM, rmsAfterM, pairs, applicable, why).summary()
+}
+
 /** A finished walk, as stored in its place. */
 data class WalkMeta(
     val id: String, val name: String, val startedAt: Long, val endedAt: Long,
@@ -31,6 +36,7 @@ data class WalkMeta(
     val merge: MergeRecord?, val unmergedReason: String?,
     /** Highest thermal status the phone reported during the walk (0 none .. 3 severe .. 6 shutdown; -1 unknown) and the battery percentage at the start and end (-1 unknown). */
     val thermalMax: Int = -1, val batteryStart: Int = -1, val batteryEnd: Int = -1,
+    val drift: DriftRecord? = null,
 )
 
 /** A place: a first walk that defines the map's frame, and later walks added to it (or kept apart with the reason). */
@@ -41,9 +47,22 @@ data class Place(val id: String, val name: String, val createdAt: Long, val upda
     val bestGeo: GeoRegistration? get() = geo ?: walks.firstOrNull { it.id == baseWalkId }?.geo
 }
 
+/** One finished stretch of a walk's map: in memory, or waiting in a file (a long walk writes its finished stretches out as it goes so they don't pile up in memory). */
+interface PieceSource {
+    val t0Ns: Long
+    val t1Ns: Long
+    /** The map of this stretch. Does not keep it: ask again to get it again. */
+    fun load(): RoomMap
+}
+
+/** A stretch written to [file] while the walk was still going. The file is deleted once the walk is stored. */
+class SpilledPiece(val file: File, override val t0Ns: Long, override val t1Ns: Long) : PieceSource {
+    override fun load(): RoomMap = GZIPInputStream(file.inputStream()).use { RoomMap.read(it) }
+}
+
 /** Everything captured by one walk, ready to be stored. Times in [track] and [pieces] are on ARCore's frame clock; they are converted to the sensors' clock with [clock] when stored. */
 class WalkInput(
-    val id: String, val name: String, val startedAt: Long, val endedAt: Long, val track: WalkTrack, val pieces: List<WalkChunk>, val clock: ClockSync?, val fixes: List<GeoFix>,
+    val id: String, val name: String, val startedAt: Long, val endedAt: Long, val track: WalkTrack, val pieces: List<PieceSource>, val clock: ClockSync?, val fixes: List<GeoFix>,
     val recorder: RecorderSummary?, val rawLog: File?, val keyFrames: Int, val diag: String,
     val thermalMax: Int = -1, val batteryStart: Int = -1, val batteryEnd: Int = -1,
 )
@@ -98,27 +117,34 @@ class WalkStore(private val root: File) {
         val clock = input.clock?.takeIf { it.ready }
         val convert: (Long) -> Long? = { t -> if (clock == null) t else clock.toElapsed(t) }
         val track = input.track.withTimes(convert)
-        val pieces = input.pieces.mapNotNull { c -> val a = convert(c.t0Ns); val b = convert(c.t1Ns); if (a == null || b == null) null else WalkChunk(c.map, a, b) }
+        val spans = input.pieces.mapNotNull { c -> val a = convert(c.t0Ns); val b = convert(c.t1Ns); if (a == null || b == null) null else Triple(c, a, b) }
+        val existing = if (placeId != null) place(pid) else null
         // 2. Where on Earth
         val firstFix = input.fixes.firstOrNull { it.isUsable() }
         val geo = firstFix?.let { GeoFit.fit(track, input.fixes, GeoAnchor(it.latitudeDeg, it.longitudeDeg, it.altitudeMeters)) }
         // 3. Files: track, pieces, sensor log
         GZIPOutputStream(File(wdir, "track.bin.gz").outputStream()).use { track.write(it) }
-        pieces.forEachIndexed { i, c -> GZIPOutputStream(File(wdir, pieceName(i)).outputStream()).use { c.map.write(it) } }
         File(wdir, "fixes.json").writeText(fixesJson(input.fixes))
         input.rawLog?.takeIf { it.exists() }?.let { if (!it.renameTo(File(wdir, "sensors.jsonl.gz"))) { it.copyTo(File(wdir, "sensors.jsonl.gz"), true); it.delete() } }
-        val cubes = pieces.sumOf { it.map.solid }
+        // Pieces are taken one at a time (a long walk's pieces were written out as it went, and reading them all back at once would hold the whole walk twice): each is stored,
+        // counted and added to the first map; only a walk being merged into a place needs every piece in memory together.
+        var cubes = 0; val union = RoomMap(0.10f); val loaded = ArrayList<WalkChunk>()
+        spans.forEachIndexed { i, (c, a, b) ->
+            val m = c.load()
+            GZIPOutputStream(File(wdir, pieceName(i)).outputStream()).use { m.write(it) }
+            cubes += m.solid
+            if (existing == null) union.absorb(m) else loaded += WalkChunk(m, a, b)
+        }
         val (ex, ez) = track.extent()
         var meta = WalkMeta(input.id, input.name.trim().take(40).ifBlank { "Walk" }, input.startedAt, input.endedAt, track.lengthM, track.durationS, track.trackedShare, track.longestLossS, track.jumps, track.speedP95,
             ex, ez, cubes, input.keyFrames, input.diag, geo, input.fixes.size, input.recorder?.medianAccuracyM,
             clock?.let { ClockInfo(it.sameClock, it.jitterNs / 1e6, it.samples, it.driftMsPerHour) },
-            input.recorder?.bytes ?: 0L, input.recorder?.truncated ?: false, input.recorder?.sensorCounts ?: emptyMap(), pieces.map { longArrayOf(it.t0Ns, it.t1Ns) }, null, null,
+            input.recorder?.bytes ?: 0L, input.recorder?.truncated ?: false, input.recorder?.sensorCounts ?: emptyMap(), spans.map { longArrayOf(it.second, it.third) }, null, null,
             input.thermalMax, input.batteryStart, input.batteryEnd)
+        if (geo?.usable == true) meta = meta.copy(drift = DriftModel.fit(track, input.fixes, geo.anchor).let { f -> DriftRecord(f.aDegPerM, f.b, f.rmsBeforeM, f.rmsAfterM, f.pairs, f.applicable, f.why) })
         var merge: MergeOutcome? = null
-        val existing = if (placeId != null) place(pid) else null
         if (existing == null) {
             // A new place: its map is the union of this walk's pieces.
-            val union = RoomMap(0.10f); for (c in pieces) union.absorb(c.map)
             writeMap(File(dir, "base.bin.gz"), union)
             writeWalk(wdir, meta)
             writePlace(dir, pid, input.name.trim().take(40).ifBlank { "Place" }, now, now, input.id, emptyList())
@@ -126,7 +152,7 @@ class WalkStore(private val root: File) {
             val base = baseMap(pid) ?: RoomMap(0.10f)
             val baseMeta = existing.walks.firstOrNull { it.id == existing.baseWalkId }
             val prevSnapshot = File(dir, "base.bin.gz").takeIf { it.exists() }
-            merge = WalkFusion.merge(base, pieces, geo, existing.bestGeo ?: baseMeta?.geo)
+            merge = WalkFusion.merge(base, loaded, geo, existing.bestGeo ?: baseMeta?.geo)
             if (merge.accepted) {
                 prevSnapshot?.copyTo(File(dir, "base.prev.gz"), true)
                 writeMap(File(dir, "base.bin.gz"), base)
@@ -136,6 +162,7 @@ class WalkStore(private val root: File) {
             writePlace(dir, pid, existing.name, existing.createdAt, now, existing.baseWalkId, if (merge.accepted) existing.mergeOrder + input.id else existing.mergeOrder)
         }
         refreshPlaceGeo(pid)
+        spans.forEach { (c, _, _) -> (c as? SpilledPiece)?.file?.delete() }       // only now that the walk is safely stored
         return SaveResult(place(pid)!!, meta, merge)
     }
 
@@ -165,6 +192,63 @@ class WalkStore(private val root: File) {
         writePlace(dir, placeId, p.name, p.createdAt, now, p.baseWalkId, p.mergeOrder.dropLast(1))
         refreshPlaceGeo(placeId)
         return true
+    }
+
+
+    /**
+     * Applies the drift correction [DriftModel] suggested for a place's first walk: the walk's path and map pieces are rewritten in the corrected
+     * frame and the place's map is rebuilt from them. The raw walk is kept (`raw/`) so it can be put back. Only for a first walk with nothing
+     * merged into it yet, because later walks were lined up to the map as it was. Returns why not, or null when done.
+     */
+    fun applyDrift(placeId: String, walkId: String, now: Long = System.currentTimeMillis()): String? {
+        val p = place(placeId) ?: return "That place is gone."
+        val w = p.walks.firstOrNull { it.id == walkId } ?: return "That walk is gone."
+        val d = w.drift ?: return "This walk has no drift suggestion."
+        if (d.applied) return "The correction is already applied."
+        if (!d.applicable) return d.why
+        if (walkId != p.baseWalkId || p.mergeOrder.isNotEmpty()) return "Drift can only be corrected on a place's first walk before other walks are added to it, because they were lined up with the map as it is now."
+        val geo = w.geo ?: return "This walk is not placed on the map."
+        val wdir = walkDir(placeId, walkId); val raw = File(wdir, "raw").apply { mkdirs() }
+        val track = track(placeId, walkId) ?: return "The walk's path couldn't be read."
+        val pieces = pieces(placeId, walkId); if (pieces.size != w.pieces.size) return "The walk's map pieces couldn't be read."
+        if (!File(raw, "track.bin.gz").exists()) {          // keep the raw walk, once
+            File(wdir, "track.bin.gz").copyTo(File(raw, "track.bin.gz"), true)
+            pieces.indices.forEach { i -> File(wdir, pieceName(i)).copyTo(File(raw, pieceName(i)), true) }
+        }
+        val corrected = DriftModel.apply(track, d.aDegPerM, d.b)
+        val moves = DriftModel.pieceMoves(track, corrected, w.pieces)
+        val moved = pieces.mapIndexed { i, c -> WalkChunk(c.map.mapped { q -> moves[i].apply(q) }, c.t0Ns, c.t1Ns) }
+        rewriteWalk(placeId, p, w, corrected, moved, geo.anchor, w.copy(drift = d.copy(applied = true)), now)
+        return null
+    }
+
+    /** Puts the raw walk back (see [applyDrift]). */
+    fun revertDrift(placeId: String, walkId: String, now: Long = System.currentTimeMillis()): String? {
+        val p = place(placeId) ?: return "That place is gone."
+        val w = p.walks.firstOrNull { it.id == walkId } ?: return "That walk is gone."
+        val d = w.drift ?: return "This walk has no drift suggestion."
+        if (!d.applied) return "The correction isn't applied."
+        if (p.mergeOrder.isNotEmpty()) return "Walks were added after the correction, so it can't be undone without losing how they were lined up. Undo those first."
+        val geo = w.geo ?: return "This walk is not placed on the map."
+        val wdir = walkDir(placeId, walkId); val raw = File(wdir, "raw")
+        File(raw, "track.bin.gz").takeIf { it.exists() }?.copyTo(File(wdir, "track.bin.gz"), true) ?: return "The raw walk is missing."
+        w.pieces.indices.forEach { i -> File(raw, pieceName(i)).copyTo(File(wdir, pieceName(i)), true) }
+        val track = track(placeId, walkId) ?: return "The walk's path couldn't be read."
+        rewriteWalk(placeId, p, w, track, pieces(placeId, walkId), geo.anchor, w.copy(drift = d.copy(applied = false)), now)
+        return null
+    }
+
+    /** Stores [track] and [pieces] as the walk's current data, rebuilds the place's map from them, and refits where the walk is on the Earth. */
+    private fun rewriteWalk(placeId: String, p: Place, w: WalkMeta, track: WalkTrack, pieces: List<WalkChunk>, anchor: GeoAnchor, meta0: WalkMeta, now: Long) {
+        val wdir = walkDir(placeId, w.id); val dir = File(placesDir, placeId)
+        GZIPOutputStream(File(wdir, "track.bin.gz").outputStream()).use { track.write(it) }
+        pieces.forEachIndexed { i, c -> GZIPOutputStream(File(wdir, pieceName(i)).outputStream()).use { c.map.write(it) } }
+        val union = RoomMap(0.10f); pieces.forEach { union.absorb(it.map) }
+        writeMap(File(dir, "base.bin.gz"), union); File(dir, "base.prev.gz").delete()
+        val (ex, ez) = track.extent()
+        writeWalk(wdir, meta0.copy(geo = GeoFit.fit(track, fixes(placeId, w.id), anchor), lengthM = track.lengthM, extentX = ex, extentZ = ez))
+        writePlace(dir, placeId, p.name, p.createdAt, now, p.baseWalkId, p.mergeOrder)
+        refreshPlaceGeo(placeId)
     }
 
     fun renamePlace(placeId: String, name: String) { val p = place(placeId) ?: return; writePlace(File(placesDir, placeId), placeId, name.trim().take(40).ifBlank { p.name }, p.createdAt, p.updatedAt, p.baseWalkId, p.mergeOrder) }
@@ -231,6 +315,7 @@ class WalkStore(private val root: File) {
                 .put("loss", m.longestLossS).put("jumps", m.jumps).put("speedP95", m.speedP95).put("ex", m.extentX).put("ez", m.extentZ).put("cubes", m.cubes).put("keyFrames", m.keyFrames).put("diag", m.diag)
                 .put("fixes", m.fixes).put("gpsMed", dbl(m.gpsMedianAccM)).put("logBytes", m.logBytes).put("logTruncated", m.logTruncated)
                 .put("thermal", m.thermalMax).put("battery0", m.batteryStart).put("battery1", m.batteryEnd)
+                .also { o -> m.drift?.let { d -> o.put("drift", JSONObject().put("a", d.aDegPerM).put("b", d.b).put("before", dbl(d.rmsBeforeM)).put("after", dbl(d.rmsAfterM)).put("pairs", d.pairs).put("ok", d.applicable).put("why", d.why).put("applied", d.applied)) } }
                 .put("sensors", JSONObject().also { s -> m.sensorCounts.forEach { (k, v) -> s.put(k.toString(), v) } })
                 .put("pieces", JSONArray().also { a -> m.pieces.forEach { a.put(JSONArray().put(it[0]).put(it[1])) } })
             m.geo?.let { o.put("geo", geoJson(it)) }
@@ -252,7 +337,8 @@ class WalkStore(private val root: File) {
             return WalkMeta(j.getString("id"), j.getString("name"), j.getLong("start"), j.getLong("end"), j.getDouble("length"), j.getDouble("duration"), j.getDouble("tracked"), j.getDouble("loss"), j.getInt("jumps"), j.getDouble("speedP95"),
                 j.getDouble("ex"), j.getDouble("ez"), j.getInt("cubes"), j.getInt("keyFrames"), j.optString("diag"), j.optJSONObject("geo")?.let(::geoFrom), j.getInt("fixes"), j.optDouble("gpsMed", Double.NaN).takeIf { !it.isNaN() }, clock,
                 j.optLong("logBytes"), j.optBoolean("logTruncated"), sc?.keys()?.asSequence()?.associate { it.toInt() to sc.getInt(it) } ?: emptyMap(), List(pcs.length()) { i -> pcs.getJSONArray(i).let { longArrayOf(it.getLong(0), it.getLong(1)) } },
-                merge, j.optString("unmerged").ifBlank { null }, j.optInt("thermal", -1), j.optInt("battery0", -1), j.optInt("battery1", -1))
+                merge, j.optString("unmerged").ifBlank { null }, j.optInt("thermal", -1), j.optInt("battery0", -1), j.optInt("battery1", -1),
+                j.optJSONObject("drift")?.let { d -> DriftRecord(d.getDouble("a"), d.getDouble("b"), d.optDouble("before", Double.NaN), d.optDouble("after", Double.NaN), d.getInt("pairs"), d.getBoolean("ok"), d.optString("why"), d.optBoolean("applied")) })
         }
     }
 }

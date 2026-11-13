@@ -110,6 +110,8 @@ internal object WorldColors {
 class WorldScanTool(private val host: UltimateApp) : Tool {
     internal val store = WalkStore(File(host.filesDir, "worldscan")).also { runCatching { it.tidyIncoming() } }
     internal val places = MutableStateFlow(store.places())
+    /** Saving a walk must not depend on the screen staying alive (it can be torn down in the middle), so it runs here. */
+    private val ioScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     override val id = "worldscan"
     override val title = "World Scan"
     override val tagline = "Walk a street, map it in 3D, and improve it every time you return"
@@ -133,21 +135,24 @@ class WorldScanTool(private val host: UltimateApp) : Tool {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     override fun Screen(onExit: () -> Unit, launch: ToolLaunch) {
-        var mode by remember { mutableStateOf<Mode>(Mode.List) }
+        // Saved across the screen being recreated (a theme or language change; rotation no longer recreates it), so you are not sent back to the start.
+        var saved by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("L") }
+        fun go(next: Mode) { saved = when (next) { is Mode.List -> "L"; is Mode.Capture -> "C:" + (next.placeId ?: ""); is Mode.View -> "V:" + next.placeId } }
+        val mode: Mode = when { saved.startsWith("C:") -> Mode.Capture(saved.drop(2).ifEmpty { null }); saved.startsWith("V:") -> Mode.View(saved.drop(2)); else -> Mode.List }
         val list by places.collectAsState()
         val m = mode
         // While capturing, the capture screen owns "back" (it asks before throwing a walk away).
-        BackHandler(m !is Mode.Capture) { if (m is Mode.View) mode = Mode.List else onExit() }
+        BackHandler(m !is Mode.Capture) { if (m is Mode.View) go(Mode.List) else onExit() }
         Scaffold(containerColor = WorldColors.bg, topBar = {
             if (m !is Mode.Capture) TopAppBar(title = { Text(if (m is Mode.View) list.firstOrNull { it.id == m.placeId }?.name ?: "World Scan" else "World Scan", color = Color.White) },
-                navigationIcon = { IconButton({ if (m is Mode.View) mode = Mode.List else onExit() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) } },
+                navigationIcon = { IconButton({ if (m is Mode.View) go(Mode.List) else onExit() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) } },
                 colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = WorldColors.bg))
         }) { pad ->
             Box(Modifier.fillMaxSize().padding(if (m is Mode.Capture) androidx.compose.foundation.layout.PaddingValues(0.dp) else pad)) {
                 when (m) {
-                    is Mode.List -> WorldHome(list, onWalk = { mode = Mode.Capture(null) }, onOpen = { mode = Mode.View(it) })
-                    is Mode.Capture -> CaptureScreen(m.placeId, list, onSaved = { reload(); mode = Mode.View(it) }, onCancel = { reload(); mode = if (m.placeId != null) Mode.View(m.placeId) else Mode.List })
-                    is Mode.View -> list.firstOrNull { it.id == m.placeId }?.let { p -> WorldViewer(this@WorldScanTool, p, onWalk = { mode = Mode.Capture(p.id) }, onChanged = { reload() }, onDeleted = { reload(); mode = Mode.List }) } ?: run { mode = Mode.List }
+                    is Mode.List -> WorldHome(list, onWalk = { go(Mode.Capture(null)) }, onOpen = { go(Mode.View(it)) })
+                    is Mode.Capture -> CaptureScreen(m.placeId, list, onSaved = { reload(); go(Mode.View(it)) }, onCancel = { reload(); go(if (m.placeId != null) Mode.View(m.placeId) else Mode.List) })
+                    is Mode.View -> list.firstOrNull { it.id == m.placeId }?.let { p -> WorldViewer(this@WorldScanTool, p, onWalk = { go(Mode.Capture(p.id)) }, onChanged = { reload() }, onDeleted = { reload(); go(Mode.List) }) } ?: run { go(Mode.List) }
                 }
             }
         }
@@ -248,7 +253,7 @@ class WorldScanTool(private val host: UltimateApp) : Tool {
             view.keepScreenOn = true
             val obs = LifecycleEventObserver { _, e ->
                 if (e == Lifecycle.Event.ON_RESUME) { runCatching { s.resume() }.onFailure { problem = "The camera is in use by something else." }; gl?.onResume() }
-                if (e == Lifecycle.Event.ON_PAUSE) { scan.endForBackground(); gl?.onPause(); runCatching { s.pause() } }
+                if (e == Lifecycle.Event.ON_PAUSE) { scan.endForBackground(context.activity()?.isChangingConfigurations == true); gl?.onPause(); runCatching { s.pause() } }
             }
             owner.lifecycle.addObserver(obs)
             if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) runCatching { s.resume() }
@@ -256,15 +261,15 @@ class WorldScanTool(private val host: UltimateApp) : Tool {
         }
         fun finish() {
             if (saving) return; saving = true
-            scope.launch {
-                val input = withContext(Dispatchers.Default) { scan.finish() }
-                if (input == null || input.track.lengthM < 5.0) { tooShort = true; saving = false; withContext(Dispatchers.IO) { input?.rawLog?.delete() }; return@launch }
-                val r = try { withContext(Dispatchers.IO) { store.save(input, placeId) } } catch (e: Throwable) { failure = "The walk couldn't be stored: ${e.message ?: e.javaClass.simpleName}. Free some space and try another walk."; null }
-                result = r; saving = false
+            ioScope.launch {
+                val input = scan.finish()
+                if (input == null || input.track.lengthM < 5.0) { tooShort = true; saving = false; input?.rawLog?.delete(); return@launch }
+                val r = try { store.save(input, placeId) } catch (e: Throwable) { failure = "The walk couldn't be stored: ${e.message ?: e.javaClass.simpleName}. Free some space and try another walk."; null }
+                result = r; saving = false; reload()
             }
         }
-        // A walk that ended by itself (tracking lost for good) is saved at once: what was captured is worth keeping.
-        LaunchedEffect(st.phase, st.endedBecause) { if (st.phase == WalkPhase.ENDED && st.endedBecause != null && !saving && result == null && !tooShort) finish() }
+        // A walk that ends by itself (tracking lost for good, the app sent away, a hot phone) is saved at once, from here and not from the screen, which may already be gone.
+        remember(scan) { scan.onEnded = { finish() }; true }
         BackHandler { if (st.phase == WalkPhase.RECORDING) leave = true else { scan.discard(); onCancel() } }
         val target = places.firstOrNull { it.id == placeId }
 

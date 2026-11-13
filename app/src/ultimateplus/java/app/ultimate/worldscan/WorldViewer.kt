@@ -192,7 +192,8 @@ private fun MapTab(v: PlaceView, selected: String, onSelect: (String) -> Unit) {
     var playing by remember { mutableStateOf(false) }
     val rot = if (northUp && v.baseGeo?.usable == true) (-Math.toDegrees(v.baseGeo.thetaRad)).toFloat() else 0f
     // Fit the whole map into the view the first time and when the layers change.
-    LaunchedEffect(boxSize, v) {
+    // Fitted once when the map is first measured (and when a different map arrives), not on every resize: turning the phone keeps where you panned and how far you zoomed.
+    LaunchedEffect(v, boxSize.width > 0) {
         if (boxSize.width == 0) return@LaunchedEffect
         val r = v.raster; val xs = ArrayList<Float>(); val zs = ArrayList<Float>()
         if (r != null) { xs += r.x0; xs += r.x0 + r.w * r.cell; zs += r.z0; zs += r.z0 + r.h * r.cell }
@@ -328,6 +329,20 @@ private fun DetailsTab(tool: WorldScanTool, place: Place, v: PlaceView, selected
             "GPS fit" to if (g.rmsM.isNaN()) "—" else "${"%.1f".format(g.rmsM)} m RMS, worst ${"%.1f".format(g.maxResidualM)} m, χ ${"%.1f".format(g.chi)}",
             "Length vs GPS" to if (g.used < 4) "—" else "scale ${"%.3f".format(g.scale)} (1.000 = motion tracking and GPS agree on distance)",
             "Fixes" to "${w.fixes} received, median accuracy ${w.gpsMedianAccM?.let { "%.1f m".format(it) } ?: "—"}"))
+        w.drift?.let { d ->
+            var busy by remember(w.id, d.applied) { mutableStateOf(false) }
+            var msg by remember(w.id) { mutableStateOf<String?>(null) }
+            val canChange = w.id == place.baseWalkId && place.mergeOrder.isEmpty()
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(WorldColors.card).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Drift", color = WorldColors.teal, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(if (d.applied) "Corrected. " + d.summary() + " The raw walk is kept." else d.summary(), color = Color.White, fontSize = 12.sp, lineHeight = 16.sp)
+                if (d.applicable && !d.applied) Text("Motion tracking drifts, GPS doesn't, so over a long walk the two disagree more and more. This fits the simplest model of that drift. A GPS error that grows slowly (between tall buildings) can look like drift, so look at the graph below before applying: it is only worth it if the walk really bends away from GPS.", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp, lineHeight = 15.sp)
+                if (canChange && d.applicable && !d.applied) Button({ busy = true; scope.launch { msg = withContext(Dispatchers.Default) { store.applyDrift(place.id, w.id) }; busy = false; onChanged() } }, enabled = !busy) { Text(if (busy) "Correcting…" else "Correct the drift") }
+                if (canChange && d.applied) Button({ busy = true; scope.launch { msg = withContext(Dispatchers.Default) { store.revertDrift(place.id, w.id) }; busy = false; onChanged() } }, enabled = !busy, colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors()) { Text(if (busy) "Undoing…" else "Undo the correction") }
+                if (!canChange && d.applicable && !d.applied) Text("Applying it is only possible on a place's first walk before other walks are added to it.", color = WorldColors.amber, fontSize = 11.sp)
+                msg?.let { Text(it, color = WorldColors.amber, fontSize = 12.sp) }
+            }
+        }
         Section("Time synchronisation", listOf(
             "Camera clock" to (w.clock?.let { if (it.sameClock == true) "same clock as the sensors" else if (it.sameClock == false) "a different clock (offset followed)" else "unknown" } ?: "not measured"),
             "Jitter" to (w.clock?.let { "%.1f ms typical (the error bar on matching camera to GPS and sensors) over %,d frames".format(it.jitterMs, it.samples) } ?: "—"),
