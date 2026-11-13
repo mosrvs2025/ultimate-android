@@ -23,7 +23,7 @@ object MeshWire {
     const val MAX_SKEW_MS = 60_000L
     const val MAX_LINE = 16 * 1024
 
-    enum class Type { HELLO, BEAT, TASK, RESULT, ERROR }
+    enum class Type { HELLO, BEAT, TASK, RESULT, ERROR, CMD, ACK }
 
     data class Frame(val type: Type, val from: String, val seq: Long, val sentAt: Long, val payload: Map<String, String>)
 
