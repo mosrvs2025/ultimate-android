@@ -131,7 +131,7 @@ All times are Android elapsed-realtime nanoseconds except `startedEpochMillis`. 
 - **Repeat walks must overlap.** Walk the same route the same way. Walking it backwards shows the other side of the street, which shares almost nothing.
 - **Straight featureless routes cannot be merged** (a long wall slides along itself); the walk is kept and the reason shown.
 - **No colour, no mesh, no splats.** The map is height-coloured cubes. Colour from the camera image would need a calibrated mapping that cannot be verified here.
-- **No neighbourhood-scale index or streaming yet.** The map lives in memory while viewed; a few kilometres of street is fine, a city is not.
+- **No neighbourhood-scale index or streaming yet.** A walk's whole map stays in memory until it is saved (about 100 MB a kilometre in simulation; **not measured on a phone**), so a very long walk is stopped and saved when the heap stays above 85%, and the viewer holds a place's merged map in memory. A few kilometres of street is the intended scale, a city is not.
 - **Not verified on a device.** No part of this ran on a phone before 2.7.0 shipped. The first real walk is the test (checklist below).
 - Samsung and Pixel phones differ in depth quality and in how ARCore behaves under heat; nothing has been profiled for thermals or battery.
 

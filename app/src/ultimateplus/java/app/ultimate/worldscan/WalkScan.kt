@@ -74,7 +74,7 @@ class WalkScan(private val context: Context, val session: Session, private val s
     private val health = MappingHealth()
     private val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
     private val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-    private var thermalMax = 0; private var batteryStart = -1; private var thermalAt = 0L; private var thermalNow = 0; private var batteryNow = -1
+    private var thermalMax = 0; private var batteryStart = -1; private var thermalAt = 0L; private var thermalNow = 0; private var batteryNow = -1; private var lowMemory = 0
     private fun batteryPct(): Int = runCatching { batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) }.getOrDefault(-1).takeIf { it in 0..100 } ?: -1
     private var lastDepthTs = -1L; private var lastSkip: String? = null; private var lastSkipAt = 0L
     private val trail = ArrayList<Float>(); private var trailX = Float.NaN; private var trailZ = Float.NaN
@@ -226,6 +226,10 @@ class WalkScan(private val context: Context, val session: Session, private val s
         if (recording && now - thermalAt > 2000) {
             thermalAt = now; batteryNow = batteryPct(); thermalNow = power.currentThermalStatus; if (thermalNow > thermalMax) thermalMax = thermalNow
             if (thermalNow >= PowerManager.THERMAL_STATUS_SEVERE) end("The phone is too hot (thermal status severe), so the walk was stopped and saved. Let it cool before another.")
+            // The whole walk's map lives in memory until it is saved (roughly 100 MB a kilometre in simulation; not yet measured on a phone). Rather than let a very long walk
+            // run the app out of memory, stop and save once the heap stays nearly full.
+            val rt = Runtime.getRuntime(); lowMemory = if (rt.totalMemory() - rt.freeMemory() > rt.maxMemory() * 0.85) lowMemory + 1 else 0
+            if (lowMemory >= 2) end("The phone is running low on memory, so the walk was stopped and saved. Start another from where you stopped; it can be added to the same place.")
             val all = integrators.toList() + integrator
             health.update(now, all.sumOf { it.counters.frames }, all.sumOf { it.counters.tooFast }, all.sumOf { it.counters.pixels }, all.sumOf { it.counters.lowConfidence }, all.sumOf { it.counters.outOfRange })
         }
