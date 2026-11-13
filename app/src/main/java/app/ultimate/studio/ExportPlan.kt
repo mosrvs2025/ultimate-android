@@ -81,6 +81,7 @@ object ExportDiagnosis {
     }
 
     /** Reads the source codecs (off the main thread) and describes the failure. */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     suspend fun describe(context: Context, project: StudioProject, e: Throwable): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val code = ((e as? androidx.media3.transformer.ExportException) ?: (e.cause as? androidx.media3.transformer.ExportException))?.errorCodeName
         summarize(project, project.clips.map { ExportPlanner.probe(context, it).mime }, code)
