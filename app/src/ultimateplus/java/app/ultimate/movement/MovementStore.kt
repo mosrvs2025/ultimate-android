@@ -42,6 +42,8 @@ class MovementStore(private val context: Context) {
         return (own + walks).sortedByDescending { it.startedAt }
     }
 
+    fun places() = runCatching { scanStore.places() }.getOrDefault(emptyList())
+
     /** A new, empty recording folder: returns its id and the file the recorder should write. */
     fun newRecording(): Pair<String, File> {
         val id = "r" + System.currentTimeMillis().toString(36)

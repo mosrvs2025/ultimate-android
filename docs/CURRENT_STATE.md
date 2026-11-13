@@ -8,7 +8,7 @@
 
 | | |
 | --- | --- |
-| Version | **2.10.0**, build (versionCode) **132** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
+| Version | **2.11.0**, build (versionCode) **133** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
 | Watch app | **1.6.0**, versionCode **7** (`wear/build.gradle.kts`); it also ships inside the phone app, which installs it on the watch |
 | Source commit of this version | `76b5f27e68cb7c079f86087862b3ea84013e3dd2` (branch `claude/spatial`, pull request #24); the code is unchanged since. This file and the release tooling were added on top, and `main` contains all of it after the merge of #24. `git log -1 --format=%H -- app/build.gradle.kts` on `main` shows the exact commit |
 | Package | `app.ultimate.plus` (Ultimate+), `app.ultimate` (Ultimate, offline); other editions below |
@@ -52,6 +52,7 @@ Descriptions are each tool's own tagline.
 | # | id | Tool | In | What it says it does |
 | --- | --- | --- | --- | --- |
 | 1 | `watch` | Watch | Ultimate+ only | Control the phone from your watch: flick, twist and shake, or tap its buttons |
+| 2 | `movement` | Movement | Ultimate+ only | Distance, laps, pace and sensor agreement from your own sensors, with calibration from known courses; see docs/MOVEMENT.md |
 | 2 | `mesh` | Octopus Mesh | Ultimate+ only | Your devices find each other, share sensors and work |
 | 3 | `ssh` | SSH and SFTP | Ultimate+ only | Approved computers only |
 | 4 | `hosts` | SSH hosts | Ultimate+ only | Connect to your servers |

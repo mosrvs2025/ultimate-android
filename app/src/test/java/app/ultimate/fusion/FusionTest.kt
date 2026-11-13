@@ -242,3 +242,34 @@ class FusionTest {
         assertNotNull(MotionQA.answer("how accurate is this", r).text)
     }
 }
+
+class ScanQATest {
+    private fun walk(id: String, start: Long, tracked: Double = 0.97, merge: app.ultimate.worldscan.MergeRecord? = null, why: String? = null) = app.ultimate.worldscan.WalkMeta(
+        id = id, name = "Walk $id", startedAt = start, endedAt = start + 100, lengthM = 120.0, durationS = 100.0, trackedShare = tracked, longestLossS = if (tracked < 0.9) 12.0 else 0.0, jumps = 0, speedP95 = 1.6,
+        extentX = 40.0, extentZ = 30.0, cubes = 5000, keyFrames = 80, diag = "", geo = null, fixes = 0, gpsMedianAccM = null, clock = null, logBytes = 0, logTruncated = false, sensorCounts = emptyMap(),
+        pieces = emptyList(), merge = merge, unmergedReason = why)
+    private val m = app.ultimate.worldscan.MergeRecord(0, app.ultimate.room.Alignment.IDENTITY, 0f, 0.05f, 0.82f, 0.3f, "walk", listOf(
+        app.ultimate.worldscan.PieceRecord(0, 0, 1, app.ultimate.room.Alignment.IDENTITY, "feature", 0.05f, 0.8f, 120, 880, 15)))
+    private val place = app.ultimate.worldscan.Place("p", "Kitchen", 0, 3, "a", listOf(walk("a", 1), walk("b", 2, merge = m), walk("c", 3, tracked = 0.7, why = "the two walks did not overlap enough")), listOf("a", "b"))
+
+    @Test fun accuracyReportsTrackingAndHonestlyDeclinesToClaimCentimetres() {
+        val a = ScanQA.answer("How accurate was the previous scan?", place)
+        assertTrue(a.text, a.text.contains("70%") && a.text.contains("12 s"))
+        assertTrue(a.text.contains("no accuracy in centimetres is claimed"))
+    }
+
+    @Test fun changesAreCountedFromTheMergeRecordAndCaveatedBecauseCauseIsNotKnown() {
+        val a = ScanQA.answer("What changed in this room?", place)
+        assertTrue(a.text, a.text.contains("added 120") && a.text.contains("removed 15") && a.text.contains("cannot tell those apart"))
+    }
+
+    @Test fun mergeAnswerNamesWhyAWalkWasNotMerged() {
+        val a = ScanQA.answer("Can these two spatial recordings be merged?", place)
+        assertTrue(a.text, a.text.contains("NOT merged") && a.text.contains("did not overlap enough") && a.text.contains("first walk"))
+    }
+
+    @Test fun unknownQuestionsAreNotGuessed() {
+        assertFalse(ScanQA.answer("what's for lunch", place).understood)
+        assertEquals("This place has no walks yet.", ScanQA.answer("accuracy", app.ultimate.worldscan.Place("e", "Empty", 0, 0, "", emptyList(), emptyList())).text)
+    }
+}

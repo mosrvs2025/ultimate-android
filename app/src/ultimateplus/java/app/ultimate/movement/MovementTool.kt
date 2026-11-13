@@ -124,10 +124,30 @@ class MovementTool(private val host: UltimateApp) : Tool {
                     Text("${e.origin.label} · ${fmtTime(e.durationS)}" + (if (e.note.isNotBlank()) " · ${e.note}" else ""), color = WorldColors.dim, fontSize = 12.sp)
                 }
             }
+            PlacesAsk()
             CalibrationSummary()
         }
         confirm?.let { e -> AlertDialog({ confirm = null }, confirmButton = { TextButton({ store.delete(e); confirm = null; bump++ }) { Text("Delete") } },
             dismissButton = { TextButton({ confirm = null }) { Text("Keep") } }, title = { Text("Delete this recording?") }, text = { Text("The raw sensor record is removed from this phone. It cannot be reanalysed afterwards.") }) }
+    }
+
+    @Composable private fun PlacesAsk() {
+        var places by remember { mutableStateOf<List<app.ultimate.worldscan.Place>>(emptyList()) }
+        LaunchedEffect(Unit) { places = withContext(Dispatchers.IO) { store.places() } }
+        if (places.isEmpty()) return
+        var chosen by remember { mutableStateOf(places.first().id) }
+        var a by remember { mutableStateOf<Answer?>(null) }
+        Card("Ask about a mapped place") {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                places.forEach { p -> FilterChip(chosen == p.id, { chosen = p.id; a = null }, { Text(p.name, fontSize = 12.sp) }) }
+            }
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("How accurate was the previous scan?", "What changed in this room?", "Can these walks be merged?", "Where is it on the map?").forEach { s ->
+                    AssistChip({ places.firstOrNull { it.id == chosen }?.let { a = ScanQA.answer(s, it) } }, { Text(s, fontSize = 12.sp) })
+                }
+            }
+            a?.let { ans -> Column(Modifier.fillMaxWidth().background(WorldColors.bg, RoundedCornerShape(12.dp)).padding(12.dp)) { BasisChip(ans.basis); Spacer(Modifier.height(6.dp)); Text(ans.text, color = Color.White, fontSize = 14.sp) } }
+        }
     }
 
     @Composable private fun live2(): String? { val l by recorder.live.collectAsState(); return l.error }
