@@ -85,4 +85,21 @@ class WorldLogAndExportTest {
         // The loss is announced once.
         val w = TrackingWatch(); w.update(0, true, 0f, 0f); w.update(s, false, 0f, 0f); assertTrue(w.lostJustNow); w.update(2 * s, false, 0f, 0f); assertFalse(w.lostJustNow)
     }
+
+    @Test fun pathsAreGeoreferencedThroughThePlaceOnlyForWalksInThePlace() {
+        val anchor = GeoAnchor(34.2164, -119.0376)
+        val place = GeoRegistration(anchor, 0.0, 0.0, 0.0, 1.0, 2.0, 1.0, 3.0, 20, 20, 1.0, 1.0, GeoLevel.GOOD, "ok")
+        val track = WalkTrack(); for (i in 0..100) track.add(PosePoint(i * 100_000_000L, i * 0.14f, 0f, 0f, 0f, 0f, 0f, 1f, TrackingQuality.TRACKING))
+        fun meta(id: String) = WalkMeta(id, id, 0L, 0L, 14.0, 10.0, 1.0, 0.0, 0, 1.4, 14.0, 0.0, 0, 0, "", null, 0, null, null, 0L, false, emptyMap(), emptyList(), null, null)
+        // The second walk was added to the place with a shift of 100 m along x (east), so its start lies 100 m east of the first walk's start.
+        val merged = meta("merged").copy(merge = MergeRecord(0L, app.ultimate.room.Alignment(0f, 100f, 0f, 0f), 0f, 0.05f, 0.8f, 0.5f, "", emptyList()))
+        val json = JSONObject(WorldExport.geoJson("P", listOf(meta("base") to track, merged to track, meta("refused") to track), baseWalkId = "base", placeGeo = place))
+        val f = json.getJSONArray("features")
+        assertEquals("the refused walk has no placement of its own and is not put through the place's", 2, f.length())
+        val lonBase = f.getJSONObject(0).getJSONObject("geometry").getJSONArray("coordinates").getJSONArray(0).getDouble(0)
+        val lonMerged = f.getJSONObject(1).getJSONObject("geometry").getJSONArray("coordinates").getJSONArray(0).getDouble(0)
+        val metresEast = (lonMerged - lonBase) * 111_320.0 * kotlin.math.cos(Math.toRadians(34.2164))
+        assertEquals(100.0, metresEast, 1.0)
+        assertEquals("place (all walks)", f.getJSONObject(1).getJSONObject("properties").getString("placedBy"))
+    }
 }

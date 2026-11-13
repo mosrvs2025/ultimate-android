@@ -10,6 +10,7 @@ The newest version is first. The watch app has its own version (see `wear/build.
 - Heat and battery are recorded with every walk (and shown in Details), and a walk stops and is saved if Android reports the phone as severely hot.
 - Details has a new graph: how far apart the walk and GPS were at each fix over the whole walk. A steady rise is drift; spikes are GPS noise.
 - The map's 3D view no longer builds a second copy of the whole map in memory.
+- Sharing a path uses the place's combined placement, so walks added to a place appear in the GeoJSON even when they couldn't be placed on their own. A walk that was refused for merging is drawn on the map as a dashed grey path where GPS says it went, so you can see why it didn't match.
 - Squeeze, when it finishes: a clear Delete original button on the big card (one Android confirmation for all the originals), and the card now says the truth: the space comes back when the original is deleted, not before (it used to say "reclaimed" and "your originals were not touched" at once). Videos picked through Android's photo picker used to get no delete option and no explanation; their real gallery entry is now found (and checked by exact size before anything is deleted), and if Android still won't allow it the card says so.
 
 ## 2.7.0
