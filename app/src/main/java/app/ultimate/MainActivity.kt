@@ -19,6 +19,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null) handleShare(intent)
+        // An update that went through is noticed here, on the first start of the new version: Android restarts the app when it replaces itself, so no "installed" answer ever arrives.
+        runCatching {
+            val code = packageManager.getPackageInfo(packageName, 0).longVersionCode
+            val prefs = getSharedPreferences("updates", MODE_PRIVATE)
+            val last = prefs.getLong("lastCode", 0L)
+            if (last != 0L && last != code) ultimate.insights.count("update.completed")
+            prefs.edit().putLong("lastCode", code).apply()
+        }
         setContent { UltimateTheme { UltimateRoot(ultimate) } }
     }
 

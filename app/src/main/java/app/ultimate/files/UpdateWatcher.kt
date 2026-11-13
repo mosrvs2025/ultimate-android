@@ -25,6 +25,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.ultimate.R
+import app.ultimate.insights.track
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -164,11 +165,12 @@ class UpdateInstallActivity : ComponentActivity() {
             }
         }
         val installer = ApkInstaller(this)
-        installer.permissionIntent()?.let { startActivity(it); toast("Allow Ultimate to install apps, then tap the update again."); finish(); return }
+        track("update.open")      // the update flow is counted step by step, so the usage report can say where an update gets stuck
+        installer.permissionIntent()?.let { track("update.needs_permission"); startActivity(it); toast("Allow Ultimate to install apps, then tap the update again."); finish(); return }
         lifecycleScope.launch {
             // Notification and button hand over a path; Home hands over nothing and the newest update is looked up here, off the main thread.
             val file = intent.getStringExtra("path")?.let(::File)?.takeIf { it.exists() } ?: withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { UpdateWatcher.find(applicationContext)?.file }.getOrNull() }
-            if (file == null) { toast("The update file is gone from Downloads"); finish(); return@launch }
+            if (file == null) { track("update.file_gone"); toast("The update file is gone from Downloads"); finish(); return@launch }
             status.value = "Preparing ${file.name}…"
             val action = "app.ultimate.UPDATE_RESULT"
             receiver = object : android.content.BroadcastReceiver() {
@@ -176,11 +178,12 @@ class UpdateInstallActivity : ComponentActivity() {
                     when (val s = i.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, android.content.pm.PackageInstaller.STATUS_FAILURE)) {
                         android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                             val confirm = if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java) else @Suppress("DEPRECATION") i.getParcelableExtra(Intent.EXTRA_INTENT)
-                            status.value = "Confirm the update"; progress.value = null
+                            track("update.confirm_shown"); status.value = "Confirm the update"; progress.value = null
                             confirm?.let { runCatching { startActivity(it) }.onFailure { e -> toast("Couldn't open Android's installer: ${e.message}"); done() } }
                         }
-                        android.content.pm.PackageInstaller.STATUS_SUCCESS -> { toast("Installed"); done() }
+                        android.content.pm.PackageInstaller.STATUS_SUCCESS -> { track("update.success"); toast("Installed"); done() }
                         else -> {
+                            track("update.fail.$s")
                             val text = InstallMessages.explain(s, i.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE))
                             toast(text); (applicationContext as? app.ultimate.UltimateApp)?.insights?.problem("Install", text)
                             i.getIntExtra(android.content.pm.PackageInstaller.EXTRA_SESSION_ID, -1).takeIf { it >= 0 }?.let { id -> runCatching { packageManager.packageInstaller.abandonSession(id) } }
@@ -191,8 +194,9 @@ class UpdateInstallActivity : ComponentActivity() {
             }
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, android.content.IntentFilter(action), Context.RECEIVER_NOT_EXPORTED) else @Suppress("UnspecifiedRegisterReceiverFlag") registerReceiver(receiver, android.content.IntentFilter(action))
             val result = PendingIntent.getBroadcast(this@UpdateInstallActivity, 22, Intent(action).setPackage(packageName), PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0))
+            track("update.start")
             runCatching { installer.install(android.net.Uri.fromFile(file), file.name, result) { f -> progress.value = f; status.value = "Copying the update… ${(f * 100).toInt()}%" } }
-                .onFailure { toast("Couldn't start the update: ${it.message}"); done() }
+                .onFailure { track("update.start_failed"); (applicationContext as? app.ultimate.UltimateApp)?.insights?.problem("Install", "Couldn't start the update: ${it.message}".take(150)); toast("Couldn't start the update: ${it.message}"); done() }
         }
     }
 

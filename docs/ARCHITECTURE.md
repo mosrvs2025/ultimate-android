@@ -103,3 +103,28 @@ A new experiment needs only these steps:
 4. Add its signal names to `rules/SenseNames` so people can pick them as triggers.
 
 The rest of the app (Home, Automations, the orb and Live now) picks it up from there.
+
+## Platform layers (2.12.0)
+
+How the pieces added in 2.10 to 2.12 fit the design above. Nothing here replaces the senses bus; they are new modules plugged into it.
+
+| Layer | Code | Role | Publishes |
+|---|---|---|---|
+| Raw record | `worldscan/WorldSensorRecorder`, `WorldExport.LogLines` | One log format for every sensor recording (World Scan walks, Movement recordings, motion received from another device) | — |
+| Fusion | `fusion/` (pure Kotlin) | One clock (`Trace`, `TraceBuilder`), three independent distance witnesses, agreement and contradiction, events, calibration from verified truth, fixed-code answers | `movement:lap`, `running`, `walking`, `stopped`, `kilometre`, `disagree` |
+| Spatial memory | `worldscan/` (places, multi-walk merge), `room/` (Room scan) | Persistent maps; `fusion/ScanQA` answers from their stored records | `spatial:*` (existing) |
+| Devices | `mesh/` | Sealed transport, discovery (UDP, NSD, Bluetooth presence), lending a phone's sensors, distance by sound | `mesh:device_joined`, `device_back`, `device_lost`, `device_near`, `device_away` |
+
+Rules for these layers:
+1. **Raw observations are the record; reports are recomputed.** `MovementAnalyzer.ALGO` versions the analysis.
+2. **Every number says how it was obtained** (`fusion/Evidence.kt`: Observed, Derived, Inferred) and carries an uncertainty.
+3. **Calibration learns only from verified truth**, never from an estimate (`fusion/Calibration.kt`).
+4. **Anything that reaches another device is sealed** (`mesh/MeshWire`, AES-256-GCM, key from the pairing code) and refused unless the owner is lending.
+5. **Combinations come from the bus, not from modules knowing each other**: a rule can react to a lap, to a phone coming within arm's reach, or to a new device joining, because those are ordinary signals.
+
+Known structural debt (not fixed in 2.12.0): two spatial stores (`room/` and `worldscan/`) with different map models; `context/Motion.kt` duplicates part of `fusion/Pdr` for the live "walking" UI bend; the mesh has no forward secrecy and the pairing code is the only secret.
+
+## Related repositories (inspected for 2.12.0, kept independent)
+* **ghostnode**: local Needle tool proposals with approval for every action, plus an unimplemented plan for "authenticated encrypted transport, revocation and replay tests". Ultimate's mesh now has the sealed transport and replay tests that plan describes; ghostnode's envelope idea of an explicit `expiresAt` per request is equivalent to `MeshWire.MAX_SKEW_MS`. Its rule that even read-only tool calls need a visible approval matches lending being off by default. No code was copied: its JNI/Needle integration duplicates what `ai/` already has.
+* **ShatterOS**: several screens as windows onto one world, laid out by hand in millimetres. The reusable idea is the layout: the mesh can now measure the distance between two phones by sound, which could place ShatterOS viewports automatically. That is a feature for ShatterOS to consume, so nothing was merged.
+* **videocompress**: a README for a Needle-driven media assistant; Ultimate's Squeeze and palette already cover it. Nothing to integrate.

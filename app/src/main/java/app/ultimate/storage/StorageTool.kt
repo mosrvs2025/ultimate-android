@@ -174,6 +174,8 @@ internal fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Un
     BackHandler { if (path.isNotEmpty()) path = path.dropLast(1) else onExit() }
     val libraries = remember { kotlinx.coroutines.flow.combine(app.tools.map { it.library }) { it.toList().flatten() } }
     val all by libraries.collectAsStateWithLifecycle(emptyList())
+    var dropOpen by remember { mutableStateOf(false) }
+    if (dropOpen) AppsToDropSheet(app, report?.apps) { dropOpen = false }
     var showSavings by remember { mutableStateOf(false) }
     if (showSavings) SavingsSheet(app.tools, all, onOpen = { t, i -> showSavings = false; openItem(app, t, i) }) { showSavings = false }
 
@@ -277,6 +279,7 @@ internal fun StorageScreen(app: UltimateApp, tool: StorageTool, onExit: () -> Un
             }
             item {
                 Text("Biggest apps", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                TextButton({ dropOpen = true }) { Text("Apps you could drop…") }
                 if (r.apps == null) TextButton({ context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }) { Text("Allow usage access to see app sizes") }
             }
             items(r.apps.orEmpty().take(12), key = { "a" + it.pkg }) { a ->

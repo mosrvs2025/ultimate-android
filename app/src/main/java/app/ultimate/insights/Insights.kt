@@ -108,6 +108,19 @@ object InsightsReport {
             i.features.entries.sortedByDescending { it.value }.take(40).forEach { (k, v) -> appendLine("- $k: $v") }
             appendLine()
         }
+        val upd = i.features.filterKeys { it == "home.nudge.update" || it.startsWith("update.") }
+        if (upd.isNotEmpty()) {
+            fun n(k: String) = upd[k] ?: 0
+            appendLine("## Updates")
+            appendLine()
+            appendLine("- Taps on the Home update nudge: ${n("home.nudge.update")} · update screens opened: ${n("update.open")}")
+            appendLine("- Sent to Settings to allow installs: ${n("update.needs_permission")} · update file gone from Downloads: ${n("update.file_gone")}")
+            appendLine("- Handed to Android: ${n("update.start")} · Android's confirmation shown: ${n("update.confirm_shown")} · could not be started: ${n("update.start_failed")}")
+            val fails = upd.filterKeys { it.startsWith("update.fail.") }.entries.sortedBy { it.key }
+            appendLine("- Failed or declined, by Android's status code: ${if (fails.isEmpty()) "none" else fails.joinToString { "${it.key.removePrefix("update.fail.")}: ${it.value}" }} (2 blocked, 3 declined or dismissed, 4 invalid, 5 conflict, 6 no storage, 7 incompatible)")
+            appendLine("- Updates that went through (the version changed): ${n("update.completed")}")
+            appendLine()
+        }
         if (i.unmatched.isNotEmpty()) {
             appendLine("## Searched for, found nothing")
             appendLine()

@@ -35,17 +35,34 @@ class MeshNode(
     private val log: (String) -> Unit = {},
     /** Test hook to make a node artificially slow: extra ms per work unit. */
     private val slowdownMsPerUnit: Double = 0.0,
+    /** What this device is and can do, read fresh each heartbeat so a change (the owner starts lending) reaches the others at once. */
+    private val profile: () -> DeviceProfile = { DeviceProfile.Unknown },
 ) {
     data class Peer(
         val id: String, val name: String, val host: String, val port: Int,
         val capacity: Double, val queuedWork: Double, val battery: Double?,
         val lastSeen: Long, val rttMs: Double, val failures: Int,
+        val profile: DeviceProfile = DeviceProfile.Unknown,
     )
+
+    /** A device appearing, vanishing or returning. Delivered on a mesh thread: hand off before touching UI. */
+    sealed interface PeerEvent {
+        val peer: Peer
+        data class Joined(override val peer: Peer) : PeerEvent
+        data class Returned(override val peer: Peer) : PeerEvent
+        data class Lost(override val peer: Peer) : PeerEvent
+    }
+
+    /** Handles an authenticated command from [from]. Throw to refuse; the message goes back to the sender as the reason. */
+    fun interface CommandHandler { fun handle(from: Peer, cmd: String, args: Map<String, String>): Map<String, String> }
 
     data class Outcome(val taskId: String, val value: Long, val executor: String, val attempts: Int, val totalMs: Long, val computeMs: Long)
 
     data class Stats(val ran: Long, val sent: Long, val received: Long, val bytesOut: Long, val bytesIn: Long, val rejected: Long, val failovers: Long)
 
+    @Volatile var commands: CommandHandler? = null
+    @Volatile var onEvent: (PeerEvent) -> Unit = {}
+    private val wasAlive = ConcurrentHashMap<String, Boolean>()
     private val peers = ConcurrentHashMap<String, Peer>()
     private val seeds = ConcurrentHashMap.newKeySet<Pair<String, Int>>()
     private val replay = ReplayGuard()
@@ -83,7 +100,7 @@ class MeshNode(
         running = false
         runCatching { server?.close() }
         beats.shutdownNow(); worker.shutdownNow(); io.shutdownNow()
-        peers.clear(); seeds.clear()
+        peers.clear(); seeds.clear(); wasAlive.clear()
         log("stopped; all peers forgotten")
     }
 
@@ -145,6 +162,22 @@ class MeshNode(
     private fun heartbeat() {
         val targets = peers.values.map { it.host to it.port }.toSet() + seeds
         for ((h, p) in targets) io.execute { runCatching { beatTo(h, p) } }
+        // A device that has stopped answering is announced once, not on every beat.
+        for (p in peers.values) if (!alive(p) && wasAlive.replace(p.id, true, false)) emit(PeerEvent.Lost(p))
+    }
+
+    private fun emit(e: PeerEvent) { runCatching { onEvent(e) } }
+
+    /**
+     * Sends [cmd] to a connected device and returns its answer. Throws if the device is unknown, does not answer, or
+     * refuses; the refusal reason (for instance "not lending") is the exception's message.
+     */
+    fun command(peerId: String, cmd: String, args: Map<String, String> = emptyMap(), timeoutMs: Long = 5_000): Map<String, String> {
+        val p = peers[peerId] ?: throw IllegalStateException("that device is not connected")
+        val r = request(p.host, p.port, MeshWire.Type.CMD, args + mapOf("cmd" to cmd), timeoutMs)
+        if (r.type == MeshWire.Type.ERROR) throw IllegalStateException(r.payload["error"] ?: "refused")
+        if (r.type != MeshWire.Type.ACK) throw IllegalStateException("unexpected reply ${r.type}")
+        return r.payload
     }
 
     private fun beatTo(host: String, port: Int) {
@@ -160,6 +193,7 @@ class MeshNode(
     }
 
     private fun beatPayload() = buildMap {
+        putAll(profile().toPayload())
         put("name", name); put("port", boundPort.toString()); put("cap", capacity.toString()); put("q", queued.sum().toString())
         battery()?.let { put("bat", it.toString()) }
         put("knows", peers.values.filter(::alive).joinToString(",") { "${it.id}@${it.host}:${it.port}" })
@@ -169,12 +203,15 @@ class MeshNode(
         if (f.from == id) return
         val p = f.payload
         val port = p["port"]?.toIntOrNull() ?: return
-        peers.compute(f.from) { _, old ->
+        var fresh = false
+        val updated = peers.compute(f.from) { _, old ->
             val smoothed = when { rtt == null -> old?.rttMs ?: 5.0; old == null -> rtt; else -> old.rttMs * 0.7 + rtt * 0.3 }
-            if (old == null) log("joined: ${p["name"]} at $host:$port")
+            if (old == null) { fresh = true; log("joined: ${p["name"]} at $host:$port") }
             Peer(f.from, p["name"] ?: "?", host, port, p["cap"]?.toDoubleOrNull() ?: 1.0, p["q"]?.toDoubleOrNull() ?: 0.0,
-                p["bat"]?.toDoubleOrNull(), clock(), smoothed, 0)
-        }
+                p["bat"]?.toDoubleOrNull(), clock(), smoothed, 0, DeviceProfile.fromPayload(p))
+        }!!
+        val before = wasAlive.put(f.from, true)
+        if (fresh) emit(PeerEvent.Joined(updated)) else if (before == false) emit(PeerEvent.Returned(updated))
     }
 
     // ---- transport ----
@@ -221,6 +258,14 @@ class MeshNode(
                     val (v, ms) = runLocal(n)
                     frame(MeshWire.Type.RESULT, mapOf("task" to (f.payload["task"] ?: ""), "value" to v.toString(), "computeMs" to ms.toString()))
                 } catch (e: Exception) { frame(MeshWire.Type.ERROR, mapOf("error" to (e.message ?: "failed"))) }
+            }
+            MeshWire.Type.CMD -> {
+                val from = peers[f.from]; val h = commands; val cmd = f.payload["cmd"]
+                when {
+                    h == null || from == null || cmd == null -> frame(MeshWire.Type.ERROR, mapOf("error" to "this device is not accepting commands"))
+                    else -> try { frame(MeshWire.Type.ACK, h.handle(from, cmd, f.payload - "cmd")) }
+                    catch (e: Exception) { frame(MeshWire.Type.ERROR, mapOf("error" to (e.message ?: "refused"))) }
+                }
             }
             else -> frame(MeshWire.Type.ERROR, mapOf("error" to "unexpected ${f.type}"))
         }

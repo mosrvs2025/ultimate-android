@@ -59,7 +59,7 @@ private fun Kind.icon(): ImageVector = when (this) {
  * a badge, so a contact, a message and an app with the same name are told apart at a glance.
  */
 @Composable
-fun PaletteResults(app: UltimateApp, query: String, onDone: () -> Unit) {
+fun PaletteResults(app: UltimateApp, query: String, onNothing: (String) -> Unit = {}, onDone: () -> Unit) {
     val sources = remember { PaletteSources(app) }
     var arranged by remember { mutableStateOf<Pair<Hit?, List<Pair<Kind, List<Hit>>>>>(null to emptyList()) }
     var contactsOk by remember { mutableStateOf(sources.contactsAllowed) }
@@ -74,6 +74,8 @@ fun PaletteResults(app: UltimateApp, query: String, onDone: () -> Unit) {
         val bare = PaletteMath.withoutVerb(q)
         arranged = PaletteMath.arrange(if (bare != q) (sources.search(bare) + sources.search(q)).distinctBy { it.key } else sources.search(q))
         searched = q
+        // Nothing matched anywhere: tell the caller once the typing has settled (this effect is cancelled if the query changes first).
+        if (q.length >= 4 && arranged.first == null && arranged.second.isEmpty()) { kotlinx.coroutines.delay(2300); onNothing(q) }
     }
     if (q.isEmpty()) return
     val (top, groups) = arranged
