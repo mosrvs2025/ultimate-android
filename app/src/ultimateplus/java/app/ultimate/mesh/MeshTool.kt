@@ -240,6 +240,7 @@ class MeshTool(context: Context) : Tool {
                     r.sets.forEachIndexed { i, st ->
                         Text("Set ${i + 1}: ${st.reps} reps" + (if (st.perMinute > 0) " at about ${st.perMinute.toInt()} a minute" else "") + " · from ${clock((st.startS * 1000).toLong())} for ${st.endS.toInt() - st.startS.toInt()} s", style = MaterialTheme.typography.labelSmall)
                     }
+                    if (r.keptInMovement) Text("Kept in Movement, where it can be analysed further and asked about.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     Text("Counted from how the phone moved, not which exercise it was; it depends on where the phone sat and has not been checked against a human count.", style = MaterialTheme.typography.labelSmall)
                 }
                 r.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }

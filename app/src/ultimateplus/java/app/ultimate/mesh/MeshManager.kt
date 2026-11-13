@@ -15,6 +15,7 @@ import android.provider.MediaStore
 import androidx.core.app.NotificationCompat
 import app.ultimate.MainActivity
 import app.ultimate.R
+import app.ultimate.movement.MovementStore
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -46,7 +47,7 @@ class MeshManager private constructor(private val app: Context) {
         val phase: Phase = Phase.Starting,
         val rows: Int = 0, val ms: Long = 0, val reps: Int = 0, val activeSeconds: Double = 0.0, val rms: Double = 0.0,
         val sets: List<RepCounter.EffortSet> = emptyList(),
-        val fetched: Int = 0, val total: Int = 0,
+        val fetched: Int = 0, val total: Int = 0, val keptInMovement: Boolean = false,
         val error: String? = null,
     ) { enum class Phase { Starting, Recording, Stopping, Fetching, Done, Failed } }
 
@@ -301,7 +302,8 @@ class MeshManager private constructor(private val app: Context) {
                     setRemote { it.copy(fetched = from) }
                 }
                 lastFetched = copy
-                setRemote { it.copy(phase = RemoteRecording.Phase.Done) }
+                val kept = runCatching { MovementStore(app).importMotion(copy, r.peerName) != null }.getOrDefault(false)
+                setRemote { it.copy(phase = RemoteRecording.Phase.Done, keptInMovement = kept) }
                 log("received ${copy.rows} rows from ${r.peerName}")
             } catch (e: Exception) { setRemote { it.copy(phase = RemoteRecording.Phase.Failed, error = "could not finish: ${e.message}") } }
         }

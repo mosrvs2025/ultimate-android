@@ -274,6 +274,8 @@
         </receiver>
         <!-- Echo: sonar sensing with the speaker and mic, only while the user runs it; a notification with Stop is shown throughout. -->
         <!-- Octopus Mesh: keeps the mesh reachable while the app is in the background; shown with Stop the whole time it runs. -->
+        <!-- Movement recording: keeps the sensors and GPS running with the screen off; shown with Stop the whole time. -->
+        <service android:name=".movement.MovementService" android:exported="false" android:foregroundServiceType="location" />
         <service android:name=".mesh.MeshService" android:exported="false" android:foregroundServiceType="connectedDevice|microphone" />
         <service
             android:name=".echo.EchoService"
