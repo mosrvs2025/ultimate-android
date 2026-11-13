@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <!-- Ultimate never goes online. MediaPipe (camera hand tracking, which runs on the phone) asks for the internet in
          its own manifest; strip it, and check every release with aapt2. -->
+    <!-- Lets the Uninstall buttons work: from Android 9 the system's uninstall screen refuses an app that has not declared this. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
     <!-- Needed to list every installed app on Android 11+, which is the point of Pluck. -->

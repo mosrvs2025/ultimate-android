@@ -125,4 +125,15 @@ class InsightsReportTest {
         assertTrue(md.contains("Too many active sessions for UID 10560")); assertTrue(md.contains("Unexpected runtime error")); assertTrue(md.contains("Move the playhead"))
         assertFalse(md.contains("left the composition")); assertFalse(md.contains("Install cancelled"))
     }
+
+    @Test fun theUpdateFlowIsSummarisedSoAStuckUpdateCanBeSeen() {
+        val md = InsightsReport.markdown(base.copy(features = mapOf("home.nudge.update" to 129, "update.open" to 40, "update.needs_permission" to 12, "update.file_gone" to 3,
+            "update.start" to 25, "update.confirm_shown" to 22, "update.fail.3" to 9, "update.fail.5" to 2, "update.completed" to 11, "home.about" to 31)))
+        assertTrue(md.contains("## Updates"))
+        assertTrue(md.contains("Taps on the Home update nudge: 129 · update screens opened: 40"))
+        assertTrue(md.contains("Sent to Settings to allow installs: 12 · update file gone from Downloads: 3"))
+        assertTrue(md.contains("Failed or declined, by Android's status code: 3: 9, 5: 2"))
+        assertTrue(md.contains("Updates that went through (the version changed): 11"))
+        assertFalse("no update counters, no section", InsightsReport.markdown(base.copy(features = mapOf("home.about" to 1))).contains("## Updates"))
+    }
 }

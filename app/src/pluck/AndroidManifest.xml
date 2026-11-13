@@ -4,4 +4,6 @@
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <!-- Lets the Uninstall buttons work: from Android 9 the system's uninstall screen refuses an app that has not declared this. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 </manifest>

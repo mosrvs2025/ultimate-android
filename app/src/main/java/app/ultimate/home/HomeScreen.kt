@@ -422,11 +422,6 @@ private fun AskBar(app: UltimateApp) {
     var query by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
     val ids = remember { app.tools.map { it.id }.toSet() }
     val results = remember(query) { Commands.available(Commands.search(query), ids, false) }
-    // A request that finds nothing, left for a moment, is worth knowing about: it names a missing tool.
-    LaunchedEffect(query, results.isEmpty()) {
-        // Only a search that truly led nowhere: a phone control (brightness, volume) or a rule sentence is handled by the suggestion row, so it is not a missing tool.
-        if (results.isEmpty() && query.trim().length >= 4 && PhoneCommands.parse(query.trim()) == null && !AiTools.isRule(query.trim())) { kotlinx.coroutines.delay(2500); app.insights.unmatched(query) }
-    }
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) { app.insights.count("home.openfile"); app.shell.offerShared(uris, app.contentResolver.getType(uris[0])) }
     }
@@ -453,7 +448,9 @@ private fun AskBar(app: UltimateApp) {
         lastRun?.let { (c, at) -> FollowUp(app, c, at, onGone = { lastRun = null }) }
         if (query.isEmpty()) KeptControls(app)
         // The command palette: apps, people, messages, files, settings, records and Ultimate's own tools, in one list.
-        PaletteResults(app, query) { app.insights.count("home.palette"); query = "" }
+        // A search the palette truly found nothing for, left for a moment, names a missing tool. (This used to be judged from the older command list alone, which ignored the palette's apps,
+        // files and settings, so searches that worked were reported as "found nothing".) A phone control or a rule sentence is answered by the suggestion row, so it is not a miss.
+        PaletteResults(app, query, onNothing = { q -> if (PhoneCommands.parse(q) == null && !AiTools.isRule(q)) app.insights.unmatched(q) }) { app.insights.count("home.palette"); query = "" }
     }
 }
 
