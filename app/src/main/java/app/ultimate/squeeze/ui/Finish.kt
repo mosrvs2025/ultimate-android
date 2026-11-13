@@ -171,7 +171,16 @@ fun DoneHero(queue: QueueState) {
             } else {
                 val before = done.sumOf { it.source.sizeBytes }
                 val after = done.sumOf { (it.status as Status.Done).outputBytes }
-                Text("Space, reclaimed", style = MaterialTheme.typography.labelLarge, color = onContainer)
+                // Squeezing makes a smaller copy; the space only comes back when the original goes. Say which of the two has happened.
+                val context = androidx.compose.ui.platform.LocalContext.current
+                OriginalsState.deleted.size
+                val left = done.filter { Originals.exists(context, it.uri, it.source.sizeBytes) }
+                val deletable = left.filter { Originals.canDelete(context, it.uri, it.source.sizeBytes) }
+                val stuck = left.size - deletable.size
+                val deleteAll = rememberDeleteOriginals { ok ->
+                    android.widget.Toast.makeText(context, if (ok) "Done. The space is back" else "The originals were kept", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                Text(if (left.isEmpty()) "Space, reclaimed" else "Space you can reclaim", style = MaterialTheme.typography.labelLarge, color = onContainer)
                 Text(formatBytes(count.value.toLong()), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold, color = onContainer)
                 Text(
                     if (done.size == 1) "${done.first().name} is now ${String.format(Locale.US, "%.1f", before.toDouble() / max(after, 1))}× smaller"
@@ -179,7 +188,22 @@ fun DoneHero(queue: QueueState) {
                     style = MaterialTheme.typography.titleMedium, color = onContainer,
                 )
                 Spacer(Modifier.height(6.dp))
-                Text("Saved to Movies/Squeeze. Your originals were not touched.", style = MaterialTheme.typography.bodySmall, color = onContainer.copy(alpha = 0.85f))
+                val plural = if (left.size == 1) "original" else "originals"
+                Text(when {
+                    left.isEmpty() -> "Saved to Movies/Squeeze. The ${if (done.size == 1) "original is" else "originals are"} deleted, so the space is back."
+                    else -> "Saved to Movies/Squeeze. Your $plural still ${if (left.size == 1) "takes" else "take"} up ${formatBytes(left.sumOf { it.source.sizeBytes })}: delete ${if (left.size == 1) "it" else "them"} to get the space back."
+                }, style = MaterialTheme.typography.bodySmall, color = onContainer.copy(alpha = 0.85f))
+                if (deletable.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    androidx.compose.material3.Button({ deleteAll(deletable.map { it.uri to it.source.sizeBytes }) }, Modifier.fillMaxWidth()) {
+                        Text("Delete ${if (deletable.size == 1) "the original" else "${deletable.size} originals"} · frees ${formatBytes(deletable.sumOf { it.source.sizeBytes })}")
+                    }
+                    Text(if (Build.VERSION.SDK_INT >= 30) "It goes to Android's trash for 30 days, after Android asks you to confirm." else "On this version of Android a deleted video is gone for good. Android asks you to confirm.", style = MaterialTheme.typography.labelSmall, color = onContainer.copy(alpha = 0.75f))
+                }
+                if (stuck > 0) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("${if (stuck == 1) "One original" else "$stuck originals"} can't be deleted from here (Android doesn't let this app remove ${if (stuck == 1) "it" else "them"}). Delete in Gallery or Files to get that space back.", style = MaterialTheme.typography.labelSmall, color = onContainer.copy(alpha = 0.85f))
+                }
             }
         }
     }

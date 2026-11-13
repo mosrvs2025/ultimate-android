@@ -9,6 +9,7 @@ The newest version is first. The watch app has its own version (see `wear/build.
 - Heat and battery are recorded with every walk (and shown in Details), and a walk stops and is saved if Android reports the phone as severely hot.
 - Details has a new graph: how far apart the walk and GPS were at each fix over the whole walk. A steady rise is drift; spikes are GPS noise.
 - The map's 3D view no longer builds a second copy of the whole map in memory.
+- Squeeze, when it finishes: a clear Delete original button on the big card (one Android confirmation for all the originals), and the card now says the truth: the space comes back when the original is deleted, not before (it used to say "reclaimed" and "your originals were not touched" at once). Videos picked through Android's photo picker used to get no delete option and no explanation; their real gallery entry is now found (and checked by exact size before anything is deleted), and if Android still won't allow it the card says so.
 
 ## 2.7.0
 - New: World Scan (Ultimate+). Walk down a street, round a building or across a park with the phone held up, and it builds a 3D map of what it sees from the camera's depth and motion tracking, notes where on Earth you were from GPS, and keeps everything on this phone. Start a walk from Home, then watch a live top-down map fill in behind you.

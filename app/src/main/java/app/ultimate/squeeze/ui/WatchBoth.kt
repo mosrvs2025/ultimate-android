@@ -108,33 +108,85 @@ private fun Pane(p: ExoPlayer, label: String, modifier: Modifier) {
     }
 }
 
+/** Which originals have been deleted from here, so every part of the screen (the big card, each row) agrees without asking Android again. Reading it recomposes. */
+object OriginalsState {
+    val deleted = androidx.compose.runtime.mutableStateListOf<String>()
+    fun isGone(uri: Uri) = uri.toString() in deleted
+    fun markGone(uris: List<Uri>) { uris.forEach { deleted.add(it.toString()) } }
+}
+
 /**
  * Deleting the original after a squeeze. It goes to the system trash where Android has one (Android 11 and up, kept 30
  * days), after Android's own confirmation; a file picked through the document picker is deleted through it instead.
  */
 object Originals {
-    /** The gallery address of [uri], when it has one: only those can go to the trash. */
-    fun mediaUri(context: Context, uri: Uri): Uri? = when {
-        uri.authority == MediaStore.AUTHORITY && !uri.toString().contains("/picker") -> uri
+    /**
+     * The gallery address of [uri], when it has one: only those can go to the trash. A video picked through Android's photo picker has
+     * a picker address (`content://media/picker/...`) that cannot be trashed; for a video on this phone its last number is the gallery
+     * entry's id, so the gallery entry is looked up and used only if its size is exactly [expectedSize] (the id alone is not trusted).
+     */
+    fun mediaUri(context: Context, uri: Uri, expectedSize: Long = -1L): Uri? = when {
+        uri.authority == MediaStore.AUTHORITY && uri.toString().contains("/picker") -> pickerEntry(context, uri, expectedSize)
+        uri.authority == MediaStore.AUTHORITY -> uri
         DocumentsContract.isDocumentUri(context, uri) && Build.VERSION.SDK_INT >= 29 -> runCatching { MediaStore.getMediaUri(context, uri) }.getOrNull()
         else -> null
     }?.let { u -> runCatching { ContentUris.parseId(u); u }.getOrNull() }
 
-    fun canDelete(context: Context, uri: Uri): Boolean = mediaUri(context, uri) != null || DocumentsContract.isDocumentUri(context, uri)
+    private fun pickerEntry(context: Context, uri: Uri, expectedSize: Long): Uri? {
+        if (expectedSize <= 0) return null
+        val id = runCatching { ContentUris.parseId(uri) }.getOrNull() ?: return null
+        val candidate = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
+        val size = runCatching { context.contentResolver.query(candidate, arrayOf(MediaStore.MediaColumns.SIZE), null, null, null)?.use { if (it.moveToFirst()) it.getLong(0) else null } }.getOrNull()
+        return candidate.takeIf { size == expectedSize }
+    }
+
+    fun canDelete(context: Context, uri: Uri, expectedSize: Long = -1L): Boolean = mediaUri(context, uri, expectedSize) != null || DocumentsContract.isDocumentUri(context, uri)
+
+    /** Whether the original is still there: not deleted from here and, where Android can say, still in the gallery. */
+    fun exists(context: Context, uri: Uri, expectedSize: Long = -1L): Boolean {
+        if (OriginalsState.isGone(uri)) return false
+        val target = mediaUri(context, uri, expectedSize) ?: return true       // a picker address cannot be asked; trust what we recorded
+        return try { context.contentResolver.query(target, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { it.moveToFirst() } ?: true }
+        catch (e: SecurityException) { true } catch (e: Exception) { false }
+    }
 }
 
-/** Returns a function that deletes (trashes) an original and reports whether it went. */
+/**
+ * Returns a function that deletes (trashes) originals, given each one's address and size, with ONE confirmation from Android for all of the
+ * gallery ones, and reports whether it went.
+ */
 @Composable
-fun rememberDeleteOriginal(onResult: (Boolean) -> Unit): (Uri) -> Unit {
+fun rememberDeleteOriginals(onResult: (Boolean) -> Unit): (List<Pair<Uri, Long>>) -> Unit {
     val context = LocalContext.current
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { onResult(it.resultCode == Activity.RESULT_OK) }
-    return { uri ->
-        val media = Originals.mediaUri(context, uri)
+    var pending by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+        val ok = r.resultCode == Activity.RESULT_OK
+        if (ok) OriginalsState.markGone(pending)
+        onResult(ok)
+    }
+    return { items ->
+        val resolved = items.map { (u, size) -> Pair(u, Originals.mediaUri(context, u, size)) }
+        val docs = resolved.filter { it.second == null }.map { it.first }
+        val media = resolved.filter { it.second != null }
+        val docsGone = docs.filter { runCatching { DocumentsContract.deleteDocument(context.contentResolver, it) }.getOrDefault(false) }
+        OriginalsState.markGone(docsGone)
         when {
-            media != null && Build.VERSION.SDK_INT >= 30 ->
-                launcher.launch(IntentSenderRequest.Builder(MediaStore.createTrashRequest(context.contentResolver, listOf(media), true).intentSender).build())
-            media != null -> onResult(runCatching { context.contentResolver.delete(media, null, null) > 0 }.getOrDefault(false))
-            else -> onResult(runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }.getOrDefault(false))
+            media.isEmpty() -> onResult(docsGone.isNotEmpty())
+            Build.VERSION.SDK_INT >= 30 -> {
+                pending = media.map { it.first }
+                launcher.launch(IntentSenderRequest.Builder(MediaStore.createTrashRequest(context.contentResolver, media.map { it.second!! }, true).intentSender).build())
+            }
+            else -> {
+                val done = media.filter { runCatching { context.contentResolver.delete(it.second!!, null, null) > 0 }.getOrDefault(false) }
+                OriginalsState.markGone(done.map { it.first }); onResult(done.isNotEmpty() || docsGone.isNotEmpty())
+            }
         }
     }
+}
+
+/** Deletes (trashes) one original; see [rememberDeleteOriginals]. */
+@Composable
+fun rememberDeleteOriginal(onResult: (Boolean) -> Unit): (Uri, Long) -> Unit {
+    val bulk = rememberDeleteOriginals(onResult)
+    return { uri, size -> bulk(listOf(uri to size)) }
 }
