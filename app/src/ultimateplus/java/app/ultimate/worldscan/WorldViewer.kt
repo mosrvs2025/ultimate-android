@@ -192,7 +192,8 @@ private fun MapTab(v: PlaceView, selected: String, onSelect: (String) -> Unit) {
     var playing by remember { mutableStateOf(false) }
     val rot = if (northUp && v.baseGeo?.usable == true) (-Math.toDegrees(v.baseGeo.thetaRad)).toFloat() else 0f
     // Fit the whole map into the view the first time and when the layers change.
-    LaunchedEffect(boxSize, v) {
+    // Fitted once when the map is first measured (and when a different map arrives), not on every resize: turning the phone keeps where you panned and how far you zoomed.
+    LaunchedEffect(v, boxSize.width > 0) {
         if (boxSize.width == 0) return@LaunchedEffect
         val r = v.raster; val xs = ArrayList<Float>(); val zs = ArrayList<Float>()
         if (r != null) { xs += r.x0; xs += r.x0 + r.w * r.cell; zs += r.z0; zs += r.z0 + r.h * r.cell }

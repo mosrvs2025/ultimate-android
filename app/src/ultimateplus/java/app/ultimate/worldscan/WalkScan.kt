@@ -158,10 +158,12 @@ class WalkScan(private val context: Context, val session: Session, private val s
     private fun defaultName(at: Long) = java.text.SimpleDateFormat("d MMM, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at))
 
     /** Ends the walk now, for [why], and stops the sensors and GPS at once (not when the screen gets round to saving). */
-    private fun end(why: String) { if (!recording) return; recording = false; recorder?.note("end", why); recorder?.stop(); upd { copy(phase = WalkPhase.ENDED, endedBecause = why) } }
+    /** Called once when the walk ends by itself, so it can be saved even if the screen is gone. */
+    @Volatile var onEnded: (() -> Unit)? = null
+    private fun end(why: String) { if (!recording) return; recording = false; recorder?.note("end", why); recorder?.stop(); upd { copy(phase = WalkPhase.ENDED, endedBecause = why) }; onEnded?.invoke() }
 
     /** World Scan only collects in the foreground: if the app is sent away mid-walk, the walk is stopped (and then saved). */
-    fun endForBackground() = end("The app was sent to the background, so the walk was stopped and saved. World Scan only records while it is on screen.")
+    fun endForBackground(screenRecreated: Boolean = false) = end(if (screenRecreated) "The screen was rebuilt (a change of language, theme or size), so the walk was stopped and saved." else "The app was sent to the background, so the walk was stopped and saved. World Scan only records while it is on screen.")
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         val t = IntArray(1); GLES20.glGenTextures(1, t, 0); tex = t[0]
