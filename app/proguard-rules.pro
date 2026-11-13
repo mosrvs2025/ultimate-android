@@ -33,6 +33,8 @@
 -keep class app.ultimate.vision.AirTool { public <init>(app.ultimate.UltimateApp); }
 # Room scan (Ultimate+): created by name; ARCore is called from native code.
 -keep class app.ultimate.room.RoomScanTool { public <init>(app.ultimate.UltimateApp); }
+# World Scan (Ultimate+): created by name, like Room scan.
+-keep class app.ultimate.worldscan.WorldScanTool { public <init>(app.ultimate.UltimateApp); }
 -keep class com.google.ar.** { *; }
 # MediaPipe logs through Flogger, which finds its backend by class name (DefaultPlatform); renamed by R8, the first
 # logger fails in its static initialiser and MediaPipe reports ExceptionInInitializerError (seen on a Fold, 1.62.1).

@@ -3,6 +3,7 @@ package app.ultimate.worldscan
 import app.ultimate.room.Box
 import app.ultimate.room.RoomMap
 import app.ultimate.room.ScanIntegrator
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
@@ -67,5 +68,59 @@ class WalkCaptureSimTest {
         var bad = 0
         for (i in 0 until s.size) { val z = s.zs[i]; if (z > -6.0f && z < -3.0f) bad++ }
         assertTrue("$bad structure columns on the pavement of ${s.size}", bad <= s.size * 0.03)
+    }
+
+    // ---------------------------------------------------------------- two whole walks, end to end
+    private fun rotY(m: FloatArray, a: Float): FloatArray {
+        val c = kotlin.math.cos(a); val s = kotlin.math.sin(a); val o = FloatArray(16)
+        for (col in 0 until 4) { val x = m[col * 4]; val z = m[col * 4 + 2]; o[col * 4] = x * c + z * s; o[col * 4 + 1] = m[col * 4 + 1]; o[col * 4 + 2] = -x * s + z * c; o[col * 4 + 3] = m[col * 4 + 3] }
+        return o
+    }
+
+    /**
+     * Walks the street from [x0] to [x1] along z=-4.5 the way [WalkScan] captures it: depth into the walking settings' integrator, a new piece every
+     * [WalkSettings.PIECE_LENGTH_M] of path. The phone's own frame is the street turned by [yaw] and shifted by ([tx], [tz]) with its origin at start
+     * height (as ARCore's is), and it drifts: its heading is [driftDegPerM] degrees further wrong for every metre walked.
+     */
+    private fun walkPieces(seed: Int, yaw: Float, tx: Float, tz: Float, x0: Float, x1: Float, driftDegPerM: Float): List<WalkChunk> {
+        val rnd = Random(seed); var x = x0; var t = 1_000_000_000L; var k = 0; var path = 0.0
+        val out = ArrayList<WalkChunk>(); var map = WalkSettings.newMap(); var integ = WalkSettings.integrator(map); var t0 = t
+        while (x < x1) {
+            val world = WorldSim.cam(x, -4.5f, 12f * kotlin.math.sin(k / 9.0).toFloat(), -4f + 6f * kotlin.math.sin(k / 13.0).toFloat())
+            val session = rotY(app.ultimate.room.Sim.toSession(world, yaw, tx, -1.4f, tz), Math.toRadians((driftDegPerM * (x - x0)).toDouble()).toFloat())
+            integ.noteCamera(session); integ.integrate(WorldSim.frame(WorldSim.street, world, rnd, t, sessionPose = session))
+            x += pace / fps; t += 1_000_000_000L / fps; k++; path += pace / fps
+            if (path >= WalkSettings.PIECE_LENGTH_M) { out += WalkChunk(map, t0, t); map = WalkSettings.newMap(); integ = WalkSettings.integrator(map); t0 = t; path = 0.0 }
+        }
+        if (map.solid > 50) out += WalkChunk(map, t0, t)
+        return out
+    }
+
+    @Test fun twoSimulatedWalksOfTheSameStreetRegisterAndTheSecondImprovesTheFirst() {
+        // 0.012 degrees of heading error per metre is about what motion tracking drifts (1% of the distance); 0.04 is a bad walk.
+        for ((drift, mustRefine) in listOf(0.012f to false, 0.04f to true)) {
+            val first = walkPieces(seed = 1, yaw = 0f, tx = 0f, tz = 0f, x0 = 2f, x1 = 60f, driftDegPerM = 0f)
+            val second = walkPieces(seed = 2, yaw = 23.5f, tx = 7.2f, tz = -4.1f, x0 = 4f, x1 = 58f, driftDegPerM = drift)
+            assertTrue("pieces ${first.size}/${second.size}", first.size >= 3 && second.size >= 3)
+            val dir = java.io.File(System.getProperty("java.io.tmpdir"), "ws2e" + System.nanoTime()); val store = WalkStore(dir)
+            fun input(id: String, pieces: List<WalkChunk>) = WalkInput(id, id, 0L, 1L, WalkTrack().also { tr -> for (i in 0..200) tr.add(PosePoint(i * 100_000_000L, i * 0.28f, 0f, 0f, 0f, 0f, 0f, 1f, TrackingQuality.TRACKING)) }, pieces, null, emptyList(), null, null, 0, "")
+            val pid = store.save(input("a", first), null).place.id
+            val cubesBefore = store.baseMap(pid)!!.solid
+            val m = store.save(input("b", second), pid).merge!!
+            println("SIM merge (drift $drift deg/m): ${m.summary()} | whole-walk fit ${"%.1f".format((m.global?.meanDist ?: 0f) * 100)} cm, yaw ${m.global?.alignment?.yawDeg}, margin ${m.global?.margin}")
+            assertTrue(m.summary(), m.accepted)
+            // Both sessions have their origin at start height, so the true height shift between them is zero; the true turn and shift are those of Sim.truth.
+            val truth = app.ultimate.room.Sim.truth(23.5f, 7.2f, -1.4f, -4.1f)
+            val g = m.global!!.alignment
+            assertTrue("yaw ${g.yawDeg} vs ${truth.yawDeg}", abs(((g.yawDeg - truth.yawDeg + 540f) % 360f) - 180f) < 1.5f + drift * 40f)
+            assertEquals(0f, m.dy!!, 0.15f)
+            assertTrue("used ${m.used} of ${second.size}", m.used >= second.size - 1)
+            assertTrue("average fit ${m.meanCm} cm", m.meanCm < 25f)
+            if (mustRefine) assertTrue("fitted individually ${m.refined}", m.refined >= 1)
+            val after = store.baseMap(pid)!!.solid
+            println("SIM merge: cubes $cubesBefore -> $after")
+            assertTrue("map shrank: $cubesBefore -> $after", after >= cubesBefore * 0.97)
+            dir.deleteRecursively()
+        }
     }
 }

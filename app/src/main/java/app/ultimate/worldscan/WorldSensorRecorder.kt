@@ -49,6 +49,8 @@ class WorldSensorRecorder(private val context: Context, private val maxBytes: Lo
     private var writer: java.io.Writer? = null
     @Volatile private var active = false
     @Volatile private var truncated = false
+    /** What [stop] reported the first time, so stopping twice (the walk ended by itself, then you tapped Stop) loses nothing. */
+    private var finalSummary: RecorderSummary? = null
     private val lock = Any()
     private val counts = HashMap<String, Int>(); private val sensorCounts = HashMap<Int, Int>()
     private val accuracies = ArrayList<Float>()
@@ -82,7 +84,7 @@ class WorldSensorRecorder(private val context: Context, private val maxBytes: Lo
         val counting = CountingStream(BufferedOutputStream(FileOutputStream(file), 32 * 1024))
         out = counting
         writer = java.io.OutputStreamWriter(GZIPOutputStream(counting, 16 * 1024, true), Charsets.UTF_8)
-        sessionFile = file; active = true; truncated = false; counts.clear(); sensorCounts.clear(); accuracies.clear(); fixList.clear()
+        finalSummary = null; sessionFile = file; active = true; truncated = false; counts.clear(); sensorCounts.clear(); accuracies.clear(); fixList.clear()
         val ht = HandlerThread("world-sensors").also { it.start() }; thread = ht
         val handler = Handler(ht.looper)
         try {
@@ -110,11 +112,8 @@ class WorldSensorRecorder(private val context: Context, private val maxBytes: Lo
 
     override fun onSensorChanged(event: SensorEvent) {
         if (!active || truncated) return
-        val sb = StringBuilder(96).append("{\"type\":\"sensor\",\"s\":").append(event.sensor.type).append(",\"t\":").append(event.timestamp).append(",\"a\":").append(event.accuracy).append(",\"v\":[")
-        for (i in event.values.indices) { if (i > 0) sb.append(','); val v = event.values[i]; if (v.isFinite()) sb.append(v) else sb.append("null") }
-        sb.append("]}")
         synchronized(lock) { sensorCounts[event.sensor.type] = (sensorCounts[event.sensor.type] ?: 0) + 1 }
-        line("sensor", sb.toString())
+        line("sensor", LogLines.sensor(event.sensor.type, event.timestamp, event.accuracy, event.values))
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
@@ -125,14 +124,7 @@ class WorldSensorRecorder(private val context: Context, private val maxBytes: Lo
         lastFixRealtimeMs = SystemClock.elapsedRealtime()
         synchronized(lock) { if (acc != null) { accuracies += acc; fixList += GeoFix(location.latitude, location.longitude, if (location.hasAltitude()) location.altitude else null, acc, location.elapsedRealtimeNanos) } }
         live.value = GnssLive(acc, (live.value.fixes) + 1, 0L, location.provider, true)
-        val sb = StringBuilder(160).append("{\"type\":\"location\",\"t\":").append(location.elapsedRealtimeNanos)
-            .append(",\"lat\":").append(location.latitude).append(",\"lon\":").append(location.longitude)
-            .append(",\"acc\":").append(acc ?: "null")
-            .append(",\"alt\":").append(if (location.hasAltitude()) location.altitude else "null")
-            .append(",\"speed\":").append(if (location.hasSpeed()) location.speed else "null")
-            .append(",\"bearing\":").append(if (location.hasBearing()) location.bearing else "null")
-            .append(",\"provider\":\"").append(location.provider ?: "unknown").append("\"}")
-        line("location", sb.toString())
+        line("location", LogLines.location(location.elapsedRealtimeNanos, location.latitude, location.longitude, acc, if (location.hasAltitude()) location.altitude else null, if (location.hasSpeed()) location.speed else null, if (location.hasBearing()) location.bearing else null, location.provider))
     }
 
     // API 29 calls these on GPS fixes and provider changes; without them the app crashes with AbstractMethodError on Android 10.
@@ -155,11 +147,11 @@ class WorldSensorRecorder(private val context: Context, private val maxBytes: Lo
         if (!active || frameNanos < 0L || receivedNanos < 0L) return
         if (receivedNanos - lastPoseAt < 100_000_000L && tracking == TrackingQuality.TRACKING) return
         lastPoseAt = receivedNanos
-        line("pose", "{\"type\":\"pose\",\"tf\":$frameNanos,\"tr\":$receivedNanos,\"p\":[$x,$y,$z],\"q\":[$qx,$qy,$qz,$qw],\"k\":\"${tracking.name}\"}")
+        line("pose", LogLines.pose(frameNanos, receivedNanos, x, y, z, qx, qy, qz, qw, tracking))
     }
 
     /** A note that belongs in the log (a pause, a tracking loss, a chunk boundary), stamped with the elapsed-realtime clock. */
-    fun note(kind: String, detail: String) { if (active) line("note", "{\"type\":\"note\",\"t\":${SystemClock.elapsedRealtimeNanos()},\"kind\":\"${kind.replace("\"", "'")}\",\"detail\":\"${detail.replace("\"", "'").replace("\n", " ")}\"}") }
+    fun note(kind: String, detail: String) { if (active) line("note", LogLines.note(SystemClock.elapsedRealtimeNanos(), kind, detail)) }
 
     private fun line(kind: String, json: String) {
         synchronized(lock) {
@@ -177,7 +169,7 @@ class WorldSensorRecorder(private val context: Context, private val maxBytes: Lo
 
     /** Stops everything and closes the file. Safe to call twice. Returns what was written, or null when nothing was started. */
     fun stop(): RecorderSummary? {
-        if (!active && writer == null) return null
+        if (!active && writer == null) return finalSummary
         active = false
         runCatching { sensorManager.unregisterListener(this) }
         runCatching { locationManager.removeUpdates(this) }
@@ -191,7 +183,7 @@ class WorldSensorRecorder(private val context: Context, private val maxBytes: Lo
         }
         val med = synchronized(lock) { accuracies.sorted().let { if (it.isEmpty()) null else it[it.size / 2].toDouble() } }
         file ?: return null
-        return RecorderSummary(file, bytes, truncated, HashMap(counts), HashMap(sensorCounts), counts["location"] ?: 0, med, available)
+        return RecorderSummary(file, bytes, truncated, HashMap(counts), HashMap(sensorCounts), counts["location"] ?: 0, med, available).also { finalSummary = it }
     }
 
     override fun close() { stop() }

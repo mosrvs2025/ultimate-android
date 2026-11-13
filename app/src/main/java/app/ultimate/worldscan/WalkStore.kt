@@ -80,6 +80,11 @@ class WalkStore(private val root: File) {
      */
     fun save(input: WalkInput, placeId: String?, now: Long = System.currentTimeMillis()): SaveResult {
         val pid = placeId ?: UUID.randomUUID().toString()
+        try { return saveInto(input, placeId, pid, now) }
+        catch (e: Throwable) { if (placeId == null) File(placesDir, pid).deleteRecursively() else walkDir(pid, input.id).deleteRecursively(); throw e }
+    }
+
+    private fun saveInto(input: WalkInput, placeId: String?, pid: String, now: Long): SaveResult {
         val dir = File(placesDir, pid); val wdir = walkDir(pid, input.id).apply { mkdirs() }
         // 1. Camera clock -> sensor clock
         val clock = input.clock?.takeIf { it.ready }

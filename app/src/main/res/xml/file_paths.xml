@@ -7,5 +7,7 @@
     <!-- Files: opening and sharing anything on shared storage (needs all-files access, Ultimate editions only). -->
     <!-- Sense recordings exported for training (hand points and motion, no pictures). -->
     <cache-path name="senses" path="senses/" />
+    <!-- World Scan exports (a walk's path as GeoJSON, its map as a point cloud), made only when you choose to share one. -->
+    <cache-path name="worldscan" path="worldscan/" />
     <external-path name="storage" path="." />
 </paths>

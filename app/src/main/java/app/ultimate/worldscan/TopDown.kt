@@ -17,17 +17,17 @@ class Raster(val x0: Float, val z0: Float, val cell: Float, val w: Int, val h: I
  * map. The ground height is estimated from the data (a low percentile of column bottoms), not assumed. Pure, so it is tested.
  */
 object TopDown {
-    fun render(maps: List<RoomMap>, cell: Float = 0.25f, window: FloatArray? = null, maxCells: Int = 1_200_000): Raster? {
+    fun render(maps: List<RoomMap>, cell: Float = 0.25f, window: FloatArray? = null, maxCells: Int = 1_200_000, guard: Boolean = false): Raster? {
         var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var minZ = Float.MAX_VALUE; var maxZ = -Float.MAX_VALUE; var n = 0
         // window = [centreX, centreZ, halfSize] limits the picture to a square around a point (the live minimap).
         fun inWin(x: Float, z: Float) = window == null || (kotlin.math.abs(x - window[0]) <= window[2] && kotlin.math.abs(z - window[1]) <= window[2])
-        for (m in maps) m.forEachSolid { x, _, z -> if (inWin(x, z)) { n++; if (x < minX) minX = x; if (x > maxX) maxX = x; if (z < minZ) minZ = z; if (z > maxZ) maxZ = z } }
+        for (m in maps) each(m, guard) { x, _, z -> if (inWin(x, z)) { n++; if (x < minX) minX = x; if (x > maxX) maxX = x; if (z < minZ) minZ = z; if (z > maxZ) maxZ = z } }
         if (n == 0) return null
         var c = cell
         while ((ceil((maxX - minX) / c) + 1) * (ceil((maxZ - minZ) / c) + 1) > maxCells) c *= 1.5f
         val w = ceil((maxX - minX) / c).toInt() + 1; val h = ceil((maxZ - minZ) / c).toInt() + 1
         val lo = FloatArray(w * h) { Float.MAX_VALUE }; val hi = FloatArray(w * h) { -Float.MAX_VALUE }; val cnt = IntArray(w * h)
-        for (m in maps) m.forEachSolid { x, y, z ->
+        for (m in maps) each(m, guard) { x, y, z ->
             if (inWin(x, z)) { val i = ((z - minZ) / c).toInt().coerceIn(0, h - 1) * w + ((x - minX) / c).toInt().coerceIn(0, w - 1); if (y < lo[i]) lo[i] = y; if (y > hi[i]) hi[i] = y; cnt[i]++ }
         }
         val lows = ArrayList<Float>(); for (i in lo.indices) if (cnt[i] > 0) lows += lo[i]
@@ -35,6 +35,11 @@ object TopDown {
         val out = IntArray(w * h)
         for (i in out.indices) if (cnt[i] > 0) out[i] = colour(hi[i] - ground, cnt[i])
         return Raster(minX, minZ, c, w, h, out, ground, n)
+    }
+
+    /** Visits the solid cubes of [m], holding the map's lock while doing so when [guard] (a map that a scan is still writing to). */
+    private inline fun each(m: RoomMap, guard: Boolean, crossinline f: (Float, Float, Float) -> Unit) {
+        if (guard) synchronized(m) { m.forEachSolid { x, y, z -> f(x, y, z) } } else m.forEachSolid { x, y, z -> f(x, y, z) }
     }
 
     /** Colour for a column [height] metres tall seen by [count] cubes: hue by height, opacity by how much evidence there is. */
