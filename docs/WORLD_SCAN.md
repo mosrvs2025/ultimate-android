@@ -1,6 +1,6 @@
 # Ultimate World Scan
 
-**Status: a working end-to-end tool in Ultimate+ (2.7.0). Tested in simulation and by unit tests; not yet measured on a phone in a street.** Every number below says which of those it is.
+**Status: a working end-to-end tool in Ultimate+ (2.7.1). Tested in simulation and by unit tests; not yet measured on a phone in a street.** Every number below says which of those it is.
 
 World Scan is a personal, local-first mapping instrument: you walk with the phone held up, and it builds a 3D map from ARCore's motion tracking and depth, places the walk on the Earth with GPS, keeps the walk's raw record, and lets you come back and walk the same place again to improve the map. Nothing is uploaded; files leave the phone only when you share one.
 
@@ -97,6 +97,14 @@ All numbers in this table come from tests on a made-up street (ray-cast depth ov
 | Same with 3× realistic heading drift (0.04°/m) | whole-walk fit 9.4 cm; 3 of 4 pieces fitted individually; average fit 6 cm |
 | Long flat wall only | refused as ambiguous, map unchanged |
 | A different street | refused, map unchanged (checked point by point) |
+
+### 3.6 Placing the place from every walk (`PlaceGeo`, 2.7.1)
+
+A walk's GPS error is mostly a slow bias (buildings, which satellites were in view that day), so one walk cannot average it away. Walks made at different times have independent errors. Every walk added to a place has its path carried into the place's frame by the alignment it was merged with (piece by piece), and all the fixes are fitted together with the same robust fit as one walk. The heading uncertainty is then `1/sqrt(Σ information)`, which falls with every walk; a place whose first walk had no GPS is placed by a later one. The place's placement is what the next merge's search window is built from. In the test (three simulated walks of the same L-shaped route, independent GPS bias and noise) the heading uncertainty falls from walk to walk and the error stays inside what is claimed; the numbers are printed by the test (`SIM place geo`).
+
+### 3.7 What is recorded about the phone
+
+Each walk stores the highest thermal status Android reported and the battery percentage at the start and end (whole percents), shown in Details, so the checklist's heat and battery question is answered by the app. A walk is stopped and saved at "severe" heat.
 
 ## 4. Capture format (JSON lines, gzip, schema 2)
 

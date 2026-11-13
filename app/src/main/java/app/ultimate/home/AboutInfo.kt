@@ -62,6 +62,13 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("2.7.1", listOf(
+            "World Scan places a whole place from every walk of it. Each added walk's GPS is carried into the place's frame and all of it is fitted together, so GPS errors that differ from day to day average out: the heading and position get tighter with every walk, and a place whose first walk had no GPS is placed by a later one that did. The place card says how many walks it is placed from.",
+            "While you walk: a panel under the cubes chip (tap it) shows what the depth filters are throwing away, the camera-clock sync, GPS fixes, phone temperature and battery. The coach now speaks from the last five seconds of what was actually rejected (moving too fast, or depth too weak: dark, plain or far) instead of one frame, and says nothing when you simply stand still.",
+            "Heat and battery are recorded with every walk (and shown in Details), and a walk stops and is saved if Android reports the phone as severely hot.",
+            "Details has a new graph: how far apart the walk and GPS were at each fix over the whole walk. A steady rise is drift; spikes are GPS noise.",
+            "The map's 3D view no longer builds a second copy of the whole map in memory.",
+        ), tries = listOf("worldscan")),
         Entry("2.7.0", listOf(
             "New: World Scan (Ultimate+). Walk down a street, round a building or across a park with the phone held up, and it builds a 3D map of what it sees from the camera's depth and motion tracking, notes where on Earth you were from GPS, and keeps everything on this phone. Start a walk from Home, then watch a live top-down map fill in behind you.",
             "Walk it again to make it better. Add a second walk to a place and the new walk is lined up with the old one, piece by piece (motion tracking drifts, so every 15 metres is fitted on its own), and only added if it truly fits. If the match isn't clearly the best one (a long straight wall can slide along itself) or the walks don't overlap, it is kept as its own walk, with the reason, and the saved map is not changed. Undo the last add any time.",

@@ -143,7 +143,6 @@ private fun loadPlace(tool: WorldScanTool, place: Place): PlaceView {
     val image = raster?.let { WorldScanTool.bitmapOf(it) }
     // At most ~40,000 cubes for the 3D view, taken evenly from the whole map without building a second copy of it.
     val pts = ArrayList<P3>().also { out -> base?.let { b -> val step = maxOf(1, b.solid / 40_000); var i = 0; b.forEachSolid { x, y, z -> if (i++ % step == 0) out += P3(x, y, z) } } }
-    val baseWalk = place.walks.firstOrNull { it.id == place.baseWalkId }
     val views = ArrayList<WalkView>()
     for ((n, w) in place.walks.withIndex()) {
         val isBase = w.id == place.baseWalkId
@@ -162,16 +161,14 @@ private fun loadPlace(tool: WorldScanTool, place: Place): PlaceView {
         // GPS fixes written in the place's frame (only for the first walk: later walks' fixes would need their own placement drawn).
         var ft = LongArray(0); var fx = FloatArray(0); var fz = FloatArray(0); var fa = FloatArray(0)
         if (isBase && w.geo?.usable == true) {
-            val log = store.rawLog(place.id, w.id)?.let { runCatching { SessionLog.read(it) }.getOrNull() }
-            if (log != null) {
-                val g = w.geo
-                ft = LongArray(log.fixes.size); fx = FloatArray(log.fixes.size); fz = FloatArray(log.fixes.size); fa = FloatArray(log.fixes.size)
-                log.fixes.forEachIndexed { i, f -> val e = g.anchor.project(f); val (lx, lz) = g.toLocal(e.eastMeters, e.northMeters); ft[i] = f.elapsedRealtimeNanos; fx[i] = lx; fz[i] = lz; fa[i] = f.horizontalAccuracyMeters }
-            }
+            val g = w.geo
+            val list = store.fixes(place.id, w.id).ifEmpty { store.rawLog(place.id, w.id)?.let { f -> runCatching { SessionLog.read(f).fixes }.getOrNull() } ?: emptyList() }
+            ft = LongArray(list.size); fx = FloatArray(list.size); fz = FloatArray(list.size); fa = FloatArray(list.size)
+            list.forEachIndexed { i, f -> val e = g.anchor.project(f); val (lx, lz) = g.toLocal(e.eastMeters, e.northMeters); ft[i] = f.elapsedRealtimeNanos; fx[i] = lx; fz[i] = lz; fa[i] = f.horizontalAccuracyMeters }
         }
         views += WalkView(w, if (isBase) walkColours[0] else walkColours[1 + (n % (walkColours.size - 1))], t.copyOf(k), x.copyOf(k), y.copyOf(k), z.copyOf(k), ok.copyOf(k), cum.copyOf(k), ft, fx, fz, fa, null)
     }
-    return PlaceView(raster, image, pts, views, baseWalk?.geo)
+    return PlaceView(raster, image, pts, views, place.bestGeo)
 }
 
 // ---------------------------------------------------------------------- map + replay
@@ -343,6 +340,33 @@ private fun DetailsTab(tool: WorldScanTool, place: Place, v: PlaceView, selected
                 Button({ retrying = true; scope.launch { val r = withContext(Dispatchers.Default) { store.retryMerge(place.id, w.id) }; retryMsg = r?.summary(); retrying = false; onChanged() } }, enabled = !retrying) { Text(if (retrying) "Trying…" else "Try adding it again") }
                 retryMsg?.let { Text(it, color = WorldColors.amber, fontSize = 12.sp) }
             }
+        }
+        Section("The phone", listOf(
+            "Heat" to if (w.thermalMax < 0) "not recorded" else "peak: ${WorldScanTool.thermalName(w.thermalMax)} (Android's thermal status ${w.thermalMax})",
+            "Battery" to if (w.batteryStart < 0 || w.batteryEnd < 0) "not recorded" else "${w.batteryStart}% to ${w.batteryEnd}% over ${WorldScanTool.clockText(w.durationS)}" + if (w.durationS > 120 && w.batteryStart >= w.batteryEnd) " (${"%.1f".format((w.batteryStart - w.batteryEnd) * 3600.0 / w.durationS)}% an hour; whole-percent resolution)" else ""))
+        val walkView = v.walks.firstOrNull { it.meta.id == w.id }
+        val drift = walkView?.let { wv -> if (wv.fixT.isEmpty()) null else DriftSeries.of(wv.t, wv.x, wv.z, wv.tracked, wv.fixT, wv.fixX, wv.fixZ) }
+        if (drift != null && drift.size >= 4) {
+            val ends = DriftSeries.firstAndLastThird(drift)
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(WorldColors.card).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Walk vs GPS over time", color = WorldColors.teal, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                val top = (drift.maxOf { it.second }).coerceAtLeast(2.0).toFloat()
+                Canvas(Modifier.fillMaxWidth().height(70.dp)) {
+                    val tMax = drift.last().first.coerceAtLeast(1.0).toFloat()
+                    drawLine(WorldColors.line, Offset(0f, size.height), Offset(size.width, size.height), 2f)
+                    val p = Path(); drift.forEachIndexed { i, (ts, m) -> val o = Offset(ts.toFloat() / tMax * size.width, size.height - (m.toFloat() / top) * size.height); if (i == 0) p.moveTo(o.x, o.y) else p.lineTo(o.x, o.y) }
+                    drawPath(p, WorldColors.amber, style = Stroke(3f, cap = StrokeCap.Round))
+                }
+                Text("How far apart the walk and GPS were at each fix (0 to ${"%.0f".format(top)} m). A steady rise means the walk drifted; spikes are GPS noise." + (ends?.let { " First third median ${"%.1f".format(it.first)} m, last third ${"%.1f".format(it.second)} m." } ?: ""), color = Color.White.copy(alpha = 0.75f), fontSize = 11.sp, lineHeight = 15.sp)
+            }
+        }
+        place.geo?.let { pg ->
+            val own = place.walks.firstOrNull { it.id == place.baseWalkId }?.geo
+            Section("The place on the Earth", listOf(
+                "Placement" to pg.summary(),
+                "From" to "${place.geoWalks} walk${if (place.geoWalks == 1) "" else "s"} with GPS, each carried into the place's frame by the way it was added",
+                "Heading" to "±${"%.2f".format(pg.yawSigmaDeg)}°" + (own?.takeIf { it.usable }?.let { " (the first walk alone: ±${"%.2f".format(it.yawSigmaDeg)}°)" } ?: ""),
+                "North" to if (pg.usable) "the first walk's −Z axis points ${"%.0f".format(pg.northOffsetDeg)}° from north" else "unknown"))
         }
         Section("This place", listOf("Walks" to "${place.walks.size} (${place.mergeOrder.size} added to the first)", "Stored" to "${formatBytes(store.bytes(place.id))} on this phone only", "Free space" to formatBytes(store.freeBytes())))
         Spacer(Modifier.height(20.dp))
