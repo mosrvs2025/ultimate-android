@@ -65,7 +65,7 @@ class ShareCleanActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     runCatching { withContext(Dispatchers.IO) { cleaner.reset(); uris.map { cleaner.clean(it, intent.type) } } }
                         .onSuccess { result = it; share(it); track("shareclean.${if (it.any { c -> c.mime.startsWith("video/") }) "video" else "photo"}") }
-                        .onFailure { error = it.message ?: "This file couldn't be cleaned"; trackProblem("Share clean", error) }
+                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; error = it.message ?: "This file couldn't be cleaned"; trackProblem("Share clean", error) }
                 }
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)).clickable { finish() }, contentAlignment = Alignment.BottomCenter) {
                     Column(

@@ -35,6 +35,35 @@ data class InsightsInput(
     val setup: List<Pair<String, String>> = emptyList(),
 )
 
+/**
+ * Something that went wrong, has been fixed, and so should not be reported as open. [matches] recognises it from the exception type and
+ * its text (message and stack frames); [fixedIn] is the first version without it. Only fixes that were checked in the code belong here:
+ * a problem that was "fixed" and still turned up afterwards is not listed (see the install-session entry in the notes, deliberately absent).
+ */
+class KnownFix(val name: String, val fixedIn: String, val matches: (type: String, text: String) -> Boolean)
+
+object KnownFixes {
+    val all = listOf(
+        KnownFix("Studio timeline ruler: a negative width when trimming", "1.50.0") { _, t -> "must be >= than minWidth" in t && "maxWidth(" in t },
+        KnownFix("Notification list: the same record twice crashed the list", "1.89.0") { _, t -> "was already used" in t && "LazyColumn" in t },
+    )
+
+    fun find(c: Crash): KnownFix? { val text = c.type + " " + (c.message ?: "") + " " + c.frames.joinToString(" "); return all.firstOrNull { it.matches(c.type, text) } }
+
+    /** Negative when [a] is an older version than [b]: compares the numbers in "1.49.1" and "2.8.0" part by part. */
+    fun compare(a: String, b: String): Int {
+        val x = a.split('.', '-').mapNotNull { it.toIntOrNull() }; val y = b.split('.', '-').mapNotNull { it.toIntOrNull() }
+        for (k in 0 until maxOf(x.size, y.size)) { val d = x.getOrElse(k) { 0 } - y.getOrElse(k) { 0 }; if (d != 0) return d }
+        return 0
+    }
+}
+
+/** Messages that are not problems: work that was cancelled on purpose (a screen closed, an install declined) and so says nothing about what to fix. */
+object ProblemNoise {
+    private val quiet = listOf("left the composition", "Install cancelled", "was cancelled", "Job was cancelled")
+    fun isNoise(message: String) = quiet.any { it in message }
+}
+
 /** Turns what the phone knows about Ultimate's use into Markdown an AI (or a person) can plan the next version from. */
 object InsightsReport {
     const val PROMPT = "This is a usage report from my Ultimate Android app (a personal, ad-free, offline-first super app). " +
@@ -87,7 +116,8 @@ object InsightsReport {
         }
         appendLine("## Problems shown")
         appendLine()
-        if (i.problems.isEmpty()) appendLine("None recorded.") else i.problems.forEach { appendLine("- ${cell(it)}") }
+        val shown = i.problems.filterNot { ProblemNoise.isNoise(it) }
+        if (shown.isEmpty()) appendLine("None recorded.") else shown.forEach { appendLine("- ${cell(it)}") }
         appendLine()
         if (i.setup.isNotEmpty()) {
             appendLine("## Setup")
@@ -97,11 +127,7 @@ object InsightsReport {
         }
         appendLine("## Crashes")
         appendLine()
-        if (i.crashes.isEmpty()) appendLine("None recorded.")
-        i.crashes.sortedByDescending { it.at }.forEach { c ->
-            appendLine("- ${day.format(Date(c.at))} · ${c.version} · `${c.type}`${c.message?.let { ": ${cell(it.take(200))}" } ?: ""}")
-            c.frames.forEach { appendLine("  - `$it`") }
-        }
+        crashSection(i)
         appendLine()
         if (i.apps != null) {
             appendLine("## My other apps")
@@ -126,6 +152,30 @@ object InsightsReport {
                 appendLine()
                 if (recent.isNotEmpty()) appendLine("Opened in the last 60 days but not this week: ${recent.sortedBy { it.label.lowercase() }.joinToString { it.label }}.")
                 if (stale.isNotEmpty()) appendLine("Not opened in 60 days: ${stale.sortedBy { it.label.lowercase() }.joinToString { it.label }}.")
+            }
+        }
+    }
+
+    private fun StringBuilder.crashSection(i: InsightsInput) {
+        val day = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        if (i.crashes.isEmpty()) { appendLine("None recorded."); return }
+        fun sig(c: Crash) = c.type + "|" + (c.frames.firstOrNull()?.substringBeforeLast(':') ?: (c.message ?: "").take(40))
+        val cur = i.version
+        val seenNow = i.crashes.filter { KnownFixes.compare(it.version, cur) >= 0 }.map { sig(it) }.toSet()
+        // A crash is closed when the code is known to have fixed it before this version, or when it happened only on older builds and has not come back on this one.
+        fun fixOf(c: Crash) = KnownFixes.find(c)?.takeIf { KnownFixes.compare(c.version, it.fixedIn) < 0 && KnownFixes.compare(cur, it.fixedIn) >= 0 }
+        val (closed, open) = i.crashes.partition { c -> fixOf(c) != null || (KnownFixes.compare(c.version, cur) < 0 && sig(c) !in seenNow) }
+        if (open.isEmpty()) appendLine("None on $cur.") else open.sortedByDescending { it.at }.forEach { c ->
+            appendLine("- ${day.format(Date(c.at))} · ${c.version} · `${c.type}`${c.message?.let { ": ${cell(it.take(200))}" } ?: ""}")
+            c.frames.forEach { appendLine("  - `$it`") }
+        }
+        if (closed.isNotEmpty()) {
+            appendLine()
+            appendLine("Already fixed, or not seen again on $cur (not worth any time unless one returns):")
+            closed.groupBy { c -> fixOf(c)?.name ?: sig(c) }.forEach { (_, group) ->
+                val first = group.first(); val fix = fixOf(first); val versions = group.map { it.version }.distinct().joinToString(", ")
+                if (fix != null) appendLine("- ${fix.name}: ${group.size}× on $versions; fixed in ${fix.fixedIn}")
+                else appendLine("- `${first.type}`${first.frames.firstOrNull()?.let { f -> " at `$f`" } ?: ""}${first.message?.let { m -> ": ${cell(m.take(80))}" } ?: ""}: ${group.size}× on $versions; not seen on $cur")
             }
         }
     }

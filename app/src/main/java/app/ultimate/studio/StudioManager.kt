@@ -229,6 +229,8 @@ class StudioManager(private val context: Context, private val hub: WorkHub) : Wo
             catch(e: Exception) {
                 log.error("${e.javaClass.simpleName}: ${e.message ?: "Export failed"}")
                 log.detail(e.stackTraceToString())
+                // For the usage report: which error and what was unusual about the project (no content), so a failure like "Unexpected runtime error" can be traced.
+                runCatching { context.trackProblem("Studio export failed", ExportDiagnosis.describe(context, p, e)) }
                 if (committed) {
                     error.value = "Your video was saved to Movies/Ultimate Studio, but a follow-up step failed. See Details for the diagnostic log."
                     log.warn("Output was already saved. Do not export again just to recover this file.")

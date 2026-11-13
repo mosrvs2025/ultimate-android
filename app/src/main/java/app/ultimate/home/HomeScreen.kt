@@ -424,7 +424,8 @@ private fun AskBar(app: UltimateApp) {
     val results = remember(query) { Commands.available(Commands.search(query), ids, false) }
     // A request that finds nothing, left for a moment, is worth knowing about: it names a missing tool.
     LaunchedEffect(query, results.isEmpty()) {
-        if (results.isEmpty() && query.trim().length >= 4) { kotlinx.coroutines.delay(2500); app.insights.unmatched(query) }
+        // Only a search that truly led nowhere: a phone control (brightness, volume) or a rule sentence is handled by the suggestion row, so it is not a missing tool.
+        if (results.isEmpty() && query.trim().length >= 4 && PhoneCommands.parse(query.trim()) == null && !AiTools.isRule(query.trim())) { kotlinx.coroutines.delay(2500); app.insights.unmatched(query) }
     }
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) { app.insights.count("home.openfile"); app.shell.offerShared(uris, app.contentResolver.getType(uris[0])) }
