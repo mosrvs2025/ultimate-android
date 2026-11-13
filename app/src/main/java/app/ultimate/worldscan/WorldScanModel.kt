@@ -52,6 +52,37 @@ class GeoAnchor(val latitudeDeg: Double, val longitudeDeg: Double, val altitudeM
             fix.altitudeMeters - altitudeMeters else null
         return EastNorthUp(e, n, u)
     }
+
+    /** The inverse of [project] (same local approximation): latitude and longitude, in degrees, of a point [eastMeters] east and [northMeters] north of the anchor. */
+    fun unproject(eastMeters: Double, northMeters: Double): Pair<Double, Double> {
+        val lat = Math.toRadians(latitudeDeg)
+        val sinLat = sin(lat)
+        val w = sqrt(1.0 - 6.69437999014e-3 * sinLat * sinLat)
+        val primeVertical = 6378137.0 / w
+        val meridional = 6378137.0 * (1.0 - 6.69437999014e-3) / (w * w * w)
+        val dLat = Math.toDegrees(northMeters / meridional)
+        val dLon = Math.toDegrees(eastMeters / (primeVertical * cos(lat)))
+        return (latitudeDeg + dLat) to (((longitudeDeg + dLon + 540.0) % 360.0) - 180.0)
+    }
+}
+
+/**
+ * A tile of a fixed, anchor-independent geographic lattice: rows of [sizeMeters] of latitude, each row cut into columns that are
+ * [sizeMeters] wide at that row's own latitude. Two walks made on different days (so with different first fixes, hence different
+ * [GeoAnchor]s) can be asked which tiles they share. Still only an index: sharing a tile says "same neighbourhood", never "same surfaces".
+ */
+data class GlobalTile(val row: Long, val col: Long) {
+    companion object {
+        private const val METERS_PER_DEGREE_LAT = 111_132.0
+        fun of(latitudeDeg: Double, longitudeDeg: Double, sizeMeters: Double = 20.0): GlobalTile {
+            require(latitudeDeg.isFinite() && longitudeDeg.isFinite() && sizeMeters > 0.0)
+            val dLat = sizeMeters / METERS_PER_DEGREE_LAT
+            val row = floor(latitudeDeg / dLat).toLong()
+            val centreLat = (row + 0.5) * dLat
+            val dLon = dLat / max(0.01, cos(Math.toRadians(centreLat)))
+            return GlobalTile(row, floor(((longitudeDeg + 180.0) % 360.0) / dLon).toLong())
+        }
+    }
 }
 
 /** Geographic indexing; an index match is NOT evidence that two visual reconstructions align. */
@@ -123,6 +154,10 @@ class WorldScanSession(
         }
         return true
     }
+
+    /** Anchor-independent tiles visited with a usable fix: comparable between any two sessions, wherever each one started. */
+    fun globalTiles(sizeMeters: Double = 20.0): Set<GlobalTile> =
+        observations.mapNotNull { it.geoFix }.filter { it.isUsable() }.map { GlobalTile.of(it.latitudeDeg, it.longitudeDeg, sizeMeters) }.toSet()
 
     fun matchingTiles(other: WorldScanSession): Set<WorldTile> {
         // Tile numbers are comparable only for sessions using the same geographic anchor.
