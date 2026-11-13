@@ -47,9 +47,22 @@ data class Place(val id: String, val name: String, val createdAt: Long, val upda
     val bestGeo: GeoRegistration? get() = geo ?: walks.firstOrNull { it.id == baseWalkId }?.geo
 }
 
+/** One finished stretch of a walk's map: in memory, or waiting in a file (a long walk writes its finished stretches out as it goes so they don't pile up in memory). */
+interface PieceSource {
+    val t0Ns: Long
+    val t1Ns: Long
+    /** The map of this stretch. Does not keep it: ask again to get it again. */
+    fun load(): RoomMap
+}
+
+/** A stretch written to [file] while the walk was still going. The file is deleted once the walk is stored. */
+class SpilledPiece(val file: File, override val t0Ns: Long, override val t1Ns: Long) : PieceSource {
+    override fun load(): RoomMap = GZIPInputStream(file.inputStream()).use { RoomMap.read(it) }
+}
+
 /** Everything captured by one walk, ready to be stored. Times in [track] and [pieces] are on ARCore's frame clock; they are converted to the sensors' clock with [clock] when stored. */
 class WalkInput(
-    val id: String, val name: String, val startedAt: Long, val endedAt: Long, val track: WalkTrack, val pieces: List<WalkChunk>, val clock: ClockSync?, val fixes: List<GeoFix>,
+    val id: String, val name: String, val startedAt: Long, val endedAt: Long, val track: WalkTrack, val pieces: List<PieceSource>, val clock: ClockSync?, val fixes: List<GeoFix>,
     val recorder: RecorderSummary?, val rawLog: File?, val keyFrames: Int, val diag: String,
     val thermalMax: Int = -1, val batteryStart: Int = -1, val batteryEnd: Int = -1,
 )
@@ -104,28 +117,34 @@ class WalkStore(private val root: File) {
         val clock = input.clock?.takeIf { it.ready }
         val convert: (Long) -> Long? = { t -> if (clock == null) t else clock.toElapsed(t) }
         val track = input.track.withTimes(convert)
-        val pieces = input.pieces.mapNotNull { c -> val a = convert(c.t0Ns); val b = convert(c.t1Ns); if (a == null || b == null) null else WalkChunk(c.map, a, b) }
+        val spans = input.pieces.mapNotNull { c -> val a = convert(c.t0Ns); val b = convert(c.t1Ns); if (a == null || b == null) null else Triple(c, a, b) }
+        val existing = if (placeId != null) place(pid) else null
         // 2. Where on Earth
         val firstFix = input.fixes.firstOrNull { it.isUsable() }
         val geo = firstFix?.let { GeoFit.fit(track, input.fixes, GeoAnchor(it.latitudeDeg, it.longitudeDeg, it.altitudeMeters)) }
         // 3. Files: track, pieces, sensor log
         GZIPOutputStream(File(wdir, "track.bin.gz").outputStream()).use { track.write(it) }
-        pieces.forEachIndexed { i, c -> GZIPOutputStream(File(wdir, pieceName(i)).outputStream()).use { c.map.write(it) } }
         File(wdir, "fixes.json").writeText(fixesJson(input.fixes))
         input.rawLog?.takeIf { it.exists() }?.let { if (!it.renameTo(File(wdir, "sensors.jsonl.gz"))) { it.copyTo(File(wdir, "sensors.jsonl.gz"), true); it.delete() } }
-        val cubes = pieces.sumOf { it.map.solid }
+        // Pieces are taken one at a time (a long walk's pieces were written out as it went, and reading them all back at once would hold the whole walk twice): each is stored,
+        // counted and added to the first map; only a walk being merged into a place needs every piece in memory together.
+        var cubes = 0; val union = RoomMap(0.10f); val loaded = ArrayList<WalkChunk>()
+        spans.forEachIndexed { i, (c, a, b) ->
+            val m = c.load()
+            GZIPOutputStream(File(wdir, pieceName(i)).outputStream()).use { m.write(it) }
+            cubes += m.solid
+            if (existing == null) union.absorb(m) else loaded += WalkChunk(m, a, b)
+        }
         val (ex, ez) = track.extent()
         var meta = WalkMeta(input.id, input.name.trim().take(40).ifBlank { "Walk" }, input.startedAt, input.endedAt, track.lengthM, track.durationS, track.trackedShare, track.longestLossS, track.jumps, track.speedP95,
             ex, ez, cubes, input.keyFrames, input.diag, geo, input.fixes.size, input.recorder?.medianAccuracyM,
             clock?.let { ClockInfo(it.sameClock, it.jitterNs / 1e6, it.samples, it.driftMsPerHour) },
-            input.recorder?.bytes ?: 0L, input.recorder?.truncated ?: false, input.recorder?.sensorCounts ?: emptyMap(), pieces.map { longArrayOf(it.t0Ns, it.t1Ns) }, null, null,
+            input.recorder?.bytes ?: 0L, input.recorder?.truncated ?: false, input.recorder?.sensorCounts ?: emptyMap(), spans.map { longArrayOf(it.second, it.third) }, null, null,
             input.thermalMax, input.batteryStart, input.batteryEnd)
         if (geo?.usable == true) meta = meta.copy(drift = DriftModel.fit(track, input.fixes, geo.anchor).let { f -> DriftRecord(f.aDegPerM, f.b, f.rmsBeforeM, f.rmsAfterM, f.pairs, f.applicable, f.why) })
         var merge: MergeOutcome? = null
-        val existing = if (placeId != null) place(pid) else null
         if (existing == null) {
             // A new place: its map is the union of this walk's pieces.
-            val union = RoomMap(0.10f); for (c in pieces) union.absorb(c.map)
             writeMap(File(dir, "base.bin.gz"), union)
             writeWalk(wdir, meta)
             writePlace(dir, pid, input.name.trim().take(40).ifBlank { "Place" }, now, now, input.id, emptyList())
@@ -133,7 +152,7 @@ class WalkStore(private val root: File) {
             val base = baseMap(pid) ?: RoomMap(0.10f)
             val baseMeta = existing.walks.firstOrNull { it.id == existing.baseWalkId }
             val prevSnapshot = File(dir, "base.bin.gz").takeIf { it.exists() }
-            merge = WalkFusion.merge(base, pieces, geo, existing.bestGeo ?: baseMeta?.geo)
+            merge = WalkFusion.merge(base, loaded, geo, existing.bestGeo ?: baseMeta?.geo)
             if (merge.accepted) {
                 prevSnapshot?.copyTo(File(dir, "base.prev.gz"), true)
                 writeMap(File(dir, "base.bin.gz"), base)
@@ -143,6 +162,7 @@ class WalkStore(private val root: File) {
             writePlace(dir, pid, existing.name, existing.createdAt, now, existing.baseWalkId, if (merge.accepted) existing.mergeOrder + input.id else existing.mergeOrder)
         }
         refreshPlaceGeo(pid)
+        spans.forEach { (c, _, _) -> (c as? SpilledPiece)?.file?.delete() }       // only now that the walk is safely stored
         return SaveResult(place(pid)!!, meta, merge)
     }
 

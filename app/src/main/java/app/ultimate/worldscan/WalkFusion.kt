@@ -8,7 +8,9 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 
 /** A stretch of one walk mapped on its own (about every 15 m of path), so that a later walk can be fitted piece by piece: motion tracking drifts, and a street is not one rigid thing. */
-class WalkChunk(val map: RoomMap, val t0Ns: Long, val t1Ns: Long)
+class WalkChunk(val map: RoomMap, override val t0Ns: Long, override val t1Ns: Long) : PieceSource {
+    override fun load(): RoomMap = map
+}
 
 /** What happened to one piece of a walk being added to a place: how it was placed, how well it fit, what it changed. */
 class ChunkFit(val index: Int, val alignment: Alignment?, val meanDist: Float, val inlier: Float, val how: String, val report: FuseReport?, val t0Ns: Long = 0L, val t1Ns: Long = 0L)
