@@ -1,6 +1,5 @@
 package app.ultimate.fusion
 
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -81,9 +80,11 @@ abstract class PolylineSource(final override val name: String, final override va
 }
 
 /** Camera motion tracking: positions on the horizontal plane, blind whenever tracking was lost. */
-class PoseSource(trace: Trace, scale: Double = 1.0, relSigma: Double = 0.02) :
-    PolylineSource("camera tracking", Basis.Derived, relSigma, 0.4, build(trace, scale).t, build(trace, scale).e, build(trace, scale).n, build(trace, scale).blind, 8.0) {
+class PoseSource private constructor(b: Built, relSigma: Double) :
+    PolylineSource("camera tracking", Basis.Derived, relSigma, 0.4, b.t, b.e, b.n, b.blind, 8.0) {
     init { countJumps() }
+    constructor(trace: Trace, scale: Double = 1.0, relSigma: Double = 0.02) : this(build(trace, scale), relSigma)
+    val jumpCount: Int get() = jumps
     private class Built(val t: DoubleArray, val e: DoubleArray, val n: DoubleArray, val blind: List<Span>)
     companion object {
         private fun build(trace: Trace, scale: Double): Built {
@@ -93,7 +94,7 @@ class PoseSource(trace: Trace, scale: Double = 1.0, relSigma: Double = 0.02) :
             for (p in ps) {
                 if (p.tracking) {
                     lostFrom?.let { if (p.t - it > 0.5) blind += Span(it, p.t); lostFrom = null }
-                    tt += p.t; ee += p.x * scale; nn += -p.z * scale   // ARCore: x right, z toward the viewer; so (x, -z) is (east, north) when the walk frame is unrotated
+                    tt += p.t; ee += p.x * scale; nn += -p.z * scale   // ARCore: x right, z toward the viewer, so (x, -z) is (east, north) when the walk frame is unrotated
                 } else if (lostFrom == null) lostFrom = p.t
             }
             lostFrom?.let { blind += Span(it, (ps.lastOrNull()?.t ?: it)) }
@@ -112,6 +113,18 @@ class GpsSource(trace: Trace, relSigma: Double = 0.04, private val anchorLat: Do
     PolylineSource("GPS", Basis.Derived, relSigma, max(3.0, sm.medianAcc), sm.t, sm.e, sm.n, sm.blind, 12.0) {
     init { countJumps() }
     class Smoothed(val t: DoubleArray, val e: DoubleArray, val n: DoubleArray, val blind: List<Span>, val medianAcc: Double, val latRef: Double, val lonRef: Double)
+    /**
+     * GPS cannot see movement smaller than its own noise: a phone lying still still "moves" a few metres between smoothed fixes, and
+     * chaining those adds up to hundreds of metres a day. Over a short span, if the person ended within about 1.2 times the receiver's
+     * typical accuracy of where they began, GPS reports no movement at all (and so cannot see a very slow walk; the other sensors can).
+     */
+    override fun length(span: Span): Double? {
+        val raw = super.length(span) ?: return null
+        if (span.length > 20.0) return raw
+        val a = position(span.from) ?: return raw; val b = position(span.to) ?: return raw
+        return if (hypot(b[0] - a[0], b[1] - a[1]) < 1.2 * sm.medianAcc) 0.0 else raw
+    }
+
     /** Metres east/north of the first accepted fix → latitude/longitude. */
     fun toLatLon(e: Double, n: Double): Pair<Double, Double> = (anchorLat + Math.toDegrees(n / R)) to (anchorLon + Math.toDegrees(e / (R * cos(Math.toRadians(anchorLat)))))
 
@@ -136,7 +149,7 @@ class GpsSource(trace: Trace, relSigma: Double = 0.04, private val anchorLat: Do
         }
 
         /** Constant-velocity Kalman filter + Rauch-Tung-Striebel smoother on one axis. */
-        fun smooth(t: DoubleArray, z: DoubleArray, sigma: DoubleArray, accelSigma: Double = 1.2): DoubleArray {
+        fun smooth(t: DoubleArray, z: DoubleArray, sigma: DoubleArray, accelSigma: Double = 0.5): DoubleArray {
             val n = z.size
             val xs = Array(n) { DoubleArray(2) }; val ps = Array(n) { DoubleArray(3) } // P = [p00, p01, p11]
             val xp = Array(n) { DoubleArray(2) }; val pp = Array(n) { DoubleArray(3) }
@@ -207,5 +220,4 @@ class PdrSource(val result: Pdr.Result, private val dur: Double) :
             return out
         }
     }
-    @Suppress("unused") private val unusedPi = PI
 }
