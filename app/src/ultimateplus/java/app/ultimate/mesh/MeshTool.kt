@@ -40,6 +40,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -270,6 +271,18 @@ class MeshTool(context: Context) : Tool {
                     MeshManager.RangeState.Idle -> Unit
                 }
             }
+        }
+    }
+
+    @Composable private fun LiveBar(s: MeshManager.State, onStop: () -> Unit) {
+        Row(Modifier.fillMaxWidth().background(Color(0xFF3A0D2E)).padding(horizontal = 16.dp, vertical = 6.dp)
+            .semantics { contentDescription = "Mesh is live and listening on the local network" },
+            verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(10.dp).background(Color(0xFFFF4F9A), RoundedCornerShape(5.dp)))
+            Spacer(Modifier.width(8.dp))
+            Text("MESH LIVE · listening on Wi-Fi · ${s.alive.size} connected" + if (s.busy > 0) " · ${s.busy} running" else "",
+                color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = onStop) { Text("Disconnect", color = Color(0xFFFFB3D1)) }
         }
     }
 

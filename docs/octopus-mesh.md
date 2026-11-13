@@ -59,7 +59,7 @@ Install Ultimate+ (`app-ultimateplus-release.apk`, sideload). Octopus Mesh uses 
 - Not run on a phone. UDP broadcast behaviour differs by vendor and by Wi-Fi.
 - Frames are signed but not encrypted. Anyone who knows the pairing code is trusted. A 6-character code can be brute-forced offline from a captured frame; treat it as a LAN convenience, not strong security. Use a longer code.
 - Only one kernel (prime counting) exists, so it can be checked; the mesh does not move arbitrary code or data between devices, on purpose.
-- No foreground service: Android will stop the mesh when the app is backgrounded for long.
+- A foreground service now keeps the mesh alive with a Stop notification (2.10.0), but it is not started at boot: Android restricts that, so after a restart the mesh resumes when the app is opened.
 - The simulator processes tasks in arrival order and uses an energy proxy.
 
 ## 6. Original experiments (Phase 4 candidates), ranked by evidence-to-cost
@@ -76,3 +76,33 @@ Install Ultimate+ (`app-ultimateplus-release.apk`, sideload). Octopus Mesh uses 
 3. Encrypt payloads (AES-GCM with a key from the pairing exchange) and replace the static salt with a per-pairing handshake (e.g. SPAKE2).
 4. A small JVM/desktop runner for `MeshNode` (the code is already Android-free) and a browser node.
 5. Experiments 1 and 3 above, measured in `MeshSim` first, then on devices.
+
+## 8. Devices that help each other (2.10.0)
+Everything below runs only after the owner starts the mesh; the parts needing two phones were **not run on hardware** (no second phone here). What was run: the JVM tests listed in section 8.6.
+
+### 8.1 Who is here
+`DeviceProfile` (model, kind: phone/foldable/tablet/computer, capabilities, `lends`) rides in every heartbeat, so each device knows what the others can do. `MeshNode` raises `PeerEvent.Joined/Returned/Lost` once per change (tested with real loopback sockets). `Roster` remembers devices across runs so a *new* device is announced ("New device joined your mesh") and a known one that wobbled off Wi-Fi is not.
+
+### 8.2 Finding each other
+1. Signed UDP broadcast (as before).
+2. Android NSD (`_ultimate-mesh._tcp`), service name carries the key's public fingerprint: for routers that swallow broadcasts.
+3. BLE presence (`MeshBle`/`MeshBleCodec`): a service UUID derived from the key (so only same-code phones recognise it) plus a 4-byte tag per device. It carries no data and no connection. Signal strength is shown only as a band (right next to / arm's reach / same room / far), never as metres. A phone seen by Bluetooth but unreachable over Wi-Fi is reported, with the fix (same Wi-Fi, or a hotspot on one phone).
+Not done: Wi-Fi Direct / Wi-Fi Aware. Two phones on different networks with no hotspot cannot connect.
+
+### 8.3 Lending a phone (remote recorder)
+Commands (`CMD`/`ACK`, signed like every frame) are refused unless the owner switched on "Lend this phone". `rec.start` records accelerometer + gyroscope at 50 Hz into `MotionLog` (16 bytes a row, capped at two hours) under a partial wake lock; `rec.status` returns a live summary; `rec.stop` ends it; `rec.fetch` returns 375-row chunks (each fits a frame). Every use shows a Live-now session, the mesh notification, and a banner with Stop on the lending phone.
+`RepCounter` finds sets of effort and counts repetitions: per-axis detrend, smoothing, activity windows, then peaks along the movement's principal axis (so one swing is one cycle however the phone is held). Tested on synthesised signals only (two sets, any orientation, walking cadence, still phone, jittery sampling). It is an ESTIMATE that depends on where the phone sat and has not been compared with a human count.
+
+### 8.4 Distance by sound
+`PeerRange` implements two-way ranging (BeepBeep): caller chirps up, callee down (17-20 kHz, 20 ms); each phone records for 1.8 s and finds both chirps in its **own** recording by matched filter on the analytic signal (sub-sample peak, earliest strong peak so a louder echo cannot win, own chirp blanked before looking for the other's). `distance = c/2 * ((a2-a1)+(b2-b1))/rate + (speakerToMic)/2`. No shared clock and no dependence on audio latency. The app runs it three times and reports the median and spread.
+Synthetic results (`MeshRemoteTest`): within 2 cm from 0.3 to 7 m for start-up offsets up to 0.3 s either way; 3 cm with a 1.3x louder echo; 4 cm with 40 ppm clock difference. **Not verified:** real speaker/microphone response at 17-20 kHz, volume, phone cases, reverberant rooms, hands over the speaker. Many phones filter near-ultrasound; Android's own property is respected and an all-silent recording is reported as such. A phone in the background may have its microphone silenced by Android, which the app reports instead of guessing.
+Audible to people? The band is above most adults' hearing; some young people, dogs and cats may hear it. The chirps are short and tapered.
+
+### 8.5 Privacy and safety
+Lending is off by default and separate from pairing. Pairing code stored sealed with a hardware-backed Keystore key, removable with Forget. Frames are still signed, not encrypted (see section 5): sensor summaries and recordings cross your Wi-Fi in a form a person with the code could read. Do not lend a phone on a network you do not control.
+
+### 8.6 Tests
+`MeshRemoteTest` (23): profile round trip, one Joined/Lost event per change, Returned, commands reach the handler, non-lending refusal with reason, no-handler refusal, stranger refused, roster, motion chunk round trip + frame size + cap, five repetition scenarios, eight ranging scenarios. `MeshBleCodecTest` (3).
+
+### 8.7 Next
+Run on the two phones (Z Fold + Z Flip): first the join alert and Record motion, then Distance at 0.5 m / 2 m / 5 m with a tape measure, then record a real set of squats against a counted number. Then: an IMU-based exercise label, two phones as an array for Echo (docs/ECHO_RESEARCH.md experiment 4), sharing a World Scan walk from a second phone.
