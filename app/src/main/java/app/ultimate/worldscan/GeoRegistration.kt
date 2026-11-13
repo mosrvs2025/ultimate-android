@@ -25,6 +25,8 @@ class GeoRegistration(
     val anchor: GeoAnchor, val thetaRad: Double, val tx: Double, val ty: Double,
     val yawSigmaDeg: Double, val posSigmaM: Double, val rmsM: Double, val maxResidualM: Double,
     val used: Int, val total: Int, val scale: Double, val chi: Double, val level: GeoLevel, val reason: String,
+    /** How strongly one fix's error carries over to the next (0 = independent, 0.95 = nearly the same error for a long time), estimated from the fit's own residuals; the uncertainties above already include it. */
+    val rho: Double = 0.0,
 ) {
     /** East and north (metres from the anchor) of a point of the walk's frame. */
     fun toEnu(x: Float, z: Float): Pair<Double, Double> {
@@ -101,9 +103,20 @@ object GeoFit {
         val cax = (0 until n).sumOf { w[it] * pairs[it].ax } / sw; val cay = (0 until n).sumOf { w[it] * pairs[it].ay } / sw
         // Fisher information about the heading: how widely the walk spreads, relative to GPS noise. sigma = 1/sqrt(information).
         val info = (0 until n).sumOf { val dx = pairs[it].ax - cax; val dy = pairs[it].ay - cay; w[it] * (dx * dx + dy * dy) }
-        val yawSigma = if (info > 0) Math.toDegrees(1.0 / sqrt(info)) else 180.0
+        // GPS errors are not fresh noise at every fix: a bias (buildings, which satellites are in view) lasts many seconds, so 140 fixes are worth far fewer
+        // independent ones. How much one fix's error carries over to the next is read off this fit's own residuals (lag-1 correlation of the east/north
+        // residual vectors), and the uncertainties are widened by sqrt((1+rho)/(1-rho)), the exact factor for an AR(1) error. White noise leaves them as they were.
+        var lagNum = 0.0; var lagDen = 0.0
+        for (i in 1 until n) {
+            val ex = c * pairs[i].ax - s * pairs[i].ay + tx - pairs[i].e; val ey = s * pairs[i].ax + c * pairs[i].ay + ty - pairs[i].n
+            val fx = c * pairs[i - 1].ax - s * pairs[i - 1].ay + tx - pairs[i - 1].e; val fy = s * pairs[i - 1].ax + c * pairs[i - 1].ay + ty - pairs[i - 1].n
+            lagNum += ex * fx + ey * fy; lagDen += fx * fx + fy * fy
+        }
+        val rho = if (lagDen > 0) (lagNum / lagDen).coerceIn(0.0, 0.95) else 0.0
+        val inflate = sqrt((1 + rho) / (1 - rho))
+        val yawSigma = if (info > 0) Math.toDegrees(1.0 / sqrt(info)) * inflate else 180.0
         val medSigma = pairs.map { it.sigma }.sorted()[n / 2]
-        val posSigma = max(1.0 / sqrt(sw), 0.5 * medSigma)
+        val posSigma = max(1.0 / sqrt(sw), 0.5 * medSigma) * inflate
         val inl = (0 until n).filter { inlier[it] }
         val rms = if (inl.isEmpty()) Double.NaN else sqrt(inl.sumOf { res[it] * res[it] } / inl.size)
         val chi = if (inl.isEmpty()) Double.NaN else sqrt(inl.sumOf { (res[it] / pairs[it].sigma).let { z -> z * z } } / inl.size)
@@ -118,7 +131,7 @@ object GeoFit {
             yawSigma <= 4.0 && share >= 0.7 && abs(scale - 1.0) <= 0.08 && chi <= 2.5 -> GeoLevel.GOOD to "ok"
             else -> GeoLevel.WEAK to when { yawSigma > 4.0 -> "heading known only to ±%.0f°".format(yawSigma); abs(scale - 1.0) > 0.08 -> "walk length disagrees with GPS by %.0f%%".format(abs(scale - 1.0) * 100); else -> "GPS is noisy here" }
         }
-        return GeoRegistration(anchor, theta, tx, ty, yawSigma, posSigma, rms, res.maxOrNull() ?: 0.0, used, total, scale, chi, level, reason)
+        return GeoRegistration(anchor, theta, tx, ty, yawSigma, posSigma, rms, res.maxOrNull() ?: 0.0, used, total, scale, chi, level, reason, rho)
     }
 
     fun fit(track: WalkTrack, fixes: List<GeoFix>, anchor: GeoAnchor, maxAccuracyM: Float = 25f): GeoRegistration {

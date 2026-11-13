@@ -221,10 +221,10 @@ class WalkStore(private val root: File) {
 
         fun geoJson(g: GeoRegistration) = JSONObject().put("lat", g.anchor.latitudeDeg).put("lon", g.anchor.longitudeDeg).put("alt", g.anchor.altitudeMeters ?: JSONObject.NULL)
             .put("theta", g.thetaRad).put("tx", g.tx).put("ty", g.ty).put("yawSigma", g.yawSigmaDeg).put("posSigma", dbl(g.posSigmaM)).put("rms", dbl(g.rmsM)).put("max", dbl(g.maxResidualM))
-            .put("used", g.used).put("total", g.total).put("scale", g.scale).put("chi", dbl(g.chi)).put("level", g.level.name).put("reason", g.reason)
+            .put("used", g.used).put("total", g.total).put("scale", g.scale).put("chi", dbl(g.chi)).put("level", g.level.name).put("reason", g.reason).put("rho", g.rho)
         fun geoFrom(j: JSONObject) = GeoRegistration(GeoAnchor(j.getDouble("lat"), j.getDouble("lon"), if (j.isNull("alt")) null else j.getDouble("alt")), j.getDouble("theta"), j.getDouble("tx"), j.getDouble("ty"), j.getDouble("yawSigma"),
             j.optDouble("posSigma", Double.NaN), j.optDouble("rms", Double.NaN), j.optDouble("max", Double.NaN), j.getInt("used"), j.getInt("total"), j.getDouble("scale"), j.optDouble("chi", Double.NaN),
-            runCatching { GeoLevel.valueOf(j.getString("level")) }.getOrDefault(GeoLevel.NONE), j.optString("reason"))
+            runCatching { GeoLevel.valueOf(j.getString("level")) }.getOrDefault(GeoLevel.NONE), j.optString("reason"), j.optDouble("rho", 0.0))
 
         fun walkJson(m: WalkMeta): JSONObject {
             val o = JSONObject().put("v", 1).put("id", m.id).put("name", m.name).put("start", m.startedAt).put("end", m.endedAt).put("length", m.lengthM).put("duration", m.durationS).put("tracked", m.trackedShare)

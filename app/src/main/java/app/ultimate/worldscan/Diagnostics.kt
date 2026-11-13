@@ -10,7 +10,7 @@ import kotlin.math.hypot
  * reported: moving or turning too fast, and depth the camera is not confident about (dark, plain or too far away).
  */
 class MappingHealth(private val windowMs: Long = 5000, private val minFrames: Int = 15) {
-    private var at = 0L; private var frames = 0; private var fast = 0; private var pixels = 0L; private var weak = 0L
+    private var started = false; private var at = 0L; private var frames = 0; private var fast = 0; private var pixels = 0L; private var weak = 0L
     /** The advice for the last full window, or null when depth is fine (or there is not enough to say). */
     var advice: String? = null; private set
     /** Share of depth pixels in the last window that were too weak or too far to use (0..1), or -1 before there is a window. */
@@ -18,7 +18,7 @@ class MappingHealth(private val windowMs: Long = 5000, private val minFrames: In
     var fastShare = -1f; private set
 
     fun update(nowMs: Long, frames: Int, tooFast: Int, pixels: Long, lowConfidence: Long, outOfRange: Long) {
-        if (at == 0L) { at = nowMs; this.frames = frames; fast = tooFast; this.pixels = pixels; weak = lowConfidence + outOfRange; return }
+        if (!started) { started = true; at = nowMs; this.frames = frames; fast = tooFast; this.pixels = pixels; weak = lowConfidence + outOfRange; return }
         if (nowMs - at < windowMs) return
         val df = frames - this.frames; val dFast = tooFast - fast; val dPix = pixels - this.pixels; val dWeak = lowConfidence + outOfRange - weak
         at = nowMs; this.frames = frames; fast = tooFast; this.pixels = pixels; weak = lowConfidence + outOfRange

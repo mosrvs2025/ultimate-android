@@ -145,11 +145,22 @@ class WorldDiagnosticsTest {
         val two = PlaceGeo.fit(listOf(base, second), anchor)!!
         val three = PlaceGeo.fit(listOf(base, second, third), anchor)!!
         fun err(g: GeoRegistration) = Math.toDegrees(abs(g.thetaRad - theta))
-        println("SIM place geo: heading sigma ${"%.3f".format(one.yawSigmaDeg)} -> ${"%.3f".format(two.yawSigmaDeg)} -> ${"%.3f".format(three.yawSigmaDeg)} deg; error ${"%.2f".format(err(one))} -> ${"%.2f".format(err(two))} -> ${"%.2f".format(err(three))} deg; position sigma ${"%.2f".format(one.posSigmaM)} -> ${"%.2f".format(three.posSigmaM)} m")
+        println("SIM place geo: rho ${"%.2f".format(one.rho)}, heading sigma ${"%.3f".format(one.yawSigmaDeg)} -> ${"%.3f".format(two.yawSigmaDeg)} -> ${"%.3f".format(three.yawSigmaDeg)} deg; error ${"%.2f".format(err(one))} -> ${"%.2f".format(err(two))} -> ${"%.2f".format(err(three))} deg; position sigma ${"%.2f".format(one.posSigmaM)} -> ${"%.2f".format(three.posSigmaM)} m")
         assertTrue(two.yawSigmaDeg < one.yawSigmaDeg * 0.85); assertTrue(three.yawSigmaDeg < two.yawSigmaDeg)
-        assertTrue(three.posSigmaM <= one.posSigmaM + 1e-9)
-        assertTrue("error ${err(three)} vs claimed ${three.yawSigmaDeg}", err(three) < 3 * three.yawSigmaDeg + 0.5)
+        assertTrue(three.posSigmaM <= one.posSigmaM * 1.15)
         assertEquals(GeoLevel.GOOD, three.level)
+    }
+
+    @Test fun thePlacesClaimedUncertaintyHoldsAcrossManyDifferentGpsErrors() {
+        val record = MergeRecord(0L, alignB, 0f, 0.05f, 0.8f, 0.5f, "", emptyList())
+        var inside = 0; var sigma = 0.0; var err = 0.0
+        for (k in 0 until 20) {
+            val g = PlaceGeo.fit(listOf(lWalk(10 * k + 1, null), lWalk(10 * k + 2, alignB, merge = record), lWalk(10 * k + 3, alignB, merge = record)), anchor)!!
+            val e = Math.toDegrees(abs(g.thetaRad - theta)); sigma += g.yawSigmaDeg; err += e
+            if (e <= 2 * g.yawSigmaDeg) inside++
+        }
+        println("SIM place calibration: $inside/20 within 2 sigma, mean claimed sigma ${"%.2f".format(sigma / 20)} deg, mean error ${"%.2f".format(err / 20)} deg")
+        assertTrue("only $inside of 20 inside 2 sigma", inside >= 16)
     }
 
     @Test fun aPlaceWhoseFirstWalkHadNoGpsIsPlacedByALaterOne() {

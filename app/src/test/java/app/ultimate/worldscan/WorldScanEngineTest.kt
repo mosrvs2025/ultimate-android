@@ -330,6 +330,21 @@ class WorldScanEngineTest {
         assertEquals(2, back.merge!!.pieces.size); assertNull(back.merge!!.pieces[1].alignment); assertEquals(9f, back.merge!!.pieces[0].alignment!!.yawDeg, 1e-5f)
         assertEquals(true, back.clock!!.sameClock); assertEquals(100, back.sensorCounts[1])
     }
+
+    @Test fun theClaimedHeadingUncertaintyHoldsAcrossManyDifferentGpsErrors() {
+        // The uncertainty is only worth reporting if it is honest: over 40 different draws of correlated GPS error, the true heading should fall within
+        // 2 claimed sigmas in nearly all of them (95% would be the ideal; a fit that is over-confident misses far more often).
+        val theta = Math.toRadians(37.0); var inside = 0; var sumSigma = 0.0; var sumErr = 0.0
+        for (seed in 1..40) {
+            val (track, fixes) = lWalk(theta, 120.0, -45.0, rnd = Random(seed))
+            val g = GeoFit.fit(track, fixes, anchor)
+            val err = Math.toDegrees(abs(g.thetaRad - theta)); sumSigma += g.yawSigmaDeg; sumErr += err
+            if (err <= 2 * g.yawSigmaDeg) inside++
+        }
+        println("SIM calibration: ${inside}/40 within 2 sigma, mean claimed sigma ${"%.2f".format(sumSigma / 40)} deg, mean error ${"%.2f".format(sumErr / 40)} deg")
+        assertTrue("only $inside of 40 inside 2 sigma", inside >= 36)
+    }
 }
 
-private object Sim { fun gauss(r: Random): Float = app.ultimate.room.Sim.gauss(r) }
+private object Sim { fun gauss(r: Random): Float = app.ultimate.room.Sim.gauss(r)
+}
