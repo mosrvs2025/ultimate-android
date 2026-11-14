@@ -19,7 +19,11 @@ import java.io.File
 class WatchUpdateService : WearableListenerService() {
     /** The phone asks which version is installed, so it can offer an update; answered even when the app isn't open. */
     override fun onMessageReceived(event: com.google.android.gms.wearable.MessageEvent) {
-        if (event.path == PhoneLink.FROM_PHONE && String(event.data) == "version?") report(this, hello(this))
+        if (event.path != PhoneLink.FROM_PHONE) return
+        val text = String(event.data)
+        if (text == "version?") report(this, hello(this))
+        // The phone started or stopped a movement recording: the watch screen shows it, and the sharing service follows more closely.
+        StepActivity.fromPhone(text)
     }
 
     override fun onChannelOpened(channel: ChannelClient.Channel) {

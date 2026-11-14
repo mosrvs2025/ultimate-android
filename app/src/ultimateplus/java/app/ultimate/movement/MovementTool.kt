@@ -23,6 +23,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -34,7 +35,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ultimate.UltimateApp
+import app.ultimate.core.GlassCard
+import app.ultimate.core.GooeyProgress
 import app.ultimate.core.LibraryItem
+import app.ultimate.core.Liquid
+import app.ultimate.core.LiquidButton
+import app.ultimate.core.LiquidInput
+import app.ultimate.core.LiquidMetric
+import app.ultimate.core.SuggestionPills
 import app.ultimate.core.Tool
 import app.ultimate.core.ToolLaunch
 import app.ultimate.fusion.*
@@ -107,12 +115,13 @@ class MovementTool(private val host: UltimateApp) : Tool {
             Card("Start") {
                 Text("Walk or run with the phone in a pocket, hand or armband. It records its motion sensors and GPS, and afterwards tells you the distance, pace, laps and turns, and whether its own sensors agree.", color = WorldColors.dim, fontSize = 13.sp)
                 Spacer(Modifier.height(8.dp))
-                Button({
+                LiquidButton("Start recording", {
                     val need = buildList { add(Manifest.permission.ACCESS_FINE_LOCATION); if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS) }
                     if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) { if (recorder.start()) onRecord() } else perms.launch(need.toTypedArray())
-                }, Modifier.fillMaxWidth()) { Text("Start recording") }
+                }, Modifier.fillMaxWidth())
                 live2()?.let { Text(it, color = WorldColors.red, fontSize = 12.sp) }
             }
+            WatchCard()
             if (!loaded) Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = WorldColors.teal) }
             else if (entries.isEmpty()) Text("Nothing recorded yet. World Scan walks and motion recorded on your other devices (Octopus Mesh) show up here too.", color = WorldColors.dim, fontSize = 13.sp)
             entries.forEach { e ->
@@ -138,15 +147,46 @@ class MovementTool(private val host: UltimateApp) : Tool {
         var chosen by remember { mutableStateOf(places.first().id) }
         var a by remember { mutableStateOf<Answer?>(null) }
         Card("Ask about a mapped place") {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                places.forEach { p -> FilterChip(chosen == p.id, { chosen = p.id; a = null }, { Text(p.name, fontSize = 12.sp) }) }
-            }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("How accurate was the previous scan?", "What changed in this room?", "Can these walks be merged?", "Where is it on the map?").forEach { s ->
-                    AssistChip({ places.firstOrNull { it.id == chosen }?.let { a = ScanQA.answer(s, it) } }, { Text(s, fontSize = 12.sp) })
+            SuggestionPills(places.map { it.name }, { n -> places.firstOrNull { it.name == n }?.let { chosen = it.id; a = null } }, selected = places.firstOrNull { it.id == chosen }?.name)
+            SuggestionPills(listOf("How accurate was the previous scan?", "What changed in this room?", "Can these walks be merged?", "Where is it on the map?"),
+                { s -> places.firstOrNull { it.id == chosen }?.let { a = ScanQA.answer(s, it) } })
+            a?.let { ans -> Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Liquid.bg).padding(14.dp)) { BasisChip(ans.basis); Spacer(Modifier.height(6.dp)); Text(ans.text, color = Color.White, fontSize = 15.sp, lineHeight = 22.sp) } }
+        }
+    }
+
+    /** The watch link: drops that flow while the watch is telling the phone you are moving, and the switch for the Record offer. */
+    @Composable private fun WatchCard() {
+        val context = LocalContext.current
+        val w by app.ultimate.watch.WatchActivity.now.collectAsState()
+        var offers by remember { mutableStateOf(app.ultimate.watch.WatchActivity.offers(context)) }
+        val fresh = w?.let { System.currentTimeMillis() - it.at < 120_000 } == true
+        val moving = fresh && w?.state != "still"
+        Card("Your watch", live = moving, accent = WorldColors.violet) {
+            app.ultimate.core.LiquidSync(moving, "This phone", "Watch", status = when {
+                moving -> "Watch says ${w!!.state} · ${w!!.spm} steps a minute"
+                fresh -> "Connected · you are still"
+                else -> "Turn on Share walking in Ultimate+ on the watch"
+            })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Offer to record when I start walking", color = Color.White, fontSize = 14.sp)
+                    Text("Your watch notices you walking or running and the phone offers to record it, with one tap. Android does not let it start GPS by itself in the background.", color = WorldColors.dim, fontSize = 12.sp, lineHeight = 17.sp)
                 }
+                Spacer(Modifier.width(8.dp))
+                app.ultimate.core.GooeySwitch(offers, { offers = it; app.ultimate.watch.WatchActivity.setOffers(context, it) })
             }
-            a?.let { ans -> Column(Modifier.fillMaxWidth().background(WorldColors.bg, RoundedCornerShape(12.dp)).padding(12.dp)) { BasisChip(ans.basis); Spacer(Modifier.height(6.dp)); Text(ans.text, color = Color.White, fontSize = 14.sp) } }
+        }
+    }
+
+    /** While recording: the watch link, flowing while the watch is sending steps and heart rate. */
+    @Composable private fun WatchSyncLive(live: MovementRecorder.Live) {
+        val w by app.ultimate.watch.WatchActivity.now.collectAsState()
+        val hr by app.ultimate.health.LiveHeart.bpm.collectAsState()
+        val fresh = w?.let { System.currentTimeMillis() - it.at < 90_000 } == true
+        if (!fresh && hr == null) return
+        Card("Synced with your watch", live = fresh, accent = WorldColors.violet) {
+            app.ultimate.core.LiquidSync(fresh, "This phone", "Watch", status = listOfNotNull(w?.takeIf { fresh }?.let { "${it.spm} steps a minute" }, hr?.let { "heart ${it.first} bpm" }).joinToString(" · ").ifBlank { null })
+            live.report?.stepCheck?.let { Text(it.text, color = if (it.agree) WorldColors.green else WorldColors.amber, fontSize = 13.sp, lineHeight = 19.sp) }
         }
     }
 
@@ -182,6 +222,7 @@ class MovementTool(private val host: UltimateApp) : Tool {
                 Metric("Steps", r?.steps?.let { "%.0f".format(it.value) } ?: "—", r?.cadence?.let { "%.0f a minute".format(it.value) } ?: "", Modifier.weight(1f))
                 Metric("Laps", "${r?.laps?.size ?: 0}", "${r?.turns?.size ?: 0} turns", Modifier.weight(1f))
             }
+            WatchSyncLive(live)
             r?.path?.let { Card("Where you have been") { PathCanvas(it, r.laps, r.turns, null, Modifier.fillMaxWidth().height(240.dp)) } }
             Card("Sensors") {
                 val g = live.gps
@@ -190,7 +231,7 @@ class MovementTool(private val host: UltimateApp) : Tool {
                 r?.fusion?.contradictions?.firstOrNull()?.let { Text(it.text, color = WorldColors.amber, fontSize = 12.sp) }
                 Text("Numbers here are live and rough; the review after you stop uses everything recorded.", color = WorldColors.dim, fontSize = 12.sp)
             }
-            Button({ onSaved(recorder.stop()) }, Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = WorldColors.red)) { Text("Stop and review") }
+            LiquidButton("Stop and review", { onSaved(recorder.stop()) }, Modifier.fillMaxWidth(), danger = true)
         }
     }
 
@@ -217,27 +258,46 @@ class MovementTool(private val host: UltimateApp) : Tool {
         when {
             failed != null -> Text(failed!!, Modifier.padding(16.dp), color = WorldColors.red)
             r == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { CircularProgressIndicator(color = WorldColors.teal); Spacer(Modifier.height(8.dp)); Text("Reading every sensor…", color = WorldColors.dim) } }
-            else -> {
-                var scrub by remember { mutableFloatStateOf(0f) }
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Headline(entry, r)
-                    r.path?.let { p -> Card("Where you went") {
-                        PathCanvas(p, r.laps, r.turns, scrub, Modifier.fillMaxWidth().height(280.dp))
-                        Legend()
-                        Text("Frame: ${p.frame}" + (p.registrationRms?.let { " · camera and GPS fit to ${"%.1f".format(it)} m" } ?: ""), color = WorldColors.dim, fontSize = 11.sp)
-                    } }
-                    Card("Timeline") { Timeline(r, scrub) { scrub = it }; ScrubReadout(r, scrub) }
-                    AgreementCard(r)
-                    FactsGrid(r)
-                    if (r.failures.isNotEmpty()) Card("What went wrong") { r.failures.forEach { Text("• " + it.text, color = WorldColors.amber, fontSize = 13.sp) } }
-                    AskCard(r)
-                    TeachCard(r, entry) { reload++ }
-                    Card("Facts for an AI") {
-                        Text("A plain list of this recording's measurements, each marked observed, derived or inferred. Copy it to ask any assistant about the recording; nothing is sent from here.", color = WorldColors.dim, fontSize = 12.sp)
-                        TextButton({ (context.getSystemService(android.content.ClipboardManager::class.java)).setPrimaryClip(android.content.ClipData.newPlainText("movement facts", MotionQA.factsBlock(r))); android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show() }) { Text("Copy the facts") }
-                    }
-                }
+            else -> ReviewBody(entry, r, onTeach = { truth -> teach(entry, truth).also { reload++ } })
+        }
+    }
+
+    /** Teaches calibration from this recording against a distance the person entered; returns what happened, in words. */
+    private fun teach(e: MovementStore.Entry?, truth: Double): String {
+        if (e == null) return "This recording is gone."
+        val cal = store.calibrator(); val t = store.read(e)
+        val obs = MovementAnalyzer.calibrationObservations(t)
+        val motion = motionOf(t); val msgs = ArrayList<String>()
+        if (obs.isEmpty()) msgs += "No sensor saw enough of this recording (85% or more) to learn from it."
+        obs["stride"]?.let { m -> msgs += lbl("Stride", cal.learn(Calibrator.key(Build.MODEL, motion, "stride"), m, Truth(truth, TruthKind.KnownCourse))) }
+        obs["camera scale"]?.let { m -> msgs += lbl("Camera scale", cal.learn(Calibrator.key(Build.MODEL, "any", "camera scale"), m, Truth(truth, TruthKind.KnownCourse))) }
+        store.saveCalibrator(cal)
+        return msgs.joinToString("\n")
+    }
+
+    /** Everything below the loading spinner: the analysed recording, laid out to fit the screen it is on. */
+    @Composable internal fun ReviewBody(entry: MovementStore.Entry?, r: MovementReport, onTeach: (Double) -> String) {
+        val context = LocalContext.current
+        var scrub by remember { mutableFloatStateOf(0f) }
+        val pad = Liquid.gutter()
+        Column(Modifier.fillMaxSize().background(Liquid.bg).verticalScroll(rememberScrollState()).padding(pad), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Headline(entry, r)
+            r.path?.let { p -> Card("Where you went") {
+                PathCanvas(p, r.laps, r.turns, scrub, Modifier.fillMaxWidth().height(if (Liquid.compact()) 240.dp else 280.dp))
+                Legend()
+                Text("Frame: ${p.frame}" + (p.registrationRms?.let { " · camera and GPS fit to ${"%.1f".format(it)} m" } ?: ""), color = WorldColors.dim, fontSize = 11.sp)
+            } }
+            Card("Timeline") { Timeline(r, scrub) { scrub = it }; ScrubReadout(r, scrub) }
+            AgreementCard(r)
+            FactsGrid(r)
+            if (r.failures.isNotEmpty()) Card("What went wrong", accent = WorldColors.amber) { r.failures.forEach { Text("• " + it.text, color = WorldColors.amber, fontSize = 13.sp) } }
+            AskCard(r)
+            TeachCard(onTeach)
+            Card("Facts for an AI", accent = WorldColors.violet) {
+                Text("A plain list of this recording's measurements, each marked observed, derived or inferred. Copy it to ask any assistant about the recording; nothing is sent from here.", color = WorldColors.dim, fontSize = 13.sp, lineHeight = 19.sp)
+                LiquidButton("Copy the facts", { (context.getSystemService(android.content.ClipboardManager::class.java)).setPrimaryClip(android.content.ClipData.newPlainText("movement facts", MotionQA.factsBlock(r))); android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show() }, Modifier.fillMaxWidth())
             }
+            Spacer(Modifier.height(24.dp))
         }
     }
 
@@ -248,10 +308,10 @@ class MovementTool(private val host: UltimateApp) : Tool {
 
     @Composable private fun Headline(e: MovementStore.Entry?, r: MovementReport) {
         val d = r.distance
-        Column(Modifier.fillMaxWidth().background(WorldColors.card, RoundedCornerShape(20.dp)).padding(18.dp)) {
+        GlassCard(live = r.fusion.contradictions.isEmpty() && r.fusion.sources.size >= 2) {
             Text(e?.name ?: "", color = WorldColors.dim, fontSize = 12.sp)
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(d?.let { fmtDist(it.value) } ?: "No distance", color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold)
+                Text(d?.let { fmtDist(it.value) } ?: "No distance", color = Color.White, fontSize = if (Liquid.compact()) 38.sp else 46.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(10.dp))
                 d?.let { Text("± ${fmtDist(2 * it.sigma)}", color = WorldColors.dim, fontSize = 16.sp, modifier = Modifier.padding(bottom = 8.dp)) }
             }
@@ -263,7 +323,7 @@ class MovementTool(private val host: UltimateApp) : Tool {
             val (msg, col) = when {
                 n < 2 -> "Only one sensor saw this, so nothing could check it." to WorldColors.amber
                 r.fusion.contradictions.isEmpty() -> "All $n sensors agree within their uncertainty." to WorldColors.green
-                r.fusion.excluded.isNotEmpty() -> "${r.fusion.excluded.joinToString()} disagreed with the others and was left out." to WorldColors.amber
+                r.fusion.excluded.isNotEmpty() -> "${r.fusion.excluded.joinToString().replaceFirstChar { it.uppercase() }} disagreed with the others and was left out." to WorldColors.amber
                 else -> "The sensors disagree and nothing can say which is right; the doubt is in the ± above." to WorldColors.red
             }
             Spacer(Modifier.height(6.dp)); Text(msg, color = col, fontSize = 14.sp, fontWeight = FontWeight.Medium)
@@ -290,7 +350,7 @@ class MovementTool(private val host: UltimateApp) : Tool {
                 }
             }
             Text("White whiskers show each sensor's 95% band; the teal line is the fused answer.", color = WorldColors.dim, fontSize = 11.sp)
-            r.fusion.contradictions.forEach { Text(it.text, color = WorldColors.amber, fontSize = 12.sp) }
+            r.fusion.explain().forEach { Text(it, color = WorldColors.amber, fontSize = 13.sp, lineHeight = 19.sp) }
         }
     }
 
@@ -305,6 +365,7 @@ class MovementTool(private val host: UltimateApp) : Tool {
             row("Turns", "${r.turns.size}" + if (r.turns.any { it.uTurn }) ", ${r.turns.count { it.uTurn }} U-turn" else "", Basis.Derived)
             row("Stops", "${r.stops.size}", Basis.Derived)
             r.gait.groupBy { it.gait }.mapValues { (_, v) -> v.sumOf { it.span.length } }.entries.sortedByDescending { it.value }.take(3).forEach { row(it.key.label.replaceFirstChar { c -> c.uppercase() }, fmtTime(it.value), Basis.Inferred) }
+            r.stepCheck?.let { row("Watch steps", "%.0f".format(it.watch.value) + if (it.agree) " · agrees" else " · differs", Basis.Observed) }
             r.heart?.let { row("Heart rate", "${"%.0f".format(it.average.value)} avg · ${"%.0f".format(it.peak.value)} peak", Basis.Observed) }
             r.elevation?.let { row("Climbed", "${"%.0f".format(it.gain.value)} m up · ${"%.0f".format(it.loss.value)} m down", Basis.Derived) }
             r.calibration.forEach { Text(it, color = WorldColors.dim, fontSize = 11.sp) }
@@ -314,47 +375,33 @@ class MovementTool(private val host: UltimateApp) : Tool {
     @Composable private fun AskCard(r: MovementReport) {
         var q by remember { mutableStateOf("") }
         var a by remember { mutableStateOf<Answer?>(null) }
+        var picked by remember { mutableStateOf<String?>(null) }
         Card("Ask about this recording") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(q, { q = it }, Modifier.weight(1f), singleLine = true, placeholder = { Text("How far did I actually travel?") })
-                TextButton({ a = MotionQA.answer(q.ifBlank { "how far did I travel" }, r) }) { Text("Ask") }
-            }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("How far did I actually travel?", "Which sensor disagreed?", "Where did tracking fail?", "How accurate is this?", "How many laps?").forEach { s ->
-                    AssistChip({ q = s; a = MotionQA.answer(s, r) }, { Text(s, fontSize = 12.sp) })
-                }
-            }
+            LiquidInput(q, { q = it; picked = null }, "How far did I actually travel?", { a = MotionQA.answer(q, r) }, sendLabel = "Ask")
+            SuggestionPills(listOf("How far did I actually travel?", "Which sensor disagreed?", "Where did tracking fail?", "How accurate is this?", "How many laps?", "How fast was I?"),
+                { s -> picked = s; q = ""; a = MotionQA.answer(s, r) }, selected = picked)
             a?.let { ans ->
-                Column(Modifier.fillMaxWidth().background(WorldColors.bg, RoundedCornerShape(12.dp)).padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) { BasisChip(ans.basis); Spacer(Modifier.width(8.dp)); Text("computed from the measurements, not written by a model", color = WorldColors.dim, fontSize = 11.sp) }
-                    Spacer(Modifier.height(6.dp)); Text(ans.text, color = Color.White, fontSize = 14.sp)
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Liquid.bg).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) { BasisChip(ans.basis); Spacer(Modifier.width(8.dp)); Text("from the measurements, not written by a model", color = WorldColors.dim, fontSize = 11.sp) }
+                    Text(ans.text, color = Color.White, fontSize = 15.sp, lineHeight = 22.sp)
                 }
             }
         }
     }
 
-    @Composable private fun TeachCard(r: MovementReport, e: MovementStore.Entry?, onLearned: () -> Unit) {
+    @Composable private fun TeachCard(onTeach: (Double) -> String) {
         var text by remember { mutableStateOf("") }
         var result by remember { mutableStateOf<String?>(null) }
+        var busy by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
-        Card("Teach it from a course you know") {
-            Text("Walked a 400 m track lap or a measured route? Enter its true length. Each sensor is compared with it, and the system learns your stride and the camera's scale. Only distances you enter teach it; it never learns from its own guesses.", color = WorldColors.dim, fontSize = 12.sp)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(text, { text = it.filter { c -> c.isDigit() || c == '.' } }, Modifier.weight(1f), singleLine = true, label = { Text("True distance, metres") })
-                TextButton({
-                    val truth = text.toDoubleOrNull()
-                    if (truth == null || e == null) { result = "Enter the length in metres." } else scope.launch(Dispatchers.Default) {
-                        val cal = store.calibrator(); val t = store.read(e)
-                        val obs = MovementAnalyzer.calibrationObservations(t)
-                        val motion = motionOf(t); val msgs = ArrayList<String>()
-                        if (obs.isEmpty()) msgs += "No sensor saw enough of this recording (85% or more) to learn from it."
-                        obs["stride"]?.let { m -> msgs += lbl("Stride", cal.learn(Calibrator.key(Build.MODEL, motion, "stride"), m, Truth(truth, TruthKind.KnownCourse))) }
-                        obs["camera scale"]?.let { m -> msgs += lbl("Camera scale", cal.learn(Calibrator.key(Build.MODEL, "any", "camera scale"), m, Truth(truth, TruthKind.KnownCourse))) }
-                        store.saveCalibrator(cal); result = msgs.joinToString("\n"); onLearned()
-                    }
-                }) { Text("Learn") }
-            }
-            result?.let { Text(it, color = WorldColors.teal, fontSize = 12.sp) }
+        Card("Teach it from a course you know", accent = WorldColors.green) {
+            Text("Walked a 400 m track lap or a measured route? Enter its true length. Each sensor is compared with it, and the system learns your stride and the camera's scale. Only distances you enter teach it; it never learns from its own guesses.", color = WorldColors.dim, fontSize = 13.sp, lineHeight = 19.sp)
+            LiquidInput(text, { text = it.filter { c -> c.isDigit() || c == '.' } }, "True distance in metres", {
+                val truth = text.toDoubleOrNull()
+                if (truth == null) result = "Enter the length in metres." else { busy = true; scope.launch(Dispatchers.Default) { result = onTeach(truth); busy = false } }
+            }, numeric = true, sendLabel = "Learn", sendEnabled = text.toDoubleOrNull() != null && !busy)
+            if (busy) GooeyProgress(Modifier.fillMaxWidth())
+            result?.let { Text(it, color = WorldColors.teal, fontSize = 13.sp, lineHeight = 19.sp) }
         }
     }
     private fun lbl(what: String, l: Learned) = when (l) { is Learned.Accepted -> "$what: learned from this course (run ${l.n}, it measured ${"%.1f".format((1 / l.ratio) * 100)}% of the truth)."; is Learned.Rejected -> "$what: not learned. ${l.why}" }
@@ -423,17 +470,10 @@ class MovementTool(private val host: UltimateApp) : Tool {
 
     // ---------------------------------------------------------------- small pieces
 
-    @Composable private fun Card(title: String, content: @Composable ColumnScope.() -> Unit) {
-        Column(Modifier.fillMaxWidth().background(WorldColors.card, RoundedCornerShape(18.dp)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp); content()
-        }
-    }
+    @Composable private fun Card(title: String, accent: Color = WorldColors.teal, live: Boolean = false, content: @Composable ColumnScope.() -> Unit) =
+        GlassCard(title = title, accent = accent, live = live, content = content)
 
-    @Composable private fun Metric(label: String, value: String, sub: String, modifier: Modifier) {
-        Column(modifier.background(WorldColors.card, RoundedCornerShape(16.dp)).padding(14.dp)) {
-            Text(label, color = WorldColors.dim, fontSize = 12.sp); Text(value, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold); Text(sub, color = WorldColors.dim, fontSize = 12.sp)
-        }
-    }
+    @Composable private fun Metric(label: String, value: String, sub: String, modifier: Modifier) = LiquidMetric(label, value, sub, modifier)
 
     @Composable private fun BasisChip(b: Basis) {
         val c = when (b) { Basis.Observed -> WorldColors.green; Basis.Derived -> WorldColors.teal; Basis.Inferred -> WorldColors.violet }

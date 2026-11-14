@@ -34,6 +34,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ultimate.core.LibraryItem
+import app.ultimate.core.LiquidInput
+import app.ultimate.core.LiquidSync
 import app.ultimate.core.Tool
 import app.ultimate.core.ToolLaunch
 import kotlinx.coroutines.CoroutineScope
@@ -89,20 +91,23 @@ class MeshTool(context: Context) : Tool {
             LazyColumn(Modifier.padding(pad).fillMaxSize()) {
                 if (s.running) item { LiveBar(s) { manager.stop() } }
                 item { OctopusCanvas(s, Modifier.fillMaxWidth().height(260.dp)) }
+                // The link to each connected device, as two drops joined by a flowing stream while they exchange anything.
+                if (s.running) s.peers.filter { it.id in s.alive }.take(3).forEach { p ->
+                    item(key = "link-" + p.id) {
+                        LiquidSync(s.flows.any { it.to == p.id } || s.remote?.peerId == p.id || s.range is MeshManager.RangeState.Measuring, s.selfName, p.name,
+                            Modifier.padding(horizontal = 16.dp, vertical = 4.dp), status = s.bleBands[p.id]?.let { "Bluetooth: ${it.label}" } ?: "connected · ${p.rttMs.toInt()} ms")
+                    }
+                }
                 items(s.notices) { n -> NoticeCard(n) { manager.dismissNotice(n) } }
                 if (!s.running) item {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Type the same pairing code on each of your devices. Only devices with the code can see this phone or send it anything, and everything they exchange is encrypted with it. Nothing listens until you press Start.",
                             style = MaterialTheme.typography.bodySmall)
                         if (code.trim().length >= 6) { val bits = MeshWire.codeBits(code.trim()); Text(if (bits < 40) "This code is short enough to be guessed by someone who records your Wi-Fi. A longer one (a few words) is much safer." else "Code strength: good.", style = MaterialTheme.typography.labelSmall, color = if (bits < 40) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(code, { code = it }, label = { Text("Pairing code (6+)") }, singleLine = true, modifier = Modifier.weight(1f))
-                            Spacer(Modifier.width(8.dp))
-                            Button(onClick = {
+                        LiquidInput(code, { code = it }, "Pairing code (6 or more)", {
                                 if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 else manager.start(code)
-                            }, enabled = code.trim().length >= 6) { Text("Start") }
-                        }
+                            }, sendLabel = "Start", sendEnabled = code.trim().length >= 6)
                         s.code?.let { Text("This phone remembers a code. Start with it by typing it again, or forget it.", style = MaterialTheme.typography.labelSmall) }
                         s.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         if (s.known.isNotEmpty()) TextButton({ manager.forgetEverything() }) { Text("Forget the code and ${s.known.size} known device(s)") }

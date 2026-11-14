@@ -20,7 +20,25 @@ data class EpochFusion(val span: Span, val metres: Double?, val perSource: Map<S
 class FusionResult(
     val distance: Quantity?, val unobservedS: Double, val epochs: List<EpochFusion>,
     val contradictions: List<Contradiction>, val excluded: Set<String>, val sources: List<SourceSummary>,
-)
+) {
+    /**
+     * The disagreements in as few sentences as they need: one per sensor that was ruled out (however many others it disagreed
+     * with), then any pair that nothing could settle.
+     */
+    fun explain(): List<String> {
+        val out = ArrayList<String>()
+        for (o in excluded.sorted()) {
+            val mine = contradictions.filter { it.outlier == o }
+            if (mine.isEmpty()) continue
+            val own = mine.first().let { if (it.a == o) it.distanceA else it.distanceB }
+            val others = mine.joinToString(" and ") { c -> if (c.a == o) "${c.b} ${"%.0f".format(c.distanceB)} m" else "${c.a} ${"%.0f".format(c.distanceA)} m" }
+            val hint = mine.firstNotNullOfOrNull { c -> c.text.substringAfter(" A bounce", "").takeIf { it.isNotEmpty() }?.let { " A bounce$it" } } ?: ""
+            out += "${o.replaceFirstChar { it.uppercase() }} measured ${"%.0f".format(own)} m, while $others over the same time: too far apart to all be right. The others agree with each other, so $o was left out of the total.$hint"
+        }
+        contradictions.filter { it.outlier == null }.forEach { out += it.text }
+        return out
+    }
+}
 
 /**
  * Combines several witnesses to the same walk into one distance, and says when they cannot all be right.

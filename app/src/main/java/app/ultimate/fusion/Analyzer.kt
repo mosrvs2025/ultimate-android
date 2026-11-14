@@ -7,6 +7,9 @@ import kotlin.math.pow
 data class HeartSummary(val average: Quantity, val peak: Quantity, val samples: Int)
 data class Elevation(val gain: Quantity, val loss: Quantity)
 
+/** The watch's own step count against the phone's, over the time both were counting: two independent counts of the same steps. */
+data class StepCheck(val watch: Quantity, val phone: Quantity, val agree: Boolean, val text: String)
+
 /** Everything the analysis found, each number with how it was obtained. Pure data: the screen, the questions and the exports all read this. */
 class MovementReport(
     val algo: Int, val durationS: Double, val sources: List<String>, val clockNote: String,
@@ -15,6 +18,7 @@ class MovementReport(
     val steps: Quantity?, val cadence: Quantity?,
     val gait: List<GaitSegment>, val stops: List<Stop>, val turns: List<Turn>, val laps: List<Lap>, val lapConsistency: Double?,
     val failures: List<Finding>, val heart: HeartSummary?, val elevation: Elevation?, val calibration: List<String>,
+    val stepCheck: StepCheck? = null,
 ) {
     val distance: Quantity? get() = fusion.distance
 }
@@ -40,7 +44,8 @@ object MovementAnalyzer {
         GpsSource.of(trace)?.let { sources += it }
         if (pdr != null) PdrSource(pdr, dur).takeIf { it.usable }?.let { sources += it }
         val fusion = Fusion.run(sources, dur)
-        val path = FusedPath.build(sources, dur)
+        // The path is drawn only by sensors that were trusted: a sensor ruled out for disagreeing must not draw the map either.
+        val path = FusedPath.build(sources.filter { it.name !in fusion.excluded }, dur)
 
         val speeds = path?.let { Events.speeds(it) }.orEmpty()
         val stops = Events.stops(speeds)
@@ -74,7 +79,33 @@ object MovementAnalyzer {
             if (v.size < 5) null else HeartSummary(Quantity(v.average(), 2.0, "bpm", Basis.Observed, "heart-rate samples"), Quantity(v.max(), 3.0, "bpm", Basis.Observed, "heart-rate samples"), v.size)
         }
         val elevation = elevationOf(trace)
-        return MovementReport(ALGO, dur, trace.sources(), trace.poseClock, fusion, path, pdr, speeds, avg, top, steps, cadence, gait, stops, turns, laps, Events.lapConsistency(laps), failures, heart, elevation, notes)
+        val stepCheck = stepCheckOf(trace, pdr)
+        if (stepCheck != null && !stepCheck.agree) failures += Finding("steps", Span(trace.watchSteps.first().t, trace.watchSteps.last().t), stepCheck.text, Basis.Observed, 0.8)
+        return MovementReport(ALGO, dur, trace.sources(), trace.poseClock, fusion, path, pdr, speeds, avg, top, steps, cadence, gait, stops, turns, laps, Events.lapConsistency(laps), failures, heart, elevation, notes, stepCheck)
+    }
+
+    /**
+     * Compares the watch's step counter with the phone's step detection over the time the watch was reporting. They are separate
+     * devices on separate parts of the body, so agreement is real evidence, and a large gap usually means one of them is double- or
+     * under-counting. The watch's batches arrive up to half a minute late, so the comparison allows a few steps either way.
+     */
+    fun stepCheckOf(trace: Trace, pdr: Pdr.Result?): StepCheck? {
+        val w = trace.watchSteps
+        if (w.size < 2 || pdr == null) return null
+        val from = w.first().t; val to = w.last().t
+        if (to - from < 30) return null
+        val watch = (w.last().v - w.first().v).coerceAtLeast(0.0)
+        val phone = pdr.steps.count { it.t > from && it.t <= to }.toDouble()
+        val wq = Quantity(watch, max(3.0, 0.02 * watch), "steps", Basis.Observed, "watch step counter")
+        val pq = Quantity(phone, max(3.0, 0.04 * phone), "steps", Basis.Derived, "phone accelerometer")
+        val agree = wq.zAgainst(pq) <= 3.0
+        val text = if (agree) "Your watch counted ${"%.0f".format(watch)} steps and the phone ${"%.0f".format(phone)} over the same time: they agree."
+            else "Your watch counted ${"%.0f".format(watch)} steps but the phone ${"%.0f".format(phone)} over the same time." + when {
+                phone > 1.6 * watch -> " The phone is probably counting a swing or a shake as an extra step."
+                watch > 1.6 * phone -> " The phone missed steps: it may have been in a bag, or held still in a hand."
+                else -> " One of them is miscounting; the watch, on your wrist all the time, is usually the steadier."
+            }
+        return StepCheck(wq, pq, agree, text)
     }
 
     /** Height gained and lost from air pressure, ignoring changes under 1.5 m (a barometer breathes with the weather and with a door opening). */

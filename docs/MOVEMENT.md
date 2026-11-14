@@ -1,6 +1,6 @@
 # Movement and sensor fusion
 
-Status: 2.12.0. What is **tested on simulated recordings** is separated below from what **has not been tried on a real phone**. Nothing here has been run on a device yet.
+Status: 2.13.0. What is **tested on simulated recordings** is separated below from what **has not been tried on a real phone**. Nothing here has been run on a device yet.
 
 ## 1. What the audit found (before building)
 | Area | What exists | Weakness |
@@ -47,3 +47,10 @@ Prerecorded **video** analysis (the pose models in Workouts could feed `Trace` a
 ## 6. Added in 2.12.0
 * **Signals**: while recording, laps, gait changes, each kilometre and a sensor starting to disagree are published on the senses bus (`movement:*`) once each (`fusion/MovementSignals`, tested), so Rules, the orb and Live now can react.
 * **Incremental reading** (`TraceBuilder`): the live view parses only the log lines written since its last refresh. Build-machine benchmark on a simulated 31-minute recording (215,860 lines): 40 refreshes cost 14.3 s re-reading everything and 2.4 s incrementally (about 6x less); a full read is about 1.1 s and the analysis 0.18 s. These are build-machine numbers, not phone numbers; `app/build/fusion-benchmark.txt` is rewritten by `FusionBenchmarkTest` on every test run.
+
+## 7. Watch link (2.13.0)
+* **Watch to phone.** The watch app (1.7) counts steps with `TYPE_STEP_COUNTER`, batched by the hardware every 30 s (`maxReportLatencyUs`), inside the existing sharing service (one notification, now "Sharing with your phone"). `wear/StepActivity` (pure, 5 tests) turns the count into still / walking (60+ steps a minute held for a minute) / running (140+), and back to still after two minutes under 20. A change is sent reliably (`activity:<state>:<spm>:<steps>`); while moving, the count is streamed (`steps:<count>:<spm>`).
+* **On the phone** (`watch/WatchActivity`): a `watch:walking|running|still` signal (pickable in Rules), and a notification offering to record, whose Record action starts `MovementService` directly (a notification action is allowed to start a location service; the app starting GPS on its own from the background is not). The offer can be turned off in Movement.
+* **Phone to watch.** `movement:start`, `movement:status:<m>:<s>` on every live refresh, `movement:stop`. The watch shows the recording and measures heart rate every 15 s while it lasts.
+* **In the recording.** Watch heart rate (`hr` lines) and step count (`wsteps` lines, stamped on the phone's clock when they arrive, so up to about 30 s late) are written into the raw log. `MovementAnalyzer.stepCheckOf` compares the watch's count with the phone's over the same span (watch Observed, 2%; phone Derived, 4%; 3 combined sigmas) and explains a disagreement (doubled or missed steps). Tests: agreement, a doubled phone count caught, no watch no check.
+* **Not used**: Samsung Health's live auto-detection (not exposed to other apps), Health Services' passive user-activity state (would need a new dependency and its behaviour with Samsung's detector is unknown). **Not verified on a watch.**

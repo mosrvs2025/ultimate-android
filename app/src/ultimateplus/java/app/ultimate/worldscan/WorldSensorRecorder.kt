@@ -147,6 +147,9 @@ class WorldSensorRecorder(private val context: Context, private val maxBytes: Lo
     /** A note that belongs in the log (a pause, a tracking loss, a chunk boundary), stamped with the elapsed-realtime clock. */
     fun note(kind: String, detail: String) { if (active) line("note", LogLines.note(SystemClock.elapsedRealtimeNanos(), kind, detail)) }
 
+    /** A reading from another device (the watch's heart rate or step count), stamped on this phone's clock when it arrived. */
+    fun extra(kind: String, json: String) { if (active) line(kind, json) }
+
     private fun line(kind: String, json: String) {
         synchronized(lock) {
             val w = writer ?: return
