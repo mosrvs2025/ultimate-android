@@ -30,8 +30,14 @@ class MovementService : Service() {
             .setSmallIcon(R.drawable.ic_stat).setContentTitle("Recording movement").setContentText("Using motion sensors and GPS. Stays on this phone.")
             .setOngoing(true).setUsesChronometer(true).setContentIntent(open).addAction(0, "Stop", stop).build()
         runCatching { ServiceCompat.startForeground(this, 9, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION) }
+        // Started from the watch's "Record" offer: begin the recording now (a tap on a notification lets the service start GPS).
+        if (intent?.action == ACTION_START) {
+            getSystemService(android.app.NotificationManager::class.java)?.cancel(app.ultimate.watch.WatchActivity.OFFER_ID)
+            val rec = MovementRecorder.get(application as UltimateApp)
+            if (!rec.live.value.recording && !rec.start()) stopSelf()
+        }
         return START_NOT_STICKY
     }
 
-    private companion object { const val CHANNEL = "movement"; const val ACTION_STOP = "app.ultimate.movement.STOP" }
+    companion object { private const val CHANNEL = "movement"; private const val ACTION_STOP = "app.ultimate.movement.STOP"; const val ACTION_START = "app.ultimate.movement.START" }
 }

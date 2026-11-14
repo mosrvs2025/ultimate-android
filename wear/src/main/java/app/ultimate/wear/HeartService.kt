@@ -60,29 +60,61 @@ class HeartService : Service() {
         handler.postDelayed(measure, 5 * 60_000L)
     }
 
+    // Walking: the step counter, delivered in hardware batches every 30 s (the watch stays asleep in between).
+    private val steps = StepActivity()
+    private var stepsOn = false
+    private val stepListener = object : SensorEventListener {
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+        override fun onSensorChanged(e: SensorEvent) {
+            val count = e.values.firstOrNull()?.toLong() ?: return
+            val now = System.currentTimeMillis()
+            val change = steps.feed(count, now)
+            // A change of state is sent reliably (the phone may offer to record); while moving, a count goes every batch.
+            change?.let { link?.send("activity:${it.state.key}:${it.spm}:${it.steps}") }
+            if (steps.state != StepActivity.State.Still || StepActivity.phoneRecording.value != null) link?.stream("steps:$count:${steps.spm.toInt()}")
+        }
+    }
+    private fun startSteps() {
+        if (stepsOn || !getSharedPreferences("watch", MODE_PRIVATE).getBoolean("share_walking", false)) return
+        if (checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) != android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        val sm = getSystemService(SensorManager::class.java) ?: return
+        val s = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) ?: return
+        stepsOn = sm.registerListener(stepListener, s, SensorManager.SENSOR_DELAY_NORMAL, 30_000_000)
+    }
+
+    // While the phone is recording a walk or run, heart rate is measured every 15 s instead of every 5 minutes.
+    private val follow = Runnable { followPhone() }
+    private fun followPhone() {
+        val recording = StepActivity.phoneRecording.value?.let { System.currentTimeMillis() - it.at < 120_000 } == true
+        if (recording && !raised) { raised = true; handler.removeCallbacks(measure); handler.removeCallbacks(finish); startWindow() }
+        handler.postDelayed(follow, 10_000)
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == STOP) {
-            getSharedPreferences("watch", MODE_PRIVATE).edit().putBoolean("share_heart", false).apply()
+            getSharedPreferences("watch", MODE_PRIVATE).edit().putBoolean("share_heart", false).putBoolean("share_walking", false).apply()
             stopSelf(); return START_NOT_STICKY
         }
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Heart rate sharing", NotificationManager.IMPORTANCE_LOW))
         val stop = PendingIntent.getService(this, 1, Intent(this, HeartService::class.java).setAction(STOP), PendingIntent.FLAG_IMMUTABLE)
-        val n = Notification.Builder(this, CHANNEL).setSmallIcon(R.mipmap.ic_launcher).setContentTitle("Sharing heart rate with your phone")
-            .setContentText("Checks every 5 minutes, closely only while it's high.").setOngoing(true)
+        val n = Notification.Builder(this, CHANNEL).setSmallIcon(R.mipmap.ic_launcher).setContentTitle("Sharing with your phone")
+            .setContentText(listOfNotNull(if (getSharedPreferences("watch", MODE_PRIVATE).getBoolean("share_heart", false)) "heart rate" else null, if (getSharedPreferences("watch", MODE_PRIVATE).getBoolean("share_walking", false)) "walking" else null).joinToString(" and ").replaceFirstChar { it.uppercase() }).setOngoing(true)
             .addAction(Notification.Action.Builder(null, "Stop", stop).build()).build()
         runCatching {
             if (Build.VERSION.SDK_INT >= 34) startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH) else startForeground(ID, n)
         }.onFailure { stopSelf(); return START_NOT_STICKY }
-        if (link == null) { link = PhoneLink(this); startWindow() }
+        if (link == null) { link = PhoneLink(this); if (getSharedPreferences("watch", MODE_PRIVATE).getBoolean("share_heart", false)) startWindow(); followPhone() }
+        startSteps()
         return START_STICKY
     }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         getSystemService(SensorManager::class.java)?.unregisterListener(listener)
+        getSystemService(SensorManager::class.java)?.unregisterListener(stepListener); stepsOn = false
         link = null
         super.onDestroy()
     }

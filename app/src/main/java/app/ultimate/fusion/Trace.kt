@@ -21,6 +21,8 @@ class Trace(
     val heart: List<Scalar>,
     val notes: List<Note>,
     val poseClock: String,
+    /** The watch's step counter (cumulative count, as it reported it), when a watch shared walking during the recording. */
+    val watchSteps: List<Scalar> = emptyList(),
 ) {
     val durationS: Double get() = maxOf(imu.t.lastOrNull() ?: 0.0, poses.lastOrNull()?.t ?: 0.0, fixes.lastOrNull()?.t ?: 0.0)
     val hasImu get() = imu.size > 20
@@ -28,7 +30,7 @@ class Trace(
     val hasFixes get() = fixes.size > 2
 
     /** Which kinds of sensor this recording has, for explanations. */
-    fun sources(): List<String> = buildList { if (hasImu) add("inertial"); if (hasPoses) add("camera tracking"); if (hasFixes) add("GPS"); if (heart.isNotEmpty()) add("heart rate"); if (pressure.size > 20) add("barometer") }
+    fun sources(): List<String> = buildList { if (hasImu) add("inertial"); if (hasPoses) add("camera tracking"); if (hasFixes) add("GPS"); if (heart.isNotEmpty()) add("heart rate"); if (watchSteps.size >= 2) add("watch steps"); if (pressure.size > 20) add("barometer") }
 
     class Imu(val t: DoubleArray, val ax: FloatArray, val ay: FloatArray, val az: FloatArray, val gx: FloatArray, val gy: FloatArray, val gz: FloatArray, val hasGyro: Boolean) {
         val size: Int get() = t.size
@@ -74,6 +76,7 @@ class TraceBuilder {
     private val ga = ArrayList<Long>(); private val gx = ArrayList<Float>(); private val gy = ArrayList<Float>(); private val gz = ArrayList<Float>()
     private val rot = ArrayList<Pair<Long, FloatArray>>(); private val prs = ArrayList<Pair<Long, Double>>(); private val hr = ArrayList<Pair<Long, Double>>()
     private val poses = ArrayList<RawPose>()
+    private val wsteps = ArrayList<Pair<Long, Double>>()
     private val fixes = ArrayList<Triple<Long, DoubleArray, Pair<Double?, Double?>>>(); private val notes = ArrayList<Triple<Long, String, String>>()
 
     /** Lines accepted so far. */
@@ -112,6 +115,7 @@ class TraceBuilder {
                 poses += RawPose(tf, tr, p.optDouble(0).toFloat(), p.optDouble(1).toFloat(), p.optDouble(2).toFloat(), o.optString("k", "TRACKING"))
             }
             "hr" -> { val t = o.optLong("t", -1); if (t >= 0) hr += t to o.optDouble("bpm", Double.NaN) }
+            "wsteps" -> { val t = o.optLong("t", -1); val n = o.optLong("n", -1); if (t >= 0 && n >= 0) wsteps += t to n.toDouble() }
             "note" -> notes += Triple(o.optLong("t", 0), o.optString("kind"), o.optString("detail"))
         }
         accepted++
@@ -149,6 +153,7 @@ class TraceBuilder {
             prs.map { Trace.Scalar(s(it.first), it.second) }, hr.filter { !it.second.isNaN() }.map { Trace.Scalar(s(it.first), it.second) },
             notes.map { Trace.Note(s(it.first), it.second, it.third) },
             when { poses.isEmpty() -> "none"; useSync -> "frame clock mapped to the sensor clock (±%.0f ms)".format(sync.jitterNs / 1e6); else -> "frame arrival time (late by the camera's latency)" },
+            wsteps.map { Trace.Scalar(s(it.first), it.second) },
         )
 
     }

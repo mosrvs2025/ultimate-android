@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Heart rate, only after "Share heart rate" is turned on; it goes to Ultimate+ on the phone and nowhere else. -->
     <uses-permission android:name="android.permission.BODY_SENSORS" android:maxSdkVersion="35" />
+    <!-- The step counter, for telling the phone when you start walking (only while "Share walking" is on). -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
     <!-- Keeps heart rate sharing going with the app closed, shown as a notification with Stop. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

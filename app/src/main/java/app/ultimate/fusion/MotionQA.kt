@@ -48,7 +48,7 @@ object MotionQA {
             val n = r.fusion.sources.size
             return Answer(if (n < 2) "Only one sensor saw this movement, so there is nothing to compare it with." else "No sensor disagreed beyond its own uncertainty: ${r.fusion.sources.joinToString { it.name }} all fit together.", r.fusion.sources.map { it.total }, Basis.Derived)
         }
-        return Answer(r.fusion.contradictions.joinToString(" ") { it.text }, r.fusion.sources.map { it.total }, Basis.Derived)
+        return Answer(r.fusion.explain().joinToString(" "), r.fusion.sources.map { it.total }, Basis.Derived)
     }
 
     private fun failures(r: MovementReport): Answer {
@@ -71,7 +71,8 @@ object MotionQA {
     private fun steps(r: MovementReport): Answer {
         val s = r.steps ?: return Answer("No steady stepping was found in the inertial sensors.", emptyList(), Basis.Derived)
         val c = r.cadence?.let { " Cadence ${"%.0f".format(it.value)} steps a minute." } ?: ""
-        return Answer("DERIVED from accelerometer peaks: ${"%.0f".format(s.value)} steps (±${"%.0f".format(2 * s.sigma)}).$c Steps are counted only in steady bouts, so a fidgety stretch is not counted.", listOfNotNull(s, r.cadence), Basis.Derived)
+        val w = r.stepCheck?.let { " ${it.text}" } ?: ""
+        return Answer("DERIVED from accelerometer peaks: ${"%.0f".format(s.value)} steps (±${"%.0f".format(2 * s.sigma)}).$c Steps are counted only in steady bouts, so a fidgety stretch is not counted.$w", listOfNotNull(s, r.cadence, r.stepCheck?.watch), Basis.Derived)
     }
 
     private fun stops(r: MovementReport): Answer {
@@ -123,6 +124,7 @@ object MotionQA {
         appendLine("laps: ${r.laps.size} [DERIVED]; turns: ${r.turns.size} [DERIVED]; stops: ${r.stops.size} [DERIVED]")
         r.gait.forEach { appendLine("gait ${it.gait.label} from ${"%.0f".format(it.span.from)} s to ${"%.0f".format(it.span.to)} s [INFERRED]") }
         r.failures.forEach { appendLine("problem: ${it.text}") }
+        r.stepCheck?.let { appendLine("watch steps: ${"%.0f".format(it.watch.value)} [OBSERVED]; phone steps over the same time: ${"%.0f".format(it.phone.value)} [DERIVED]; ${if (it.agree) "agree" else "DISAGREE"}") }
         r.heart?.let { appendLine("heart rate: avg ${"%.0f".format(it.average.value)}, peak ${"%.0f".format(it.peak.value)} bpm [OBSERVED]") }
     }
 }

@@ -12,11 +12,13 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,10 +77,22 @@ private fun WatchScreen(link: PhoneLink) {
         shareHeart = ok; prefs.edit().putBoolean("share_heart", ok).apply()
     }
     // Sharing runs in a small background service, so it keeps going with the app closed and the screen off.
-    LaunchedEffect(shareHeart) {
-        val allowed = context.checkSelfPermission(heartPermission) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (shareHeart && allowed) HeartService.start(context) else HeartService.stop(context)
+    // Walking: the watch's step counter tells the phone when you start and stop walking or running.
+    var shareWalking by remember { mutableStateOf(prefs.getBoolean("share_walking", false)) }
+    val askSteps = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+        shareWalking = ok; prefs.edit().putBoolean("share_walking", ok).apply()
     }
+    fun toggleWalking(on: Boolean) {
+        if (!on) { shareWalking = false; prefs.edit().putBoolean("share_walking", false).apply(); return }
+        if (context.checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) == android.content.pm.PackageManager.PERMISSION_GRANTED) { shareWalking = true; prefs.edit().putBoolean("share_walking", true).apply() }
+        else askSteps.launch(android.Manifest.permission.ACTIVITY_RECOGNITION)
+    }
+    LaunchedEffect(shareHeart, shareWalking) {
+        val heartOk = shareHeart && context.checkSelfPermission(heartPermission) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val walkOk = shareWalking && context.checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (heartOk || walkOk) { HeartService.stop(context); HeartService.start(context) } else HeartService.stop(context)
+    }
+    val phoneRec by StepActivity.phoneRecording.collectAsState()
     fun toggleHeart(on: Boolean) {
         if (!on) { shareHeart = false; prefs.edit().putBoolean("share_heart", false).apply(); return }
         if (context.checkSelfPermission(heartPermission) == android.content.pm.PackageManager.PERMISSION_GRANTED) { shareHeart = true; prefs.edit().putBoolean("share_heart", true).apply() }
@@ -196,6 +210,19 @@ private fun WatchScreen(link: PhoneLink) {
                     Round("🔦") { send("button:torch", "Flashlight") }
                     Round("+") { send("button:volume_up", "Volume up") }
                 }
+            }
+            phoneRec?.let { rec ->
+                item {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Phone is recording", style = MaterialTheme.typography.caption2, color = androidx.compose.ui.graphics.Color(0xFF3DDCD0))
+                        Text(if (rec.metres >= 1000) "%.2f km".format(rec.metres / 1000) else "%.0f m".format(rec.metres), style = MaterialTheme.typography.display3)
+                        Text("%d:%02d".format(rec.seconds / 60, rec.seconds % 60), style = MaterialTheme.typography.caption1)
+                    }
+                }
+            }
+            item {
+                ToggleChip(shareWalking, ::toggleWalking, label = { Text("Share walking") }, secondaryLabel = { Text(if (shareWalking) "Phone knows when you walk" else "Off") },
+                    toggleControl = { androidx.wear.compose.material.Switch(shareWalking) }, modifier = Modifier.fillMaxWidth())
             }
             item {
                 ToggleChip(shareHeart, ::toggleHeart, label = { Text("Share heart rate") }, secondaryLabel = { Text(if (shareHeart) "With the phone, every 5 min" else "Off") },

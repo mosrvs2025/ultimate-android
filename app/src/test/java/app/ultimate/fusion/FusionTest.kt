@@ -334,3 +334,56 @@ class FusionBenchmarkTest {
         assertTrue("analysis of half an hour took ${(t2 - t1) / 1_000_000} ms", (t2 - t1) < 20_000_000_000L)
     }
 }
+
+class FusionPresentationTest {
+    @Test fun aRuledOutSensorIsExplainedOnceAndDoesNotDrawTheMap() {
+        val sim = WalkSim.run(SimConfig(laps = 2, camScale = 1.5))
+        val r = MovementAnalyzer.analyze(Trace.read(sim.lines.asSequence()))
+        assertEquals(2, r.fusion.contradictions.size)          // camera vs GPS, camera vs steps
+        val e = r.fusion.explain()
+        assertEquals("one sentence for the one sensor ruled out: $e", 1, e.size)
+        assertTrue(e.single().startsWith("Camera tracking measured") && e.single().contains("left out"))
+        // The map comes from the trusted sensors only, so its length matches the truth, not the camera's 1.5x.
+        assertTrue(r.path!!.from.none { it == "camera tracking" })
+        assertEquals(sim.truthMetres, r.path!!.length, sim.truthMetres * 0.15)
+    }
+}
+
+class WatchStepsTest {
+    /** Adds what a watch on the wrist would have sent: its cumulative step count every 30 s, counting the TRUE steps (SIMULATED). */
+    private fun withWatch(c: SimConfig): Trace {
+        val sim = WalkSim.run(c)
+        val lines = ArrayList(sim.lines)
+        val boot = 1_000_000_000_000L
+        var t = 0.0
+        while (t <= sim.durationS) {
+            val walking = (t - c.startStillS).coerceIn(0.0, sim.durationS - c.startStillS - c.endStillS)
+            val steps = 5_000 + (walking * c.cadenceHz).toLong()
+            lines += "{\"type\":\"wsteps\",\"t\":${boot + (t * 1e9).toLong()},\"n\":$steps}"
+            t += 30.0
+        }
+        return Trace.read(lines.asSequence())
+    }
+
+    @Test fun theWatchAndThePhoneAgreeWhenBothCountRight() {
+        val t = withWatch(SimConfig(laps = 2))
+        assertTrue("watch steps" in t.sources())
+        val r = MovementAnalyzer.analyze(t)
+        val c = r.stepCheck!!
+        assertTrue(c.text, c.agree)
+        assertEquals(Basis.Observed, c.watch.basis)
+        assertTrue(MotionQA.answer("how many steps?", r).text.contains("Your watch counted"))
+    }
+
+    @Test fun aPhoneCountingTwicePerStepIsCaughtByTheWatch() {
+        val r = MovementAnalyzer.analyze(withWatch(SimConfig(laps = 2, cadenceHz = 1.5, bouncesPerStep = 2)))
+        val c = r.stepCheck!!
+        assertFalse(c.agree)
+        assertTrue(c.text, c.text.contains("extra step"))
+        assertTrue(r.failures.any { it.kind == "steps" })
+    }
+
+    @Test fun noWatchNoCheck() {
+        assertNull(MovementAnalyzer.analyze(Trace.read(WalkSim.run(SimConfig(laps = 1)).lines.asSequence())).stepCheck)
+    }
+}
