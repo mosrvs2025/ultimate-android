@@ -28,6 +28,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -84,6 +85,7 @@ class FlingShareActivity : ComponentActivity() {
     @OptIn(ExperimentalLayoutApi::class)
     @Composable private fun Sheet(manager: MeshManager, payload: Payload?) {
         val scope = rememberCoroutineScope()
+        val mesh by manager.state.collectAsState()
         var targets by remember { mutableStateOf(manager.targets()) }
         var status by remember { mutableStateOf<String?>(null) }
         var progress by remember { mutableStateOf<Float?>(null) }
@@ -105,7 +107,7 @@ class FlingShareActivity : ComponentActivity() {
                 }, color = Liquid.dim, fontSize = 14.sp, maxLines = 3)
                 tooBig?.let { Text("Too big: $it.", color = Color(0xFFFF8A80), fontSize = 14.sp) }
                 Spacer(Modifier.height(6.dp))
-                if (!manager.state.value.running) {
+                if (!mesh.running) {
                     Text("Octopus Mesh is off on this phone. Turn it on here and on the other phone, with the same code.", color = Color.White, fontSize = 15.sp)
                     LiquidButton("Open Octopus Mesh", { startActivity(Intent(this@FlingShareActivity, MainActivity::class.java).putExtra(MainActivity.EXTRA_TOOL, "mesh")); finish() }, Modifier.fillMaxWidth())
                 } else if (targets.isEmpty()) {
