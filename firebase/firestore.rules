@@ -1,0 +1,88 @@
+rules_version = '2';
+// Ultimate+ friends: who may read and write what.
+//
+//   users/{uid}            your own name and friend code           (only you)
+//   codes/{code}           friend code -> uid; look one up, never list them
+//   pairs/{a_b}            a friendship, a_b = the two uids sorted (only its two members)
+//   walks/{uid}            your live walk                          (you; friends you chose to tell)
+//   walks/{uid}/joins/{f}  a friend saying "I'm joining"           (them to write; you to read)
+//   private/{uid}          your push tokens                        (only you; the server reads them)
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function mine(uid) { return signedIn() && request.auth.uid == uid; }
+    function pairId(a, b) { return a < b ? a + '_' + b : b + '_' + a; }
+    function pairOf(a, b) { return get(/databases/$(db)/documents/pairs/$(pairId(a, b))).data; }
+    function pairExists(a, b) { return exists(/databases/$(db)/documents/pairs/$(pairId(a, b))); }
+    // Can the signed-in user see the walks of `owner`? Only an accepted friend the owner chose to tell.
+    function seesWalk(owner) {
+      return signedIn() && owner != request.auth.uid && pairExists(owner, request.auth.uid)
+        && pairOf(owner, request.auth.uid).status == 'accepted'
+        && pairOf(owner, request.auth.uid).tell[owner] == true;
+    }
+
+    match /users/{uid} {
+      allow read: if mine(uid);
+      allow create, update: if mine(uid)
+        && request.resource.data.keys().hasOnly(['name', 'code', 'createdAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 24;
+      allow delete: if mine(uid);
+    }
+
+    match /codes/{code} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn() && request.resource.data.keys().hasOnly(['uid']) && request.resource.data.uid == request.auth.uid;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /pairs/{id} {
+      allow read: if signedIn() && request.auth.uid in resource.data.members;
+      // Asking to be friends: you are one of the two, the id is the two uids sorted, and it starts pending, from you.
+      allow create: if signedIn()
+        && request.resource.data.members.size() == 2
+        && request.auth.uid in request.resource.data.members
+        && id == pairId(request.resource.data.members[0], request.resource.data.members[1])
+        && request.resource.data.members[0] != request.resource.data.members[1]
+        && request.resource.data.status == 'pending'
+        && request.resource.data.requester == request.auth.uid
+        && request.resource.data.keys().hasOnly(['members', 'status', 'requester', 'names', 'tell', 'mute', 'lastAnnounce'])
+        && request.resource.data.tell[request.auth.uid] == false
+        && request.resource.data.names[request.auth.uid] is string && request.resource.data.names[request.auth.uid].size() <= 24;
+      // A member may accept (if they are not the requester) and change only their own switches and their own name.
+      allow update: if signedIn() && request.auth.uid in resource.data.members
+        && request.resource.data.members == resource.data.members
+        && request.resource.data.requester == resource.data.requester
+        && request.resource.data.lastAnnounce == resource.data.lastAnnounce
+        && (request.resource.data.status == resource.data.status
+            || (resource.data.status == 'pending' && request.resource.data.status == 'accepted' && request.auth.uid != resource.data.requester))
+        && request.resource.data.tell.diff(resource.data.tell).affectedKeys().hasOnly([request.auth.uid])
+        && request.resource.data.mute.diff(resource.data.mute).affectedKeys().hasOnly([request.auth.uid])
+        && request.resource.data.names.diff(resource.data.names).affectedKeys().hasOnly([request.auth.uid]);
+      // Either of you can end it.
+      allow delete: if signedIn() && request.auth.uid in resource.data.members;
+    }
+
+    match /walks/{uid} {
+      allow read: if mine(uid) || seesWalk(uid);
+      allow create, update: if mine(uid)
+        && request.resource.data.keys().hasOnly(['state', 'startedAt', 'updatedAt', 'announceId', 'steps', 'distanceM', 'paceSecPerKm', 'heartBpm', 'lat', 'lon']);
+      allow delete: if mine(uid);
+
+      match /joins/{friend} {
+        allow read: if mine(uid);
+        allow create: if mine(friend) && seesWalk(uid) && request.resource.data.keys().hasOnly(['at']);
+        allow delete: if mine(friend) || mine(uid);
+        allow update: if false;
+      }
+    }
+
+    match /private/{uid} {
+      allow read, write: if mine(uid) && request.resource.data.keys().hasOnly(['tokens'])
+        && request.resource.data.tokens.size() <= 5;
+      allow delete: if mine(uid);
+    }
+  }
+}
