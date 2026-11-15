@@ -27,6 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.TabletAndroid
+import androidx.compose.material.icons.rounded.Tv
+import androidx.compose.material.icons.rounded.ViewInAr
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -160,7 +162,7 @@ fun FlingDrop(t: DeviceFling.Target, hot: Boolean, index: Int, modifier: Modifie
                 // A little satellite droplet that orbits and melts back in: reads as liquid even when still.
                 if (motion) drawCircle(Liquid.teal, r * 0.22f, Offset(c.x + r * 1.05f * cos(phase), c.y + r * 1.05f * sin(phase)))
             }
-            Icon(when (t.kind) { "pc" -> Icons.Rounded.Computer; "tab" -> Icons.Rounded.TabletAndroid; else -> Icons.Rounded.PhoneAndroid }, null, tint = Color.White, modifier = Modifier.size(26.dp))
+            Icon(when (t.kind) { "pc" -> Icons.Rounded.Computer; "tab" -> Icons.Rounded.TabletAndroid; "tv" -> Icons.Rounded.Tv; "headset" -> Icons.Rounded.ViewInAr; else -> Icons.Rounded.PhoneAndroid }, null, tint = Color.White, modifier = Modifier.size(26.dp))
         }
         Text(t.name, color = Color.White, fontSize = 13.sp, fontWeight = if (hot) FontWeight.SemiBold else FontWeight.Normal, maxLines = 2, lineHeight = 15.sp, modifier = Modifier.width(112.dp), textAlign = TextAlign.Center)
         if (t.near) Text("right here", color = Liquid.teal, fontSize = 11.sp)

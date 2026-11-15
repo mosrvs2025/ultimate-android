@@ -93,6 +93,7 @@ class MeshTool(context: Context) : Tool {
             LazyColumn(Modifier.padding(pad).fillMaxSize()) {
                 if (s.running) item { LiveBar(s) { manager.stop() } }
                 item { OctopusCanvas(s, Modifier.fillMaxWidth().height(260.dp)) }
+                item { androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { AnyScreenCard() } }
                 // The link to each connected device, as two drops joined by a flowing stream while they exchange anything.
                 if (s.running) s.peers.filter { it.id in s.alive }.take(3).forEach { p ->
                     item(key = "link-" + p.id) {
