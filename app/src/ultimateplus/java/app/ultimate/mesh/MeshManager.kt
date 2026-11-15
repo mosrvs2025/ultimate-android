@@ -94,6 +94,9 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
         val remote: RemoteRecording? = null,
         val range: RangeState = RangeState.Idle,
         val house: HouseState = HouseState.Idle,
+        /** You on the device map, from the watch beacon (null while not tracking); and which devices could not hear it. */
+        val you: WhereAmI.Estimate? = null,
+        val youNote: String? = null,
         val error: String? = null,
     ) {
         /** How many times this phone's own speed the connected devices add, counting this one. */
@@ -490,6 +493,36 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
             _state.update { it.copy(house = HouseState.Done(result, names, measured, failed, System.currentTimeMillis())) }
             log("device map: ${measured.size} of ${pairs.size} distances measured")
             senses()?.publish(Signal("mesh", "house_mapped", "Mapped ${ids.size} devices", mapOf("devices" to ids.size.toString())))
+        }
+    }
+
+    private var youJob: Job? = null
+
+    /** Keeps placing you on the map every few seconds while [on] (the map card is showing and tracking is switched on). */
+    fun trackYou(on: Boolean) {
+        youJob?.cancel(); youJob = null
+        if (!on) { _state.update { it.copy(you = null, youNote = null) }; return }
+        youJob = scope.launch {
+            while (isActive) {
+                val n = node
+                val map = ((_state.value.house as? HouseState.Done)?.result as? HouseLayout.Result.Map)?.at
+                if (n == null || map == null) { _state.update { it.copy(you = null, youNote = "Map your devices first.") }; delay(3_000); continue }
+                fun parse(id: String, r: Map<String, String>): WhereAmI.Heard? {
+                    val dbm = r["dbm"]?.toDoubleOrNull() ?: return null
+                    return WhereAmI.Heard(id, dbm, r["touch"]?.toDoubleOrNull() ?: -45.0, r["arm"]?.toDoubleOrNull() ?: -70.0, r["age"]?.toLongOrNull() ?: 0)
+                }
+                val deaf = ArrayList<String>()
+                val heard = ArrayList<WhereAmI.Heard>()
+                val mine = host.heard()
+                parse(n.id, mine)?.let { heard += it } ?: deaf.add(if (mine["running"] == "1") "this phone (not hearing the watch)" else "this phone (Spatial sensing is off)")
+                for (p in n.peers().filter { it.id in map && n.alive(it) }) {
+                    val r = runCatching { n.command(p.id, Cmd.WATCH_HEARD, timeoutMs = 2_000) }.getOrNull()
+                    parse(p.id, r ?: emptyMap())?.let { heard += it } ?: deaf.add(p.name + if (r?.get("running") == "0") " (Spatial sensing is off)" else "")
+                }
+                val est = WhereAmI.estimate(map, heard)
+                _state.update { it.copy(you = est, youNote = if (deaf.isEmpty()) null else "Not hearing your watch: " + deaf.joinToString()) }
+                delay(2_500)
+            }
         }
     }
 

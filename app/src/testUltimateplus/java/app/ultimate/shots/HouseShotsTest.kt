@@ -45,7 +45,8 @@ class HouseShotsTest {
         val ms = ids.flatMapIndexed { i, a -> ids.drop(i + 1).map { b -> HouseLayout.Measure(a, b, truth.getValue(a).to(truth.getValue(b)) + noise[k++] + if (a == "flip" && b == "s10") 1.4 else 0.0) } }
         val state = MeshManager.HouseState.Done(HouseLayout.solve(ids, ms), names, ms, emptyList(), 1L)
         compose.mainClock.autoAdvance = false
-        compose.setContent { UltimateTheme { Box(Modifier.fillMaxSize().background(Color(0xFF0A0E14)).padding(16.dp)) { HouseMapCard(state, peers = 4, lends = true) {} } } }
+        compose.setContent { UltimateTheme { Box(Modifier.fillMaxSize().background(Color(0xFF0A0E14)).padding(16.dp)) { HouseMapCard(state, peers = 4, lends = true, onMap = {},
+            you = app.ultimate.mesh.WhereAmI.Estimate(HouseLayout.Point(2.9, 0.9), 0.8, "flip", false, 4), tracking = true) } } }
         compose.mainClock.advanceTimeBy(2_000)
         val out = dir!!.apply { mkdirs() }.resolve("house-map.png")
         compose.onRoot().captureRoboImage(out.path, roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record, recordOptions = RoborazziOptions.RecordOptions(resizeScale = 0.5)))

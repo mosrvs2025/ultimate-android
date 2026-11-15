@@ -125,9 +125,11 @@ class MeshTool(context: Context) : Tool {
                     item {
                         LaunchedEffect(Unit) { manager.loadHouse() }
                         androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                            HouseMapCard(s.house, s.peers.count { it.id in s.alive }, s.peers.filter { it.id in s.alive }.all { it.profile.lends }) {
-                                if (hasAudio()) manager.mapHouse() else { pendingHouse = true; askAudioForRange.launch(Manifest.permission.RECORD_AUDIO) }
-                            }
+                            var tracking by remember { mutableStateOf(false) }
+                            androidx.compose.runtime.DisposableEffect(tracking) { manager.trackYou(tracking); onDispose { manager.trackYou(false) } }
+                            HouseMapCard(s.house, s.peers.count { it.id in s.alive }, s.peers.filter { it.id in s.alive }.all { it.profile.lends },
+                                onMap = { if (hasAudio()) manager.mapHouse() else { pendingHouse = true; askAudioForRange.launch(Manifest.permission.RECORD_AUDIO) } },
+                                you = s.you, youNote = s.youNote, tracking = tracking, onTrack = { tracking = it })
                         }
                     }
                     if (s.peers.isEmpty()) item { Text("No other devices yet. Start the mesh with the same code on your other phone.", Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall) }

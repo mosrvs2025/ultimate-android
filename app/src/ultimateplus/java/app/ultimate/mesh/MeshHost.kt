@@ -61,6 +61,7 @@ class MeshHost(context: Context, private val lends: () -> Boolean, private val o
                 }
                 mapOf("state" to "armed")
             }
+            Cmd.WATCH_HEARD -> heard()
             Cmd.RANGE_PAIR -> {
                 val to = args["to"] ?: throw IllegalArgumentException("no device named")
                 if (pairBusy || rangeBusy) throw IllegalStateException("this phone is already measuring")
@@ -84,6 +85,15 @@ class MeshHost(context: Context, private val lends: () -> Boolean, private val o
             }
             else -> throw IllegalStateException("unknown command")
         }
+    }
+
+    /** This phone's view of the watch beacon, for [WhereAmI]: empty "dbm" when Spatial sensing is off or the watch is not heard. */
+    fun heard(): Map<String, String> {
+        val sp = (app as UltimateApp).spatial
+        val st = sp.state.value
+        return mapOf("running" to if (st.running) "1" else "0", "dbm" to (st.watchDbm?.toString() ?: ""),
+            "age" to (if (st.watchHeardAt > 0) (System.currentTimeMillis() - st.watchHeardAt).toString() else ""),
+            "touch" to sp.zones.touch.toString(), "arm" to sp.zones.arm.toString())
     }
 
     fun stopRecording() {
