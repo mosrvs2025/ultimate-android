@@ -261,6 +261,7 @@
             </intent-filter>
         </service>
         <!-- Timeline: notes when the phone goes on and off the charger (time and battery level only). -->
+        <receiver android:name=".social.FriendsReceiver" android:exported="false" />
         <receiver android:name=".timeline.ChargeReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />

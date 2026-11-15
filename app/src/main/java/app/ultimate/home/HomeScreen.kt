@@ -402,7 +402,7 @@ internal fun toolSections(tools: List<app.ultimate.core.Tool>): List<Pair<String
     val families = linkedMapOf(
         "Create" to listOf("studio", "squeeze", "audio", "recorder", "photos", "prompter"),
         "Health" to listOf("health"),
-        "Phone" to listOf("launcher", "hid", "files", "storage", "cleanup", "inbox", "clips", "checkup", "pluck", "footprint"),
+        "Phone" to listOf("launcher", "friends", "hid", "files", "storage", "cleanup", "inbox", "clips", "checkup", "pluck", "footprint"),
         // Spatial sensing: sonar, camera hand tracking and the sensors they build on, together in one place.
         "Senses" to listOf("gesture-studio", "echo", "air", "playground", "spatial", "roomscan", "spheres", "worldscan", "movement", "watch", "echo-teach", "echo-camera", "ruler", "sensors", "sound-meter"),
         "Network" to listOf("hosts", "ssh", "traffic", "network", "lan", "send", "mesh"),
