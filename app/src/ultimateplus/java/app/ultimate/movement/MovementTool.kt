@@ -214,7 +214,17 @@ class MovementTool(private val host: UltimateApp) : Tool {
     @Composable private fun RecordScreen(live: MovementRecorder.Live, onSaved: (String?) -> Unit) {
         val r = live.report
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(fmtTime(live.elapsedS), color = Color.White, fontSize = 52.sp, fontWeight = FontWeight.Bold)
+            // The clock counts by itself from the moment recording started, on the exact second, whatever the analysis is doing.
+            var nowS by remember { mutableStateOf(live.elapsedS) }
+            LaunchedEffect(live.startedRealtime) {
+                if (live.startedRealtime == 0L) return@LaunchedEffect
+                while (true) {
+                    val ms = android.os.SystemClock.elapsedRealtime() - live.startedRealtime
+                    nowS = ms / 1000.0
+                    kotlinx.coroutines.delay(1_000 - ms % 1_000 + 5)
+                }
+            }
+            Text(fmtTime(if (live.startedRealtime != 0L) nowS else live.elapsedS), color = Color.White, fontSize = 52.sp, fontWeight = FontWeight.Bold)
             val d = r?.distance
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Metric("Distance", d?.let { fmtDist(it.value) } ?: "—", d?.let { "± ${fmtDist(2 * it.sigma)}" } ?: "waiting", Modifier.weight(1f))

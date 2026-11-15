@@ -37,6 +37,8 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
         val report: MovementReport? = null, val busy: Boolean = false, val error: String? = null, val savedId: String? = null,
         /** The newest GPS fix (latitude, longitude, accuracy in metres), refreshed every second for the live map. */
         val fix: DoubleArray? = null,
+        /** When recording started, on the phone's uptime clock, so the screen's clock can count by itself. */
+        val startedRealtime: Long = 0L,
     )
 
     private val store = MovementStore(app)
@@ -66,7 +68,7 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
             recorder.start(file)
             builder = TraceBuilder(); consumed = 0
             id = rid; startedAt = System.currentTimeMillis(); startNs = android.os.SystemClock.elapsedRealtime()
-            _live.value = Live(recording = true)
+            _live.value = Live(recording = true, startedRealtime = startNs)
             runCatching { app.startForegroundService(Intent(app, MovementService::class.java)) }
             app.senses.begin(SESSION, "movement", "Recording movement", sensitive = true) { stop() }
             // The watch shows the recording and measures heart rate closely while it runs; its readings are written into the recording.
