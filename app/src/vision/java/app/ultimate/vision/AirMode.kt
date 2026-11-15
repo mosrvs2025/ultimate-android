@@ -37,8 +37,12 @@ import kotlin.math.hypot
 /** What Air mode is doing, shared between the camera service and the cursor drawn over every app. */
 object AirBridge {
     /** The cursor: where it is on screen, whether a hand is seen, and whether it's pinched. */
-    data class Cursor(val x: Float, val y: Float, val visible: Boolean, val pinched: Boolean)
+    data class Cursor(val x: Float, val y: Float, val visible: Boolean, val pinched: Boolean, val vx: Float = 0f, val vy: Float = 0f)
     val running = MutableStateFlow(false)
+    /** True while the watch is being used as a trackpad (see WatchPadControl): the cursor shows without the camera. */
+    val pad = MutableStateFlow(false)
+    /** A tap landed: the liquid cursor splashes. */
+    val splash = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
     val cursor = MutableStateFlow(Cursor(0f, 0f, false, false))
     /** Things to do: taps and drags at screen positions, and Back, Home, Recents. */
     val actions = MutableSharedFlow<Any>(extraBufferCapacity = 16)

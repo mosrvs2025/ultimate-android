@@ -5,6 +5,8 @@ import app.ultimate.UltimateApp
 import app.ultimate.air.WatchFeed
 import app.ultimate.air.PhoneActions
 import app.ultimate.air.WatchMessages
+import app.ultimate.air.WatchPad
+import app.ultimate.vision.WatchPadControl
 import app.ultimate.health.LiveHeart
 import app.ultimate.air.WristCalibration
 import app.ultimate.core.Signal
@@ -56,6 +58,11 @@ object WatchLink {
         }
         if (text.startsWith("update:")) { updateStatus.value = text.removePrefix("update:"); if (text == "update:installed") watchVersion.value = null; return }
         if (WatchActivity.receive(app, text)) return
+        // The watch as a trackpad: allowed by the same "Watch controls the phone" switch as gestures and buttons.
+        WatchPad.parse(text)?.let { m ->
+            WatchPadControl.receive(app, m, enabled(app))?.let { reply -> sendToWatch(app, reply) }
+            return
+        }
         if (text.startsWith("hr:")) { text.removePrefix("hr:").toIntOrNull()?.takeIf { it in 25..240 }?.let { LiveHeart.bpm.value = it to now }; return }
         if (text.startsWith("sensors:")) {
             val fresh = WristCalibration.parseSensors(text, now)

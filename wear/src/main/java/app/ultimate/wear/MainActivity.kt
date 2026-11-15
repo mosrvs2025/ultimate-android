@@ -192,6 +192,12 @@ private fun WatchScreen(link: PhoneLink) {
             if (streaming) item { Text("Showing live sensors on your phone", style = MaterialTheme.typography.caption3, color = MaterialTheme.colors.secondary, textAlign = TextAlign.Center) }
             if (sent == false) item { Text("The phone didn't answer. Is Ultimate+ installed there?", style = MaterialTheme.typography.caption3, textAlign = TextAlign.Center) }
             item {
+                // The water trackpad: the phone's liquid cursor follows your finger here.
+                androidx.wear.compose.material.Chip(onClick = { context.startActivity(android.content.Intent(context, PadActivity::class.java)) },
+                    label = { Text("Trackpad") }, secondaryLabel = { Text("Move a cursor on your phone") },
+                    colors = androidx.wear.compose.material.ChipDefaults.primaryChipColors(), modifier = Modifier.fillMaxWidth())
+            }
+            item {
                 ToggleChip(gestures, { gestures = it }, label = { Text("Wrist gestures") },
                     secondaryLabel = { Text(if (gestures) "On while this is open" else "Off") },
                     toggleControl = { androidx.wear.compose.material.Switch(gestures) }, modifier = Modifier.fillMaxWidth(),

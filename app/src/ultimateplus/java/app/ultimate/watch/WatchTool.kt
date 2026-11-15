@@ -120,6 +120,7 @@ class WatchTool(private val app: UltimateApp) : Tool {
                 }
                 // One scroll, everything in order: see it live, calibrate, choose actions, keep it updated.
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TrackpadCard(enabled)
                     LiveSensorsCard()
                     CalibrateCard()
                     Text("What each wrist gesture does (tap to change)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -296,3 +297,21 @@ private fun Step(n: Int, title: String, text: String, done: Boolean) {
     }
 }
 
+/** The watch as a trackpad: what it does, and the two things it needs here. */
+@Composable
+private fun TrackpadCard(enabled: Boolean) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val access = remember { app.ultimate.vision.AirBridge.accessibilityOn(context) }
+    val padOn by app.ultimate.vision.AirBridge.pad.collectAsStateWithLifecycle()
+    app.ultimate.core.GlassCard(title = "Trackpad on your wrist", live = padOn, accent = app.ultimate.core.Liquid.teal) {
+        Text("Open Trackpad on the watch and its face turns to water: slide a finger and a liquid cursor glides across this phone, tap to tap where it is, hold to long-press, turn the bezel or crown to scroll. Back, Home and Recents sit along the bottom of the watch.",
+            style = MaterialTheme.typography.bodyMedium)
+        Text(when {
+            !enabled -> "Turn on Watch controls the phone above first."
+            !access -> "It also needs Ultimate Air mode on in Settings › Accessibility: that is what lets the cursor tap inside other apps."
+            padOn -> "Your watch is controlling this phone now."
+            else -> "Ready. Open Trackpad on your watch."
+        }, style = MaterialTheme.typography.bodySmall, color = if (enabled && access) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+        if (enabled && !access) TextButton({ context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }) { Text("Open Accessibility settings") }
+    }
+}
