@@ -42,7 +42,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -257,7 +256,8 @@ private fun Clock(onOpenUltimate: () -> Unit) {
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun AppRow(repo: LauncherRepo, a: HomeApp, highlighted: Boolean, delayIndex: Int, onOpen: () -> Unit, big: Boolean) {
-    val icon by produceState<ImageBitmap?>(repo.icon(a.pkg), a.pkg) { value = repo.loadIcon(a.pkg) }
+    var icon by remember(a.pkg) { mutableStateOf(repo.icon(a.pkg)) }
+    LaunchedEffect(a.pkg) { if (icon == null) icon = repo.loadIcon(a.pkg) }
     val motion = motionOn()
     // Each row springs in from the right a beat after the one above, overshoots a little, and settles.
     val enter = remember(a.pkg) { Animatable(if (motion) 0f else 1f) }
