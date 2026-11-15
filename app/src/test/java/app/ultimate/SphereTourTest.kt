@@ -45,4 +45,17 @@ class SphereTourTest {
         val right = SphereTour.nextSpot(emptyList(), 0.0, 0.0, PI / 2)
         assertEquals(2.0, right[0], 1e-9); assertEquals(0.0, right[1], 1e-9)
     }
+
+    @Test fun theStoreOnlyServesThePlacesOwnFiles() {
+        val dir = kotlin.io.path.createTempDirectory().toFile()
+        val st = app.ultimate.spheres.SphereStore(dir)
+        st.save(yard); st.image("t", "door").writeBytes(byteArrayOf(1, 2, 3))
+        assertEquals(listOf("t"), st.list().map { it.id })
+        assertEquals(3, st.serve("t", "sphere/door.jpg")!!.first.size)
+        assertEquals(null, st.serve("t", "sphere/../../etc/passwd.jpg"))
+        assertEquals(null, st.serve("t", "sphere/nobody.jpg"))
+        assertTrue(String(st.serve("t", "tour.json")!!.first).contains("links"))
+        st.delete("t"); assertTrue(st.list().isEmpty())
+        dir.deleteRecursively()
+    }
 }

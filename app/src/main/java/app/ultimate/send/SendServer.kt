@@ -248,6 +248,13 @@ class SendServer(private val context: Context) {
                 val b = web.blob(rest.removePrefix("/node/blob/")) ?: return respond(out, 404, "text/plain", "Gone".toByteArray())
                 stream(out, req, b.name, b.mime, b.bytes.size.toLong()) { java.io.ByteArrayInputStream(b.bytes) }
             }
+            // A captured place (Step inside) for a headset or computer: /spheres/<place>/ is the viewer, then its tour and pictures.
+            req.method == "GET" && rest.startsWith("/spheres/") -> {
+                val parts = rest.removePrefix("/spheres/").split('/', limit = 2)
+                val place = parts[0]; val path = parts.getOrElse(1) { "" }
+                if (path.isEmpty() || path == "index.html") respond(out, 200, "text/html; charset=utf-8", context.assets.open("spheres.html").use { it.readBytes() })
+                else app.ultimate.spheres.SphereStore(context.filesDir).serve(place, path)?.let { (b, t) -> respond(out, 200, t, b) } ?: respond(out, 404, "text/plain", "Not found".toByteArray())
+            }
             // Your devices in 3D for a headset's browser (Quest): the page, and the live map it reads every two seconds.
             req.method == "GET" && rest == "/house" -> respond(out, 200, "text/html; charset=utf-8", context.assets.open("house_xr.html").use { it.readBytes() })
             req.method == "GET" && rest == "/house.json" -> app.ultimate.mesh.HouseFeed.source()?.let { respond(out, 200, "application/json", it.toByteArray()) }
