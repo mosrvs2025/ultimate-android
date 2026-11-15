@@ -86,3 +86,11 @@ object WatchPad {
         return Stroke(c.x, y0, c.x, y1, (120 + 30 * kotlin.math.abs(amount)).toLong().coerceAtMost(400))
     }
 }
+
+/**
+ * Somewhere other than this phone's own cursor for the watch trackpad to go: a computer this phone is acting as a
+ * Bluetooth mouse for. Returns true when it took the message.
+ */
+object PadSink {
+    @Volatile var external: ((WatchPad.Msg) -> Boolean)? = null
+}

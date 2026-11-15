@@ -30,6 +30,9 @@ object WatchPadControl {
         lastHeard = System.currentTimeMillis()
         if (m == WatchPad.Msg.Off) { main.post { off() }; return null }
         if (!allowed) return "pad:need:enable"
+        // Driving a computer as its Bluetooth mouse instead: no accessibility service needed for that.
+        app.ultimate.air.PadSink.external?.let { sink -> if (m != WatchPad.Msg.On && m != WatchPad.Msg.Off && sink(m)) return if (m == WatchPad.Msg.Tap || m == WatchPad.Msg.Long) "pad:hit" else null }
+        if (m == WatchPad.Msg.On && app.ultimate.air.PadSink.external != null) return "pad:ready"
         if (!AirBridge.accessibilityOn(c)) return "pad:need:access"
         val cur = cursor ?: WatchPad.Cursor(1f, 1f).also { cursor = it }
         if (m == WatchPad.Msg.On || !AirBridge.pad.value) {
