@@ -275,7 +275,14 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
 
     // ---- flinging things to the owner's other devices ----
 
-    init { DeviceFling.provider = this }
+    init {
+        DeviceFling.provider = this
+        // The headset view (phone's Wi-Fi server, /house) reads the current map and where you are from here.
+        HouseFeed.source = {
+            val s = _state.value; val h = s.house as? HouseState.Done; val m = h?.result as? HouseLayout.Result.Map
+            if (h == null || m == null) null else { keepYouFor(30_000); HouseFeed.json(m, h.names, h.measured, s.you) }
+        }
+    }
 
     fun setAccepts(on: Boolean) { store.accepts = on; _state.update { it.copy(accepts = on) } }
 
@@ -502,11 +509,20 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
     private var lastNearest: String? = null
 
     /** Keeps placing you on the map every few seconds while [on] (the map card is showing and tracking is switched on). */
-    fun trackYou(on: Boolean) {
-        youJob?.cancel(); youJob = null
-        if (!on) { _state.update { it.copy(you = null, youNote = null) }; return }
+    fun trackYou(on: Boolean) { uiTracking = on; ensureYou() }
+
+    /** Keeps tracking for a while without the map card open: the headset view asks every two seconds while it is open. */
+    fun keepYouFor(ms: Long) { leaseUntil = System.currentTimeMillis() + ms; ensureYou() }
+
+    @Volatile private var uiTracking = false
+    @Volatile private var leaseUntil = 0L
+    private fun wantYou() = uiTracking || System.currentTimeMillis() < leaseUntil
+
+    @Synchronized private fun ensureYou() {
+        if (!wantYou()) { youJob?.cancel(); youJob = null; _state.update { it.copy(you = null, youNote = null) }; return }
+        if (youJob?.isActive == true) return
         youJob = scope.launch {
-            while (isActive) {
+            while (isActive && wantYou()) {
                 val n = node
                 val map = ((_state.value.house as? HouseState.Done)?.result as? HouseLayout.Result.Map)?.at
                 if (n == null || map == null) { _state.update { it.copy(you = null, youNote = "Map your devices first.") }; delay(3_000); continue }
@@ -533,6 +549,7 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
                 _state.update { it.copy(you = est, youNote = if (deaf.isEmpty()) null else "Not hearing your watch: " + deaf.joinToString()) }
                 delay(2_500)
             }
+            if (!wantYou()) _state.update { it.copy(you = null, youNote = null) }
         }
     }
 

@@ -47,4 +47,15 @@ class WhereAmITest {
         val e = WhereAmI.estimate(room, listOf(WhereAmI.Heard("Flip", -50.0, ageMs = 60_000), WhereAmI.Heard("Quest", -40.0)))
         assertNull(e.at); assertNull(e.nearest); assertEquals(0, e.heardBy)
     }
+
+    @Test fun theHeadsetFeedCarriesDevicesLinksAndYou() {
+        val ms = listOf(HouseLayout.Measure("Fold", "Flip", 4.0), HouseLayout.Measure("Fold", "S21", 3.0), HouseLayout.Measure("Flip", "S21", 5.0))
+        val map = HouseLayout.solve(listOf("Fold", "Flip", "S21"), ms) as HouseLayout.Result.Map
+        val you = WhereAmI.Estimate(HouseLayout.Point(1.0, 1.0), 0.7, "Fold", true, 3)
+        val j = org.json.JSONObject(HouseFeed.json(map, mapOf("Fold" to "Z Fold6 \"mine\""), ms, you))
+        assertEquals(3, j.getJSONArray("devices").length()); assertEquals(3, j.getJSONArray("links").length())
+        assertEquals("Z Fold6 \"mine\"", j.getJSONArray("devices").getJSONObject(0).getString("name"))
+        assertEquals(0.7, j.getJSONObject("you").getDouble("r"), 1e-9)
+        assertTrue(org.json.JSONObject(HouseFeed.json(map, emptyMap(), ms, null)).isNull("you"))
+    }
 }

@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.animation.core.animateFloat
 import kotlinx.coroutines.launch
@@ -58,6 +59,13 @@ fun HouseMapCard(state: MeshManager.HouseState, peers: Int, lends: Boolean, onMa
                         }
                         app.ultimate.core.GooeySwitch(tracking, onTrack)
                     }
+                    // The same map in a headset (Quest) browser, served by Send to computer over https.
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    val send = (ctx.applicationContext as app.ultimate.UltimateApp).sendServer
+                    val sendState by send.state.collectAsState()
+                    Text(sendState.secureAddress?.let { "See it in your Quest: in its browser open $it/house (accept the warning about the phone's own certificate once), then Step in." }
+                        ?: "To see it in your Quest, turn on Send to computer; this card then shows the address to open in the headset's browser.",
+                        color = Liquid.dim, fontSize = 12.sp)
                     if (tracking) {
                         val near = you?.nearest?.let { state.names[it] ?: it }
                         Text(when {
