@@ -62,6 +62,12 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("2.16.0", listOf(
+            "New: your watch is a trackpad for your phone, and its face is water. Open Trackpad on the watch: touch it and the surface dips under your finger and rings spread out to the bezel and bounce back; drag and you leave a wake, with soft ticks on your wrist like skimming the surface; tap and it splashes with a click. On the phone, a cursor made of the same liquid follows your finger.",
+            "The cursor stretches into a teardrop when it moves fast and wobbles back to round when it stops; every tap sends rings out from it like a finger touching water. Slow movements are precise, a quick flick crosses the whole screen. Hold still on the watch to long-press, turn the bezel or crown to scroll, and use Back, Home and Recents along the bottom of the watch.",
+            "It needs Watch controls the phone (in Watch) and Ultimate Air mode on in Settings › Accessibility, which is what lets the cursor tap inside other apps; the Watch screen says which is missing and opens the setting. The cursor goes away by itself if the watch goes quiet for a minute. Air mode's camera cursor gets the same liquid look.",
+            "Tested with unit tests (the water spreads, reflects off the rim and calms; the cursor's acceleration, edges and scrolling) and a rendered frame of the water; not yet tried on a real watch, so how it feels and how much delay Bluetooth adds are still to be found out.",
+        ), tries = listOf("watch")),
         Entry("2.15.0", listOf(
             "New: the rail on every screen. Turn on The rail on every screen in Home screen and a thin liquid tab sits on the right edge over any app. Slide your thumb along it and the same gooey letter rail pours out, with what you are likely to want right now at the top; let go on an app to open it, or tap the dim background to put it away. It needs Display over other apps (the same permission as the orb) and reads nothing from the app underneath.",
             "New: Now, on the home screen. A row of liquid pods above your favourites offers what fits this moment, and says why: Record this walk when your watch says you are walking, back to the recording while one runs, your music app when headphones go in, and the apps you usually open at this time and place once it has learned from about a dozen launches. The same pods sit at the top of the rail on every screen.",
