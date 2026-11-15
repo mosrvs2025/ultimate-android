@@ -57,6 +57,8 @@ class LauncherTool(private val context: android.content.Context) : Tool {
     override suspend fun remove(id: String, deleteFile: Boolean) = true
     override suspend fun refresh() = Unit
 
+    init { EdgeRailService.resume(context) }
+
     private fun isHome(): Boolean = context.packageManager.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)?.activityInfo?.name == HomeActivity::class.java.name
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -64,7 +66,7 @@ class LauncherTool(private val context: android.content.Context) : Tool {
     override fun Screen(onExit: () -> Unit, launch: ToolLaunch) {
         val ctx = LocalContext.current
         var tick by remember { mutableIntStateOf(0) }
-        val ask = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { tick++ }
+        val ask = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { tick++; EdgeRailService.resume(ctx) }
         val home = remember(tick) { isHome() }
         LaunchedEffect(Unit) { tick++ }
         Scaffold(containerColor = Liquid.bg, topBar = {
@@ -84,6 +86,19 @@ class LauncherTool(private val context: android.content.Context) : Tool {
                     else Text("Pressing Home now brings you here.", color = Liquid.teal, fontSize = 14.sp)
                     Text(if (home) "To go back to your old home screen, choose it in Android's home app settings." else "Android asks you to confirm. You can switch back any time.", color = Liquid.dim, fontSize = 12.sp)
                     if (home) LiquidButton("Switch back", { ask.launch(Intent(Settings.ACTION_HOME_SETTINGS)) }, Modifier.fillMaxWidth())
+                }
+                var edge by remember(tick) { androidx.compose.runtime.mutableStateOf(EdgeRailService.enabled(ctx) && Settings.canDrawOverlays(ctx)) }
+                GlassCard(title = "The rail on every screen", live = edge, accent = Liquid.violet) {
+                    Text("A thin liquid tab on the right edge, over any app. Slide your thumb along it and the gooey letter rail pours out, with what you are likely to want right now at the top. Let go on an app to open it. Tap the dim background to put it away.",
+                        color = Liquid.dim, fontSize = 14.sp, lineHeight = 21.sp)
+                    androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text(if (edge) "On" else "Off", color = Color.White, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                        app.ultimate.core.GooeySwitch(edge, { on ->
+                            if (on && !Settings.canDrawOverlays(ctx)) { EdgeRailService.set(ctx, true); ask.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName))) }
+                            else { EdgeRailService.set(ctx, on); edge = on }
+                        })
+                    }
+                    Text("Needs \"Display over other apps\", the same permission as the orb. It reads nothing from the app underneath.", color = Liquid.dim, fontSize = 12.sp)
                 }
             }
         }

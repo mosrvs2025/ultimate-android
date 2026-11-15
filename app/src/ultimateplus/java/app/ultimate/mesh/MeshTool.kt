@@ -117,6 +117,7 @@ class MeshTool(context: Context) : Tool {
                     item { ThisPhone(s, showCode, { showCode = !showCode },
                         onLend = { on -> if (on && !hasAudio()) askAudioForLend.launch(Manifest.permission.RECORD_AUDIO) else manager.setLends(on) },
                         onStopRecording = { manager.stopLocalRecording() },
+                        onAccept = { manager.setAccepts(it) },
                         onBluetooth = { if (Build.VERSION.SDK_INT >= 31) askBluetooth.launch(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE)) else askBluetooth.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)) }) }
                     item { MeshSummary(s) }
                     if (s.peers.isEmpty()) item { Text("No other devices yet. Start the mesh with the same code on your other phone.", Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall) }
@@ -165,7 +166,7 @@ class MeshTool(context: Context) : Tool {
         }
     }
 
-    @Composable private fun ThisPhone(s: MeshManager.State, showCode: Boolean, onToggleCode: () -> Unit, onLend: (Boolean) -> Unit, onStopRecording: () -> Unit, onBluetooth: () -> Unit) {
+    @Composable private fun ThisPhone(s: MeshManager.State, showCode: Boolean, onToggleCode: () -> Unit, onLend: (Boolean) -> Unit, onStopRecording: () -> Unit, onBluetooth: () -> Unit, onAccept: (Boolean) -> Unit = {}) {
         Column(Modifier.fillMaxWidth().padding(16.dp, 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("This phone: ${s.selfName}", style = MaterialTheme.typography.titleSmall)
             Text(s.profile.describe(), style = MaterialTheme.typography.bodySmall)
@@ -176,6 +177,14 @@ class MeshTool(context: Context) : Tool {
                         style = MaterialTheme.typography.labelSmall)
                 }
                 Switch(s.lends, onLend)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Accept what my devices send", style = MaterialTheme.typography.bodyMedium)
+                    Text("Apps, links and files you fling from your other phones (drag an app on the home screen, or Share › Send to my other phone). Each one arrives as a notification; nothing opens by itself. Files go to Downloads/Ultimate.",
+                        style = MaterialTheme.typography.labelSmall)
+                }
+                Switch(s.accepts, onAccept)
             }
             s.recordingFor?.let { who ->
                 Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(12.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {

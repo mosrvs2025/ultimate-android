@@ -76,6 +76,8 @@
 
     <application android:requestLegacyExternalStorage="true">
         <!-- Ultimate's home screen. Android only uses it after you choose it as your home app (Home screen tool), and you can switch back any time. -->
+        <!-- The letter rail over other apps: only while switched on in Home screen, with the overlay permission. -->
+        <service android:name="app.ultimate.launcher.EdgeRailService" android:exported="false" />
         <activity android:name="app.ultimate.launcher.HomeActivity" android:exported="true" android:launchMode="singleTask" android:stateNotNeeded="true"
             android:excludeFromRecents="true" android:clearTaskOnLaunch="true" android:resumeWhilePausing="true" android:taskAffinity="app.ultimate.home"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation" android:windowSoftInputMode="adjustResize"

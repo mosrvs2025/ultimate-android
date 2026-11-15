@@ -24,6 +24,11 @@ class MeshStore(context: Context) {
         get() = prefs.getBoolean("lends", false)
         set(v) { prefs.edit().putBoolean("lends", v).apply() }
 
+    /** On unless the owner turns it off: whether apps, links and files flung from the owner's other devices are accepted. */
+    var accepts: Boolean
+        get() = prefs.getBoolean("accepts", true)
+        set(v) { prefs.edit().putBoolean("accepts", v).apply() }
+
     /** Whether the mesh was running when the app last closed, so it can resume when the app is opened again. */
     var wasOn: Boolean
         get() = prefs.getBoolean("wasOn", false)

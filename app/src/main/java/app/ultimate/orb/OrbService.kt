@@ -537,7 +537,7 @@ class OrbService : Service() {
 }
 
 /** Lifecycle and saved state for Compose views that live in overlay windows rather than an activity. */
-private class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
+internal class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
     private val registry = LifecycleRegistry(this)
     private val saved = SavedStateRegistryController.create(this)
     override val lifecycle: Lifecycle get() = registry
