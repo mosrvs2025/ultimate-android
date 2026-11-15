@@ -15,6 +15,7 @@ import app.ultimate.UltimateApp
 import app.ultimate.core.Signal
 import app.ultimate.movement.MovementRecorder
 import app.ultimate.movement.MovementService
+import app.ultimate.social.FriendsHub
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
@@ -48,6 +49,7 @@ object WatchActivity {
                 now.value = Now(state, spm, t)
                 val label = when (state) { "walking" -> "Your watch says you started walking"; "running" -> "Your watch says you started running"; else -> "Your watch says you stopped" }
                 app.senses.publish(Signal("watch", state, label, mapOf("spm" to spm.toString())))
+                runCatching { FriendsHub.hear(app, state) } // tells the owner's chosen friends, if they asked it to
                 val rec = MovementRecorder.get(app)
                 if ((state == "walking" || state == "running") && !rec.live.value.recording && offers(app)) offer(app, state, spm)
                 if (state == "still") app.getSystemService(NotificationManager::class.java)?.cancel(OFFER_ID)
@@ -57,6 +59,7 @@ object WatchActivity {
                 val count = p.getOrNull(0)?.toLongOrNull() ?: return true
                 val spm = p.getOrNull(1)?.toIntOrNull() ?: 0
                 now.value = Now(now.value?.state ?: if (spm >= 60) "walking" else "still", spm, t)
+                if (spm >= 60) runCatching { FriendsHub.hear(app, now.value?.state?.takeIf { it == "running" } ?: "walking") }
                 MovementRecorder.get(app).watchSteps(count)
             }
             else -> return false

@@ -90,6 +90,7 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
             if (BuildConfig.FLAVOR == "ultimateplus") runCatching { add(Class.forName("app.ultimate.movement.MovementTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
             if (BuildConfig.FLAVOR == "ultimateplus") runCatching { add(Class.forName("app.ultimate.spheres.SpheresTool").getConstructor(android.content.Context::class.java).newInstance(this@UltimateApp) as Tool) }
             if (BuildConfig.FLAVOR == "ultimateplus") runCatching { add(Class.forName("app.ultimate.worldscan.WorldScanTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
+            if (BuildConfig.FLAVOR == "ultimateplus") runCatching { add(Class.forName("app.ultimate.social.FriendsTool").getConstructor(android.content.Context::class.java).newInstance(this@UltimateApp) as Tool) }
             if (BuildConfig.FLAVOR == "ultimateplus") runCatching { add(Class.forName("app.ultimate.hid.HidTool").getConstructor(android.content.Context::class.java).newInstance(this@UltimateApp) as Tool) }
             if (BuildConfig.FLAVOR == "ultimateplus") add(Class.forName("app.ultimate.mesh.MeshTool").getConstructor(android.content.Context::class.java).newInstance(this@UltimateApp) as Tool)
             if (BuildConfig.FLAVOR == "ultimateplus") add(Class.forName("app.ultimate.ssh.SshTool").getConstructor(android.content.Context::class.java).newInstance(this@UltimateApp) as Tool)

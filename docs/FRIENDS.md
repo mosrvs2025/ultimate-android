@@ -1,40 +1,36 @@
-# Friends: "Maurice is going for a walk. Join them?"
+# Walk with friends: "Maurice is going for a walk. Join them!"
 
-Ultimate+ can tell chosen friends when you start a walk, so they can walk with you from anywhere. Everything is opt-in; nothing is
-announced until you turn it on and pick who.
+Ultimate+ can tell friends when you start a walk, so they can walk with you from anywhere. It uses a chat your friends are already in,
+so there is nothing to host and no account or card to set up. Everything is opt-in.
 
-## What goes where
-- **On your phone** (`social/`): the friend code, the rules for *when* to announce (`WalkAnnouncer`), and what a friend is allowed to
-  see (`WalkPrivacy`). Position never leaves the phone unless you switch on "where" for friends, and then only rounded to ~100 m.
-- **In your Firebase project** (`firebase/`): who is friends with whom (`pairs`), your live walk (`walks`), and a small function that
-  sends the push notifications. The rules in `firestore.rules` decide who can read what; the function enforces a minimum of one
-  announcement per friend per hour whatever a phone asks for.
+## How it works
+1. Your watch tells the phone you have started walking (the same signal that offers "Record this walk").
+2. After you have walked steadily for the time you chose, Ultimate checks every rule you set (switched on, not private, outside quiet
+   hours, someone chosen who has not been told recently) and either asks you or posts a short message.
+3. The message goes to the chat you picked: "🚶 Maurice is going for a walk. Join them!". Friends get Discord's or Telegram's own
+   notification.
 
-## One-time setup (about 20 minutes, on a computer)
-1. Go to https://console.firebase.google.com, **Add project** (any name, e.g. `ultimate-friends`). Google Analytics: off.
-2. **Build > Authentication > Get started > Sign-in method > Anonymous > Enable.** (Each phone gets a private ID; no email needed.)
-3. **Build > Firestore Database > Create database**, production mode, a region near you.
-4. **Upgrade the project to the Blaze (pay-as-you-go) plan.** This needs a card, and is required only because Google runs the
-   notification function on that plan. At friend-group size the free allowance covers it, so the bill is normally $0; add a budget
-   alert (Billing > Budgets) for peace of mind. Without Blaze, friends still see your walk live when they open the app, but no
-   push notification is sent.
-5. **Project settings > General > Your apps > Add app > Android**, package `app.ultimate.plus`. Skip downloading the config file;
-   copy the values from **Project settings > General** (Project ID, Web API key) and **Your apps** (App ID) and **Cloud Messaging**
-   (Sender ID). The app asks for these once (they identify the project; they are not passwords).
-6. Deploy the rules and the function (needs Node 20+ and `npm i -g firebase-tools`):
-   ```
-   cd firebase
-   firebase login
-   firebase use --add          # pick your project
-   (cd functions && npm install)
-   firebase deploy --only firestore,functions
-   ```
+## What is sent
+Only your name and "walk" or "run" (and, if you leave "Say when I finish" on, how many minutes). Never where you are, how far or your
+heart rate. Names are cleaned first: no pings (@everyone, @here), links, formatting or control characters; Discord messages are sent
+with mentions switched off.
 
-## Using it
-Friends > "My code" shows your code (like `K7M2-X9QD-F`). Type a friend's code to ask them; when they accept, choose whether you tell
-them when you walk, and what they may see (steps, distance, pace, heart, neighbourhood). "Go private" pauses everything for a set
-time. You can mute anyone without telling them.
+## Setting up Discord (about a minute)
+Server channel > Edit channel > Integrations > Webhooks > New Webhook > Copy Webhook URL. In Ultimate: Walk with friends > Add a chat >
+Discord > paste > Add > Send a test. The link can only post to that one channel; delete the webhook in Discord to revoke it. "Share
+link with friends" lets other Ultimate users announce to the same channel (keep the link private).
 
-## Tests
-`npm test` in `firebase/functions` (decision rules for who is told). `FriendsCoreTest` on the phone (codes, privacy, announcing).
-The Firestore rules are written to the same rules but have not been run against the Firebase emulator here.
+## Telegram and ntfy
+Telegram: make a bot with @BotFather, add it to your group, paste the bot token and the group's chat id. The token is stronger than a
+webhook, so use a bot made only for this. ntfy: choose a private topic name and paste `https://ntfy.sh/<topic>`; friends subscribe in
+the ntfy app.
+
+## Where things are kept
+Links and tokens are sealed with a key in the phone's hardware-backed Keystore (`social/FriendsStore`). The rules for when to announce
+are `social/WalkAnnouncer`, what may leave the phone is `social/WalkPrivacy`, and building and checking each request is
+`social/Delivery`; all are pure and tested (`FriendsCoreTest`, `DeliveryTest`).
+
+## Later: live joining
+`firebase/` holds an optional design for a shared live view of a walk (Firestore rules and a notification function, with tests for its
+decision rules). It is not used by the app yet and needs a Firebase project on the pay-as-you-go plan; chat posts cover the main idea
+without it.
