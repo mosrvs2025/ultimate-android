@@ -3,6 +3,11 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 2.21.0
+- New: every touch now answers. Tap any button, card, chip or list row and a faint ring of water spreads out from where your finger landed and fades in half a second, with the lightest tick from the phone. It replaces Android's standard ripple across the whole app at once, so no screen is left feeling different.
+- Kept quiet on purpose: the ring is at most about a third opaque and tinted to the colours of what you touched, the tick is the system's lightest and never more than one every 70 milliseconds, and nothing shows or buzzes while you are scrolling. With animations turned off in Android's settings there is no ring, only a very soft shade while pressed, and the tick follows the phone's own touch-feedback setting.
+- Tested with unit tests (the ring grows and fades, never gets loud, is capped on big cards, trails with a second ring, taps don't turn into a buzz) and a rendering of a button, a card and a list row mid-ring; the feel of the tick and the timing still need your fingers.
+
 ## 2.20.0
 - New: Step inside (Ultimate+, under Senses). Capture a place, like a backyard, a room or a trail, as 360° spheres you can stand in and walk between. Stand somewhere and turn slowly on the spot: a liquid ring fills as the sphere does and a dot on its edge points to the biggest gap. Tap Done here, walk to the glowing ring a couple of metres on, tap Start sphere and turn again. Complete when you're finished; Add spheres continues a place later.
 - Each camera picture is placed on the sphere by where ARCore says the phone is pointing, not by matching pictures to each other, which is what makes ordinary panoramas fail on lawns, sky and plain fences. Edges are blended so seams fade. Camera pictures are only used to build the spheres and aren't kept.
