@@ -35,6 +35,10 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
     data class Live(
         val recording: Boolean = false, val elapsedS: Double = 0.0, val bytes: Long = 0, val gps: GnssLive = GnssLive(),
         val report: MovementReport? = null, val busy: Boolean = false, val error: String? = null, val savedId: String? = null,
+        /** The newest GPS fix (latitude, longitude, accuracy in metres), refreshed every second for the live map. */
+        val fix: DoubleArray? = null,
+        /** When recording started, on the phone's uptime clock, so the screen's clock can count by itself. */
+        val startedRealtime: Long = 0L,
     )
 
     private val store = MovementStore(app)
@@ -44,6 +48,7 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
     val live: StateFlow<Live> = _live.asStateFlow()
     private var job: Job? = null
     private var heartJob: Job? = null
+    private var tickJob: Job? = null
 
     /** The watch's step counter, written into the recording (on this phone's clock, when it arrived) as an independent count of the same steps. */
     fun watchSteps(count: Long) {
@@ -63,30 +68,41 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
             recorder.start(file)
             builder = TraceBuilder(); consumed = 0
             id = rid; startedAt = System.currentTimeMillis(); startNs = android.os.SystemClock.elapsedRealtime()
-            _live.value = Live(recording = true)
+            _live.value = Live(recording = true, startedRealtime = startNs)
             runCatching { app.startForegroundService(Intent(app, MovementService::class.java)) }
             app.senses.begin(SESSION, "movement", "Recording movement", sensitive = true) { stop() }
             // The watch shows the recording and measures heart rate closely while it runs; its readings are written into the recording.
             WatchLink.sendToWatch(app, "movement:start")
             heartJob = scope.launch { LiveHeart.bpm.collect { v -> if (v != null && v.second >= startedAt) recorder.extra("hr", "{\"type\":\"hr\",\"t\":${android.os.SystemClock.elapsedRealtimeNanos()},\"bpm\":${v.first}}") } }
+            val pending = java.util.concurrent.ConcurrentLinkedQueue<String>()
+            recorder.tap = pending
+            // Every second: the clock, GPS and where you are now, without waiting for the next full analysis.
+            tickJob = scope.launch {
+                while (isActive) {
+                    delay(1_000)
+                    recorder.refreshAge()
+                    val f = recorder.fixes().lastOrNull()
+                    _live.value = _live.value.copy(elapsedS = (android.os.SystemClock.elapsedRealtime() - startNs) / 1000.0, bytes = file.length(), gps = recorder.gnss.value,
+                        fix = f?.let { doubleArrayOf(it.latitudeDeg, it.longitudeDeg, it.horizontalAccuracyMeters.toDouble()) } ?: _live.value.fix)
+                }
+            }
             job = scope.launch {
-                var every = 6_000L
+                var every = 4_000L
                 while (isActive) {
                     delay(every)
                     val t0 = System.currentTimeMillis()
                     val size = file.length()
-                    _live.value = _live.value.copy(elapsedS = (android.os.SystemClock.elapsedRealtime() - startNs) / 1000.0, bytes = size, gps = recorder.gnss.value, busy = true)
-                    // Only the lines written since the last pass are parsed; the rest of the recording is already in the builder.
+                    _live.value = _live.value.copy(bytes = size, busy = true)
+                    // Only the lines written since the last pass are added (handed over by the recorder as they were written).
                     val rep = runCatching {
-                        var index = 0
-                        for (line in store.lines(file)) { if (index >= consumed) { if (builder.add(line)) consumed = index + 1 }; index++ }
+                        while (true) { val l = pending.poll() ?: break; builder.add(l) }
                         MovementAnalyzer.analyze(builder.build(), store.calibrator(), android.os.Build.MODEL)
                     }.getOrNull()
                     if (rep != null) for (sig in MovementSignals.between(_live.value.report, rep)) app.senses.publish(Signal("movement", sig.kind, sig.label, sig.data))
                     _live.value = _live.value.copy(report = rep ?: _live.value.report, busy = false)
                     WatchLink.sendToWatch(app, "movement:status:${"%.0f".format(java.util.Locale.US, rep?.distance?.value ?: 0.0)}:${_live.value.elapsedS.toInt()}")
                     // Re-reading a long recording costs more each time, so it is done less often as the file grows (never less than 6 s apart).
-                    every = (6_000L + (System.currentTimeMillis() - t0) * 3).coerceAtMost(40_000L)
+                    every = (4_000L + (System.currentTimeMillis() - t0) * 2).coerceAtMost(30_000L)
                 }
             }
             true
@@ -103,6 +119,8 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
         if (!_live.value.recording) return _live.value.savedId
         job?.cancel(); job = null
         heartJob?.cancel(); heartJob = null
+        tickJob?.cancel(); tickJob = null
+        recorder.tap = null
         WatchLink.sendToWatch(app, "movement:stop")
         val summary = runCatching { recorder.stop() }.getOrNull()
         val rid = id; id = null

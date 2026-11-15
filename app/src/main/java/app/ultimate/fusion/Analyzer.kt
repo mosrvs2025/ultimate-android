@@ -46,6 +46,10 @@ object MovementAnalyzer {
         val fusion = Fusion.run(sources, dur)
         // The path is drawn only by sensors that were trusted: a sensor ruled out for disagreeing must not draw the map either.
         val path = FusedPath.build(sources.filter { it.name !in fusion.excluded }, dur)
+        path?.let { p ->
+            (sources.firstOrNull { it.name == "GPS" } as? GpsSource)?.let { g -> if (p.frame.startsWith("north-up")) p.anchor = doubleArrayOf(g.anchorLat, g.anchorLon) }
+            p.height = heightsAt(trace, p.t)
+        }
 
         val speeds = path?.let { Events.speeds(it) }.orEmpty()
         val stops = Events.stops(speeds)
@@ -106,6 +110,23 @@ object MovementAnalyzer {
                 else -> " One of them is miscounting; the watch, on your wrist all the time, is usually the steadier."
             }
         return StepCheck(wq, pq, agree, text)
+    }
+
+    /** Height at each of [times] in metres relative to the first, from smoothed air pressure; null without a barometer. */
+    fun heightsAt(trace: Trace, times: DoubleArray): DoubleArray? {
+        val p = trace.pressure
+        if (p.size < 10 || times.isEmpty()) return null
+        val smooth = Pdr.ma(DoubleArray(p.size) { p[it].v }, 15)
+        val h = DoubleArray(p.size) { 44330.0 * (1 - (smooth[it] / smooth[0]).pow(0.1903)) }
+        var j = 0
+        val out = DoubleArray(times.size) { i ->
+            val t = times[i]
+            while (j < p.size - 2 && p[j + 1].t < t) j++
+            val a = p[j]; val b = p[minOf(j + 1, p.size - 1)]
+            if (b.t <= a.t || t <= a.t) h[j] else if (t >= b.t) h[minOf(j + 1, p.size - 1)] else h[j] + (h[j + 1] - h[j]) * (t - a.t) / (b.t - a.t)
+        }
+        val base = out[0]; for (i in out.indices) out[i] -= base
+        return out
     }
 
     /** Height gained and lost from air pressure, ignoring changes under 1.5 m (a barometer breathes with the weather and with a door opening). */
