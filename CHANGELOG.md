@@ -3,6 +3,14 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 2.18.0
+- New: Keyboard & mouse (Ultimate+, under Phone). Your phone becomes an ordinary Bluetooth keyboard and mouse called Ultimate, so any computer, tablet, TV or the Quest can use it with nothing installed there. Pair it once from that device's Bluetooth settings (Let a new device find this phone helps), then tap it to connect.
+- A liquid trackpad: one finger moves the pointer (quick swipes go further), tap to click, hold to right-click, two fingers to scroll, with ripples where you touch. Type into the box and it types on the computer (US layout; characters without a key are counted and skipped). Quick keys for Esc, Tab, arrows, Backspace and Enter, and media keys for previous, play/pause, next and volume.
+- Your watch drives it: switch on Your watch drives it and the watch's water trackpad moves the computer's pointer instead of the phone's; tap clicks, hold right-clicks, the bezel scrolls.
+- New: Add any screen (Octopus Mesh). Any browser joins by scanning a QR code: a laptop, an iPhone or iPad, a TV or the Quest, with no app and no account. Joined screens appear as drops when you fling, next to your phones: send them apps (they get the store link), links, text and files (kept on the phone for ten minutes), or say hi with a chime. From the joined screen you can send text and files back to the phone.
+- Nothing opens by itself on a joined screen: each thing waits as a card with Open, Copy or Download, and only web links are ever opened. A screen counts as gone once its page has been closed for about 45 seconds. iPhones stay joined only while the page is open in front.
+- Tested with unit tests (the keyboard and mouse reports, typing, pointer movement that keeps fractions and splits big moves, the join inbox waiting and expiring) and the join page in a browser against a stand-in phone; not yet tried with a real computer pairing over Bluetooth or a real iPhone, TV or Quest joining.
+
 ## 2.17.0
 - New: the house as one instrument (Ultimate+). In Octopus Mesh, Map my devices has your phones chirp to each other two at a time and time the sound, then work out where every device is from the distances alone: no cameras, no internet. The map draws them as liquid drops with each measured distance, and says how well it fits.
 - A measurement that disagrees with all the others (usually an echo heard instead of the direct sound) is found by leaving each one out in turn, set aside, and shown dashed in red with a suggestion to measure again. Pairs that don't include this phone are measured by one of the two devices, asked over the mesh. The map is kept for next time.

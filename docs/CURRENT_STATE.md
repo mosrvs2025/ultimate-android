@@ -8,7 +8,7 @@
 
 | | |
 | --- | --- |
-| Version | **2.17.0**, build (versionCode) **139** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
+| Version | **2.18.0**, build (versionCode) **140** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
 | Watch app | **1.8.0**, versionCode **9** (`wear/build.gradle.kts`); it also ships inside the phone app, which installs it on the watch |
 | Source commit of this version | `76b5f27e68cb7c079f86087862b3ea84013e3dd2` (branch `claude/spatial`, pull request #24); the code is unchanged since. This file and the release tooling were added on top, and `main` contains all of it after the merge of #24. `git log -1 --format=%H -- app/build.gradle.kts` on `main` shows the exact commit |
 | Package | `app.ultimate.plus` (Ultimate+), `app.ultimate` (Ultimate, offline); other editions below |
@@ -53,6 +53,7 @@ Descriptions are each tool's own tagline.
 | --- | --- | --- | --- | --- |
 | 1 | `watch` | Watch | Ultimate+ only | Control the phone from your watch: flick, twist and shake, tap its buttons, or use the watch face as a water trackpad for a liquid cursor (`WatchPad`, `vision/WatchPadControl`, `wear/PadActivity`) |
 | 2 | `launcher` | Home screen | Ultimate+ and Ultimate | Makes Ultimate your Android home screen: time, favourites, Now pods and a gooey letter rail, optionally over every app (`EdgeRailService`); long-press and pull an app to fling it to another device on the mesh (`launcher/`, `mesh/Fling*`) |
+| 2 | `hid` | Keyboard & mouse | Ultimate+ only | The phone as a Bluetooth HID keyboard, mouse and media keys for any computer, TV or headset; liquid trackpad; the watch trackpad can drive it (`hid/HidReports`, `hid/HidLink`) |
 | 2 | `movement` | Movement | Ultimate+ only | Distance, laps, pace and sensor agreement from your own sensors, with calibration from known courses; see docs/MOVEMENT.md |
 | 2 | `mesh` | Octopus Mesh | Ultimate+ only | Your devices find each other, share sensors and work; fling apps, links and files; map where every device is from sound-measured distances (`HouseLayout`), place you on it from the watch beacon (`WhereAmI`), and serve it to a headset browser in WebXR (`assets/house_xr.html`, `/house` on Send to computer) |
 | 3 | `ssh` | SSH and SFTP | Ultimate+ only | Approved computers only |
