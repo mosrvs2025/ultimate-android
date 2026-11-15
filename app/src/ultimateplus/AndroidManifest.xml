@@ -80,6 +80,15 @@
 
     <application android:requestLegacyExternalStorage="true">
         <!-- Ultimate's home screen. Android only uses it after you choose it as your home app (Home screen tool), and you can switch back any time. -->
+        <!-- "Send to my other device" in the Share menu: sends over Octopus Mesh only, to the owner's own paired devices. -->
+        <activity android:name="app.ultimate.mesh.FlingShareActivity" android:exported="true" android:label="Send to my other device"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" android:excludeFromRecents="true" android:taskAffinity="app.ultimate.fling">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
         <!-- The letter rail over other apps: only while switched on in Home screen, with the overlay permission. -->
         <service android:name="app.ultimate.launcher.EdgeRailService" android:exported="false" />
         <activity android:name="app.ultimate.launcher.HomeActivity" android:exported="true" android:launchMode="singleTask" android:stateNotNeeded="true"

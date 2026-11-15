@@ -1,5 +1,8 @@
 package app.ultimate.launcher
 
+import kotlinx.coroutines.launch
+import app.ultimate.mesh.DeviceFling
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -131,6 +134,8 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     val appsNow by androidx.compose.runtime.rememberUpdatedState(apps)
     val rowPx = with(density) { 56.dp.toPx() }
 
+    val flingDrag = remember { FlingDrag() }
+    androidx.compose.runtime.CompositionLocalProvider(LocalFlingDrag provides flingDrag) {
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF070A0F), Color(0xFF0E141C), Color(0xFF0A0E14))))
         .pointerInput(Unit) { detectVerticalDragGestures { _, dy -> if (dy < -18f && !dragging) searching = true } }) {
 
@@ -201,8 +206,12 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
             RailVisual(letters, follow, wave, pop.value, current, dragging)
         }
 
+        // ---- flinging an app to another device
+        FlingLayer(repo, flingDrag)
+
         // ---- search
         if (searching) SearchSheet(repo, apps, onClose = { searching = false })
+    }
     }
 }
 
@@ -317,12 +326,42 @@ internal fun AppRow(repo: LauncherRepo, a: HomeApp, highlighted: Boolean, delayI
     val lift by animateFloatAsState(if (highlighted) 1.12f else 1f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium), label = "lift")
     var menu by remember { mutableStateOf(false) }
     val favs by repo.favourites.collectAsState()
+    val fling = LocalFlingDrag.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    val openNow by androidx.compose.runtime.rememberUpdatedState(onOpen)
+    // Tap opens; a long-press that stays put opens the menu; a long-press that pulls away carries the app to another device.
+    val gesture = if (fling == null) Modifier.combinedClickable(onClick = onOpen, onLongClick = { menu = true })
+        else Modifier.onGloballyPositioned { origin = it.positionInRoot() }.pointerInput(a.pkg) {
+            awaitEachGesture {
+                val down = awaitFirstDown()
+                var timedOut = true
+                val up = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) { waitForUpOrCancellation().also { timedOut = false } }
+                if (!timedOut) { if (up != null) { up.consume(); openNow() }; return@awaitEachGesture }
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                down.consume()
+                if (!fling.start(a, origin + down.position)) { menu = true; return@awaitEachGesture }
+                var moved = 0f
+                while (true) {
+                    val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                    if (!c.pressed) { c.consume(); break }
+                    val d = c.position - c.previousPosition
+                    moved += d.getDistance(); fling.pos += d; c.consume()
+                }
+                if (moved < viewConfiguration.touchSlop * 2) { fling.cancel(); menu = true; return@awaitEachGesture }
+                val hit = fling.release() ?: return@awaitEachGesture
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                scope.launch { val err = DeviceFling.provider?.app(hit.second.id, hit.first.pkg, hit.first.label)
+                    fling.toast = if (err == null) "Sent ${hit.first.label} to ${hit.second.name}" else "Couldn't send to ${hit.second.name}: $err" }
+            }
+        }
     Box {
         Row(Modifier.fillMaxWidth().height(if (big) 52.dp else 56.dp)
             .offset { IntOffset(((1f - enter.value) * 120).roundToInt(), 0) }.alpha(enter.value.coerceIn(0f, 1f)).scale(lift)
             .clip(RoundedCornerShape(16.dp))
             .background(if (highlighted) Brush.horizontalGradient(listOf(Liquid.teal.copy(alpha = 0.35f), Liquid.violet.copy(alpha = 0.18f))) else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent)))
-            .combinedClickable(onClick = onOpen, onLongClick = { menu = true }).padding(horizontal = 6.dp),
+            .then(gesture).padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(if (big) 30.dp else 34.dp)) { icon?.let { Image(it, null, Modifier.fillMaxSize()) } }
             Spacer(Modifier.width(14.dp))
@@ -331,6 +370,11 @@ internal fun AppRow(repo: LauncherRepo, a: HomeApp, highlighted: Boolean, delayI
         DropdownMenu(menu, { menu = false }) {
             DropdownMenuItem({ Text(if (a.pkg in favs) "Remove from favourites" else "Add to favourites") }, { repo.toggleFavourite(a.pkg); menu = false })
             DropdownMenuItem({ Text("App info") }, { repo.appInfo(a.pkg); menu = false })
+            // The same as dragging it onto a drop, for when a drag is awkward.
+            if (fling != null) DeviceFling.targets().forEach { t ->
+                DropdownMenuItem({ Text("Send to ${t.name}") }, { menu = false
+                    scope.launch { val err = DeviceFling.provider?.app(t.id, a.pkg, a.label); fling.toast = if (err == null) "Sent ${a.label} to ${t.name}" else "Couldn't send to ${t.name}: $err" } })
+            }
         }
     }
 }

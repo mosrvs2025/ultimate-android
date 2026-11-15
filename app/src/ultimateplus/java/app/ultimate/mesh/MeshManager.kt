@@ -40,7 +40,7 @@ import kotlinx.coroutines.launch
  * if and only if the owner has chosen to lend this phone, and sending requests to them.
  * Off by default and never started on its own the first time. Turning it off closes every socket and forgets every peer.
  */
-class MeshManager private constructor(private val app: Context) {
+class MeshManager private constructor(private val app: Context) : DeviceFling.Provider {
     data class Flow(val from: String, val to: String, val at: Long, val ok: Boolean)
 
     /** A recording running on another device that this phone started. */
@@ -66,6 +66,7 @@ class MeshManager private constructor(private val app: Context) {
         val selfName: String = Build.MODEL,
         val profile: DeviceProfile = DeviceProfile.Unknown,
         val lends: Boolean = false,
+        val accepts: Boolean = true,
         val recordingFor: String? = null,
         val code: String? = null,
         val port: Int = -1,
@@ -91,7 +92,7 @@ class MeshManager private constructor(private val app: Context) {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val _state = MutableStateFlow(State(lends = MeshStore(app).lends))
+    private val _state = MutableStateFlow(State(lends = MeshStore(app).lends, accepts = MeshStore(app).accepts))
     val state: StateFlow<State> = _state.asStateFlow()
     val store = MeshStore(app)
     private var roster = Roster.decode(store.roster)
@@ -103,7 +104,7 @@ class MeshManager private constructor(private val app: Context) {
     private var remoteJob: Job? = null
     private var udp: DatagramSocket? = null
     private var lock: WifiManager.MulticastLock? = null
-    private val host = MeshHost(app, lends = { store.lends }, onChange = ::onHostChange, notifyPing = ::notifyPing)
+    private val host = MeshHost(app, lends = { store.lends }, onChange = ::onHostChange, notifyPing = ::notifyPing, accepts = { store.accepts })
     private val ranger = PeerRanger(app)
     private var rangeRecord: Job? = null
 
@@ -142,7 +143,7 @@ class MeshManager private constructor(private val app: Context) {
                 udp = sock
                 store.saveCode(code.trim()); store.wasOn = true
                 val fp = MeshWire.fingerprint(k)
-                _state.update { State(running = true, selfId = n.id, port = n.boundPort, fingerprint = fp, capacity = cap, profile = profile(), lends = store.lends, code = code.trim(), known = roster.known, log = it.log) }
+                _state.update { State(running = true, selfId = n.id, port = n.boundPort, fingerprint = fp, capacity = cap, profile = profile(), lends = store.lends, accepts = store.accepts, code = code.trim(), known = roster.known, log = it.log) }
                 nsd = MeshNsd(app, fp, n.id, n.boundPort, ::log) { h, p -> if (n.peers().none { it.host == h && it.port == p }) n.addSeed(h, p) }.also { it.start() }
                 ble = MeshBle(app, k, n.id) { }.also { it.start() }
                 if (!refreshService() && resumed) {
@@ -258,6 +259,40 @@ class MeshManager private constructor(private val app: Context) {
     fun addAddress(text: String) {
         val (h, p) = text.trim().split(':').let { it[0] to (it.getOrNull(1)?.toIntOrNull() ?: PORT) }
         node?.addSeed(h, p)
+    }
+
+    // ---- flinging things to the owner's other devices ----
+
+    init { DeviceFling.provider = this }
+
+    fun setAccepts(on: Boolean) { store.accepts = on; _state.update { it.copy(accepts = on) } }
+
+    override fun targets(): List<DeviceFling.Target> {
+        val s = _state.value
+        if (!s.running) return emptyList()
+        return s.peers.filter { it.id in s.alive }.map { p ->
+            val band = s.bleBands[p.id]
+            DeviceFling.Target(p.id, p.name, p.profile.kind.key, band == MeshBleCodec.Band.Touching || band == MeshBleCodec.Band.Near)
+        }
+    }
+
+    private suspend fun fling(targetId: String, what: String, block: (MeshNode) -> Unit): String? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val n = node ?: return@withContext "Octopus Mesh is off"
+        val name = peerName(targetId)
+        try {
+            block(n); log("sent $what to $name")
+            _state.update { it.copy(flows = it.flows + Flow(it.selfId, targetId, System.currentTimeMillis(), true)) }
+            null
+        } catch (e: Exception) { log("could not send $what to $name: ${e.message}"); e.message ?: "it did not answer" }
+    }
+
+    override suspend fun app(targetId: String, pkg: String, label: String) = fling(targetId, label) { it.command(targetId, Cmd.FLING_APP, mapOf("pkg" to pkg, "label" to label)) }
+
+    override suspend fun text(targetId: String, text: String) = fling(targetId, "a link") { it.command(targetId, Cmd.FLING_TEXT, mapOf("text" to text.take(4_000))) }
+
+    override suspend fun file(targetId: String, name: String, mime: String, bytes: ByteArray, progress: (Float) -> Unit) = fling(targetId, Fling.safeName(name)) { n ->
+        val frames = Fling.frames(java.util.UUID.randomUUID().toString(), name, mime, bytes)
+        frames.forEachIndexed { i, (cmd, args) -> n.command(targetId, cmd, args, timeoutMs = 15_000); progress((i + 1f) / frames.size) }
     }
 
     fun startBluetooth(): Boolean = ble?.start() ?: false
@@ -417,7 +452,7 @@ class MeshManager private constructor(private val app: Context) {
         node?.stop(); node = null; key = null
         store.wasOn = false
         runCatching { app.stopService(Intent(app, MeshService::class.java)) }
-        _state.update { State(lends = store.lends, log = it.log, known = roster.known, code = store.loadCode()) }
+        _state.update { State(lends = store.lends, accepts = store.accepts, log = it.log, known = roster.known, code = store.loadCode()) }
         log("mesh off: sockets closed, peers forgotten")
     }
 

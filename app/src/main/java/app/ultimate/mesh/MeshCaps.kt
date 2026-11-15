@@ -53,4 +53,10 @@ object Cmd {
     const val REC_FETCH = "rec.fetch"
     const val RANGE_ARM = "range.arm"
     const val RANGE_RESULT = "range.result"
+    const val FLING_APP = "fling.app"
+    const val FLING_TEXT = "fling.text"
+    const val FLING_BEGIN = "fling.begin"
+    const val FLING_CHUNK = "fling.chunk"
+    const val FLING_END = "fling.end"
+    val FLING = setOf(FLING_APP, FLING_TEXT, FLING_BEGIN, FLING_CHUNK, FLING_END)
 }

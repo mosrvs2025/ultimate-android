@@ -3,6 +3,12 @@ package app.ultimate.shots
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import app.ultimate.UltimateApp
@@ -59,5 +65,48 @@ class LauncherShotsTest {
         }
         repeat(40) { compose.mainClock.advanceTimeByFrame() }
         save("launcher-rail")
+    }
+
+    @Test fun flingAnAppToAnotherPhone() {
+        assumeTrue(dir != null)
+        app.ultimate.mesh.DeviceFling.provider = object : app.ultimate.mesh.DeviceFling.Provider {
+            override fun targets() = listOf(app.ultimate.mesh.DeviceFling.Target("a", "Galaxy Z Flip6", "fold", near = true), app.ultimate.mesh.DeviceFling.Target("b", "Galaxy S21 Ultra", "phone", near = false))
+            override suspend fun app(targetId: String, pkg: String, label: String): String? = null
+            override suspend fun text(targetId: String, text: String): String? = null
+            override suspend fun file(targetId: String, name: String, mime: String, bytes: ByteArray, progress: (Float) -> Unit): String? = null
+        }
+        try {
+            show()
+            val row = compose.onNodeWithText("Photos")
+            row.performTouchInput { down(center) }
+            repeat(40) { compose.mainClock.advanceTimeByFrame() } // past the long-press
+            repeat(30) { i ->
+                row.performTouchInput { moveTo(androidx.compose.ui.geometry.Offset(center.x - 9f * i, center.y + 14f * i)) }
+                compose.mainClock.advanceTimeByFrame()
+            }
+            repeat(40) { compose.mainClock.advanceTimeByFrame() }
+            save("launcher-fling")
+        } finally { app.ultimate.mesh.DeviceFling.provider = null }
+    }
+
+    @Test fun edgeRailOverAnyApp() {
+        assumeTrue(dir != null)
+        val repo = LauncherRepo(ApplicationProvider.getApplicationContext())
+        repo.seed(names.map { HomeApp(it.lowercase(), it) }, emptyList())
+        val drag = kotlinx.coroutines.flow.MutableStateFlow(app.ultimate.launcher.EdgeDrag())
+        val expanded = kotlinx.coroutines.flow.MutableStateFlow(true)
+        val hover = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+        compose.mainClock.autoAdvance = false
+        compose.setContent { UltimateTheme {
+            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFFECEFF3))) {
+                androidx.compose.material3.Text("Any app underneath", androidx.compose.ui.Modifier.padding(24.dp), color = androidx.compose.ui.graphics.Color(0xFF333333), fontSize = 22.sp)
+                app.ultimate.launcher.EdgeRailContent(repo, drag, expanded, hover, {}, {}, {})
+            }
+        } }
+        compose.mainClock.advanceTimeBy(300)
+        // A thumb on the tab at the right edge, sliding down to the letters around S (screen pixels at xxhdpi).
+        repeat(40) { i -> drag.value = app.ultimate.launcher.EdgeDrag(true, 1010f, 900f + 22f * minOf(i, 25), moved = true); compose.mainClock.advanceTimeByFrame() }
+        repeat(30) { compose.mainClock.advanceTimeByFrame() }
+        save("edge-rail")
     }
 }

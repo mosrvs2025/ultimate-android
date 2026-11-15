@@ -13,11 +13,13 @@ import kotlinx.coroutines.launch
  * owner has switched on "Lend this phone"; a recording shows in Live now with a Stop button and in the mesh
  * notification for as long as it runs, so nothing is ever recorded or played here without being visible.
  */
-class MeshHost(context: Context, private val lends: () -> Boolean, private val onChange: () -> Unit, private val notifyPing: (String) -> Unit) {
+class MeshHost(context: Context, private val lends: () -> Boolean, private val onChange: () -> Unit, private val notifyPing: (String) -> Unit, accepts: () -> Boolean = { true }) {
     private val app = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val recorder = MotionRecorder(app)
     private val ranger = PeerRanger(app)
+    /** Flings are the owner's own choice to send something here, so they follow "Accept what my devices send", not lending. */
+    private val fling = FlingHost(app, accepts)
 
     /** Who is recording here, for the banner; null when nothing is. */
     @Volatile var recordingFor: String? = null; private set
@@ -28,6 +30,7 @@ class MeshHost(context: Context, private val lends: () -> Boolean, private val o
 
     fun handle(from: MeshNode.Peer, cmd: String, args: Map<String, String>): Map<String, String> {
         if (cmd == Cmd.PING) { notifyPing(from.name); return mapOf("model" to Build.MODEL) }
+        if (cmd in Cmd.FLING) return fling.handle(from, cmd, args)
         if (!lends()) throw IllegalStateException("this phone is not lending its sensors: turn on \"Lend this phone\" in Octopus Mesh there")
         return when (cmd) {
             Cmd.REC_START -> {
