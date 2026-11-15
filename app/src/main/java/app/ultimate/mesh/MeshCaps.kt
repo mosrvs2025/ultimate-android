@@ -53,6 +53,11 @@ object Cmd {
     const val REC_FETCH = "rec.fetch"
     const val RANGE_ARM = "range.arm"
     const val RANGE_RESULT = "range.result"
+    /** Asks a device to measure its own distance to another device ("to"), for mapping devices that are not this phone. */
+    const val RANGE_PAIR = "range.pair"
+    const val RANGE_PAIR_RESULT = "range.pairResult"
+    /** How strongly this device hears the owner's watch beacon right now (for placing them on the device map). */
+    const val WATCH_HEARD = "watch.heard"
     const val FLING_APP = "fling.app"
     const val FLING_TEXT = "fling.text"
     const val FLING_BEGIN = "fling.begin"

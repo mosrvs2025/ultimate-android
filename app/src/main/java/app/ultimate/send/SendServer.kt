@@ -232,6 +232,10 @@ class SendServer(private val context: Context) {
                     "Set-Cookie: ult=$token; Max-Age=31536000; Path=/; HttpOnly; SameSite=Strict\r\nConnection: close\r\n\r\n").toByteArray())
                 out.write(body); out.flush()
             }
+            // Your devices in 3D for a headset's browser (Quest): the page, and the live map it reads every two seconds.
+            req.method == "GET" && rest == "/house" -> respond(out, 200, "text/html; charset=utf-8", context.assets.open("house_xr.html").use { it.readBytes() })
+            req.method == "GET" && rest == "/house.json" -> app.ultimate.mesh.HouseFeed.source()?.let { respond(out, 200, "application/json", it.toByteArray()) }
+                ?: respond(out, 404, "application/json", "{\"error\":\"no map yet\"}".toByteArray())
             rest.startsWith("/api/") -> api.handle(req, rest.removePrefix("/api"), input, out)
             req.method == "GET" && rest == "/status" -> respond(out, 200, "application/json", status().toByteArray())
             req.method == "GET" && rest == "/mic" -> {

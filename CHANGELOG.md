@@ -3,6 +3,15 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 2.17.0
+- New: the house as one instrument (Ultimate+). In Octopus Mesh, Map my devices has your phones chirp to each other two at a time and time the sound, then work out where every device is from the distances alone: no cameras, no internet. The map draws them as liquid drops with each measured distance, and says how well it fits.
+- A measurement that disagrees with all the others (usually an echo heard instead of the direct sound) is found by leaving each one out in turn, set aside, and shown dashed in red with a suggestion to measure again. Pairs that don't include this phone are measured by one of the two devices, asked over the mesh. The map is kept for next time.
+- Distances alone cannot tell north or left from right, so the map says the real room may be turned or mirrored. It needs three or more devices with Lend this phone on, and the microphone.
+- Show where I am: with the watch's Proximity beacon on and Spatial sensing on the phones, each phone reports how strongly it hears your watch and you appear on the map as a warm drop with a circle as wide as the uncertainty. Signal strength is a rough ruler, so it shows an area, not a point, and which device you're nearest.
+- Flinging an app or file now lists the device you're standing by first. New Rules triggers: when I walk up to one of my devices, when one of my devices sends me something, when my devices finish mapping.
+- See it in your Quest: with Send to computer on, open the address the map card shows (…/house) in the headset's browser and press Step in. Your devices float as wobbling liquid drops at their real distances in your room (passthrough), joined by their measurements, with you in amber; the left stick turns and moves the map, A or X mirrors it, grip brings it back in front of you. The page is served by the phone itself and loads nothing from the internet.
+- Tested with unit tests (exact and noisy made-up rooms, missing pairs, echoes, devices in a row, placing you, the headset feed), screenshots of the map card and a rendering of the headset page in a browser; not yet tried with real phones, a real watch or a Quest.
+
 ## 2.16.0
 - New: your watch is a trackpad for your phone, and its face is water. Open Trackpad on the watch: touch it and the surface dips under your finger and rings spread out to the bezel and bounce back; drag and you leave a wake, with soft ticks on your wrist like skimming the surface; tap and it splashes with a click. On the phone, a cursor made of the same liquid follows your finger.
 - The cursor stretches into a teardrop when it moves fast and wobbles back to round when it stops; every tap sends rings out from it like a finger touching water. Slow movements are precise, a quick flick crosses the whole screen. Hold still on the watch to long-press, turn the bezel or crown to scroll, and use Back, Home and Recents along the bottom of the watch.

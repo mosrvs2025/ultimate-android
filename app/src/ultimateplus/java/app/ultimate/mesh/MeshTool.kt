@@ -76,8 +76,10 @@ class MeshTool(context: Context) : Tool {
         var address by remember { mutableStateOf("") }
         var showCode by remember { mutableStateOf(false) }
         var pendingRange by remember { mutableStateOf<String?>(null) }
+        var pendingHouse by remember { mutableStateOf(false) }
         val askAudioForRange = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
             pendingRange?.let { id -> if (ok) manager.measureDistance(id) }; pendingRange = null
+            if (pendingHouse && ok) manager.mapHouse(); pendingHouse = false
         }
         val askAudioForLend = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { manager.setLends(true) }
         val askBluetooth = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { manager.startBluetooth() }
@@ -120,6 +122,16 @@ class MeshTool(context: Context) : Tool {
                         onAccept = { manager.setAccepts(it) },
                         onBluetooth = { if (Build.VERSION.SDK_INT >= 31) askBluetooth.launch(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE)) else askBluetooth.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)) }) }
                     item { MeshSummary(s) }
+                    item {
+                        LaunchedEffect(Unit) { manager.loadHouse() }
+                        androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                            var tracking by remember { mutableStateOf(false) }
+                            androidx.compose.runtime.DisposableEffect(tracking) { manager.trackYou(tracking); onDispose { manager.trackYou(false) } }
+                            HouseMapCard(s.house, s.peers.count { it.id in s.alive }, s.peers.filter { it.id in s.alive }.all { it.profile.lends },
+                                onMap = { if (hasAudio()) manager.mapHouse() else { pendingHouse = true; askAudioForRange.launch(Manifest.permission.RECORD_AUDIO) } },
+                                you = s.you, youNote = s.youNote, tracking = tracking, onTrack = { tracking = it })
+                        }
+                    }
                     if (s.peers.isEmpty()) item { Text("No other devices yet. Start the mesh with the same code on your other phone.", Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall) }
                     items(s.peers) { p ->
                         PeerCard(p, p.id in s.alive, s.bleBands[p.id],

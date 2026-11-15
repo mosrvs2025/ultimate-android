@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your devices, in place</title>
+<style>
+  :root { --bg:#070a0f; --ink:#e8eef6; --dim:#93a1b5; --teal:#3ddcd0; --violet:#8e7cff; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+  .panel { position:fixed; left:16px; right:16px; bottom:16px; max-width:560px; margin:auto; padding:16px 18px; border-radius:22px;
+           background:rgba(20,27,38,.82); backdrop-filter:blur(12px); border:1px solid rgba(255,255,255,.08); }
+  h1 { font-size:20px; margin:0 0 4px; }
+  p { margin:4px 0; color:var(--dim); font-size:14px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+  button { flex:1; min-width:120px; padding:14px 16px; border:0; border-radius:999px; font:600 15px system-ui,sans-serif; color:#0a0e14;
+           background:linear-gradient(90deg,var(--teal),var(--violet)); cursor:pointer; }
+  button.ghost { background:rgba(255,255,255,.08); color:var(--ink); }
+  button:disabled { opacity:.4; cursor:default; }
+  #status { color:var(--teal); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="panel">
+  <h1>Your devices, in place</h1>
+  <p id="status">Loading the map from your phone…</p>
+  <p>Drag to turn the map. In the headset: left stick turns and moves it, A or X mirrors it, grip puts it back in front of you.</p>
+  <div class="row">
+    <button id="enter" disabled>Step in</button>
+    <button id="mirror" class="ghost">Mirror</button>
+  </div>
+</div>
+<script>
+"use strict";
+// ---------- tiny matrix helpers (column-major, like WebGL and WebXR) ----------
+const M = {
+  ident(){ return [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; },
+  mul(a,b){ const o=new Array(16); for(let c=0;c<4;c++) for(let r=0;r<4;r++){ let s=0; for(let k=0;k<4;k++) s+=a[k*4+r]*b[c*4+k]; o[c*4+r]=s; } return o; },
+  trans(x,y,z){ const m=M.ident(); m[12]=x; m[13]=y; m[14]=z; return m; },
+  scale(x,y,z){ const m=M.ident(); m[0]=x; m[5]=y; m[10]=z; return m; },
+  rotY(a){ const c=Math.cos(a), s=Math.sin(a); return [c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]; },
+  persp(fov,asp,n,f){ const t=1/Math.tan(fov/2); return [t/asp,0,0,0, 0,t,0,0, 0,0,(f+n)/(n-f),-1, 0,0,2*f*n/(n-f),0]; },
+  lookAt(e,c,u){ let z=[e[0]-c[0],e[1]-c[1],e[2]-c[2]]; let l=Math.hypot(...z); z=z.map(v=>v/l);
+    let x=[u[1]*z[2]-u[2]*z[1],u[2]*z[0]-u[0]*z[2],u[0]*z[1]-u[1]*z[0]]; l=Math.hypot(...x); x=x.map(v=>v/l);
+    const y=[z[1]*x[2]-z[2]*x[1],z[2]*x[0]-z[0]*x[2],z[0]*x[1]-z[1]*x[0]];
+    return [x[0],y[0],z[0],0, x[1],y[1],z[1],0, x[2],y[2],z[2],0, -(x[0]*e[0]+x[1]*e[1]+x[2]*e[2]), -(y[0]*e[0]+y[1]*e[1]+y[2]*e[2]), -(z[0]*e[0]+z[1]*e[1]+z[2]*e[2]), 1]; },
+  apply(m,p){ return [m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12], m[1]*p[0]+m[5]*p[1]+m[9]*p[2]+m[13], m[2]*p[0]+m[6]*p[1]+m[10]*p[2]+m[14]]; },
+};
+
+// ---------- WebGL setup ----------
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl', { xrCompatible:true, antialias:true, alpha:true });
+if (!gl) document.getElementById('status').textContent = 'This browser cannot draw 3D (no WebGL).';
+
+function program(vs, fs){
+  const p=gl.createProgram();
+  for (const [t,src] of [[gl.VERTEX_SHADER,vs],[gl.FRAGMENT_SHADER,fs]]) { const s=gl.createShader(t); gl.shaderSource(s,src); gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); gl.attachShader(p,s); }
+  gl.linkProgram(p); const u={}, n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);
+  for(let i=0;i<n;i++){ const a=gl.getActiveUniform(p,i); u[a.name]=gl.getUniformLocation(p,a.name); }
+  return { p, u, pos:gl.getAttribLocation(p,'aPos'), nor:gl.getAttribLocation(p,'aNor') };
+}
+
+// A drop of liquid: two-tone body by facing, a bright rim (fresnel), a highlight, and a surface that ripples.
+const liquid = program(`
+attribute vec3 aPos; attribute vec3 aNor;
+uniform mat4 uProj, uView, uModel; uniform float uTime, uWobble;
+varying vec3 vN; varying vec3 vW;
+void main(){
+  float w = uWobble * (sin(aPos.y*9.0 + uTime*3.1) + sin(aPos.x*7.0 - uTime*2.3)) * 0.5;
+  vec4 wp = uModel * vec4(aPos + aNor*w, 1.0);
+  vW = wp.xyz; vN = normalize((uModel * vec4(aNor, 0.0)).xyz);
+  gl_Position = uProj * uView * wp;
+}`,`
+precision mediump float;
+uniform vec3 uA, uB, uEye; uniform float uAlpha;
+varying vec3 vN; varying vec3 vW;
+void main(){
+  vec3 n = normalize(vN); vec3 v = normalize(uEye - vW);
+  vec3 base = mix(uB, uA, n.y*0.5+0.5);
+  float rim = pow(1.0 - max(dot(n,v),0.0), 2.5);
+  vec3 l = normalize(vec3(-0.4, 1.0, 0.3)); vec3 h = normalize(l+v);
+  float spec = pow(max(dot(n,h),0.0), 60.0);
+  gl_FragColor = vec4(base*(0.45+0.55*max(dot(n,l),0.0)) + rim*0.7 + spec*0.9, uAlpha);
+}`);
+
+const flat = program(`
+attribute vec3 aPos; uniform mat4 uProj, uView, uModel;
+void main(){ gl_Position = uProj * uView * uModel * vec4(aPos,1.0); }`,`
+precision mediump float; uniform vec4 uColor; void main(){ gl_FragColor = uColor; }`);
+
+// Text that always faces you: a quad spanned by the camera's right and up vectors.
+const label = program(`
+attribute vec3 aPos; uniform mat4 uProj, uView; uniform vec3 uCenter; uniform vec2 uSize; varying vec2 vUv;
+void main(){
+  vec3 right = vec3(uView[0][0], uView[1][0], uView[2][0]); vec3 up = vec3(uView[0][1], uView[1][1], uView[2][1]);
+  vUv = vec2(aPos.x*0.5+0.5, 0.5-aPos.y*0.5);
+  gl_Position = uProj * uView * vec4(uCenter + right*aPos.x*uSize.x*0.5 + up*aPos.y*uSize.y*0.5, 1.0);
+}`,`
+precision mediump float; uniform sampler2D uTex; varying vec2 vUv; void main(){ gl_FragColor = texture2D(uTex, vUv); }`);
+
+function buffer(data){ const b=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,b); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.STATIC_DRAW); return b; }
+
+// Sphere (positions double as normals).
+const sphere = (() => { const P=[]; const S=24, R=16;
+  for(let i=0;i<R;i++) for(let j=0;j<S;j++){
+    const q=(a,b)=>{ const t=a/R*Math.PI, f=b/S*2*Math.PI; return [Math.sin(t)*Math.cos(f), Math.cos(t), Math.sin(t)*Math.sin(f)]; };
+    const a=q(i,j), b=q(i+1,j), c=q(i+1,j+1), d=q(i,j+1); P.push(...a,...b,...c, ...a,...c,...d); }
+  return { buf:buffer(P), n:P.length/3 }; })();
+const ring = (() => { const P=[]; for(let i=0;i<=64;i++){ const a=i/64*2*Math.PI; P.push(Math.cos(a),0,Math.sin(a)); } return { buf:buffer(P), n:65 }; })();
+const disc = (() => { const P=[]; for(let i=0;i<64;i++){ const a=i/64*2*Math.PI, b=(i+1)/64*2*Math.PI; P.push(0,0,0, Math.cos(a),0,Math.sin(a), Math.cos(b),0,Math.sin(b)); } return { buf:buffer(P), n:192 }; })();
+const quad = buffer([-1,-1,0, 1,-1,0, 1,1,0, -1,-1,0, 1,1,0, -1,1,0]);
+const lineBuf = gl.createBuffer();
+
+const texts = new Map();
+function textTexture(str, color){
+  const key = str + color; if (texts.has(key)) return texts.get(key);
+  const cv=document.createElement('canvas'), x=cv.getContext('2d'); x.font='600 44px system-ui,sans-serif';
+  const w=Math.ceil(x.measureText(str).width)+40; cv.width=w; cv.height=72;
+  x.font='600 44px system-ui,sans-serif'; x.fillStyle='rgba(10,14,20,.72)'; x.beginPath(); x.roundRect(0,0,w,72,36); x.fill();
+  x.fillStyle=color; x.textBaseline='middle'; x.fillText(str,20,38);
+  const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,cv);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  const r={ t, aspect:w/72 }; texts.set(key,r); return r;
+}
+
+// ---------- the map ----------
+let data = null;              // last /house.json
+const shown = new Map();      // id -> {x,z} eased positions in map space
+let you = null;               // eased {x,z,r}
+let angle = 0, mirror = 1, ahead = 1.6;
+const H = 0.9;                // devices float at table height
+
+async function poll(){
+  try {
+    const r = await fetch('house.json', { cache:'no-store' });
+    if (r.status === 404) { setStatus('No map yet: on your phone, open Octopus Mesh and tap Map my devices.'); return; }
+    const j = await r.json(); data = j;
+    const n = j.devices.length;
+    setStatus(n + ' devices' + (j.you ? ' · you are shown in amber' : '') + ' · fits within ' + Math.round(j.rms*100) + ' cm');
+  } catch (e) { setStatus('Cannot reach your phone. Is Send to computer still on, on the same Wi-Fi?'); }
+}
+function setStatus(s){ document.getElementById('status').textContent = s; }
+
+function centre(){ if(!data || !data.devices.length) return [0,0]; let x=0,y=0; for(const d of data.devices){ x+=d.x; y+=d.y; } return [x/data.devices.length, y/data.devices.length]; }
+function mapModel(){ return M.mul(M.trans(0,0,-ahead), M.mul(M.rotY(angle), M.scale(mirror,1,1))); }
+
+function ease(dt){
+  if(!data) return; const [cx,cy]=centre(); const k=1-Math.exp(-dt*4);
+  for(const d of data.devices){ const t={x:d.x-cx, z:-(d.y-cy)}; const s=shown.get(d.id)||{x:t.x,z:t.z,born:performance.now()};
+    s.x+=(t.x-s.x)*k; s.z+=(t.z-s.z)*k; shown.set(d.id,s); }
+  if(data.you){ const t={x:data.you.x-cx, z:-(data.you.y-cy), r:data.you.r}; if(!you) you={...t};
+    you.x+=(t.x-you.x)*k*0.6; you.z+=(t.z-you.z)*k*0.6; you.r+=(t.r-you.r)*k*0.6; } else you=null;
+}
+
+function draw(proj, view, eye, time){
+  gl.enable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  if(!data) return;
+  const model = mapModel();
+  const P=(x,y,z)=>M.apply(model,[x,y,z]);
+  // Floor: a soft disc under the whole map and a thin ring.
+  gl.useProgram(flat.p); gl.uniformMatrix4fv(flat.u.uProj,false,proj); gl.uniformMatrix4fv(flat.u.uView,false,view);
+  let ext=0.6; for(const s of shown.values()) ext=Math.max(ext, Math.hypot(s.x,s.z)+0.5);
+  gl.bindBuffer(gl.ARRAY_BUFFER,disc.buf); gl.enableVertexAttribArray(flat.pos); gl.vertexAttribPointer(flat.pos,3,gl.FLOAT,false,0,0);
+  gl.uniformMatrix4fv(flat.u.uModel,false,M.mul(model,M.scale(ext,1,ext))); gl.uniform4f(flat.u.uColor,0.24,0.86,0.82,0.08); gl.drawArrays(gl.TRIANGLES,0,disc.n);
+  gl.bindBuffer(gl.ARRAY_BUFFER,ring.buf); gl.vertexAttribPointer(flat.pos,3,gl.FLOAT,false,0,0);
+  gl.uniformMatrix4fv(flat.u.uModel,false,M.mul(model,M.scale(ext,1,ext))); gl.uniform4f(flat.u.uColor,0.56,0.49,1,0.5); gl.drawArrays(gl.LINE_STRIP,0,ring.n);
+  // Links between measured pairs; an echo-doubtful one in red.
+  gl.uniformMatrix4fv(flat.u.uModel,false,M.ident());
+  const pts=[], bad=[];
+  for(const l of data.links){ const a=shown.get(l.a), b=shown.get(l.b); if(!a||!b) continue; (l.bad?bad:pts).push(...P(a.x,H,a.z),...P(b.x,H,b.z)); }
+  // Stems from each drop down to the floor, so heights read as "standing here".
+  for(const s of shown.values()) pts.push(...P(s.x,H,s.z),...P(s.x,0,s.z));
+  gl.bindBuffer(gl.ARRAY_BUFFER,lineBuf);
+  for(const [arr,col] of [[pts,[0.24,0.86,0.82,0.55]],[bad,[1,0.54,0.5,0.9]]]){ if(!arr.length) continue;
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(arr),gl.DYNAMIC_DRAW); gl.vertexAttribPointer(flat.pos,3,gl.FLOAT,false,0,0);
+    gl.uniform4f(flat.u.uColor,...col); gl.drawArrays(gl.LINES,0,arr.length/3); }
+  // You: a halo on the floor as wide as the uncertainty.
+  if(you){ gl.bindBuffer(gl.ARRAY_BUFFER,disc.buf); gl.vertexAttribPointer(flat.pos,3,gl.FLOAT,false,0,0);
+    gl.uniformMatrix4fv(flat.u.uModel,false,M.mul(model,M.mul(M.trans(you.x,0.005,you.z),M.scale(you.r,1,you.r)))); gl.uniform4f(flat.u.uColor,1,0.78,0.34,0.18); gl.drawArrays(gl.TRIANGLES,0,disc.n); }
+  // The drops.
+  gl.useProgram(liquid.p); gl.uniformMatrix4fv(liquid.u.uProj,false,proj); gl.uniformMatrix4fv(liquid.u.uView,false,view);
+  gl.uniform3fv(liquid.u.uEye,eye); gl.uniform1f(liquid.u.uTime,time); gl.uniform1f(liquid.u.uAlpha,0.95);
+  gl.bindBuffer(gl.ARRAY_BUFFER,sphere.buf); gl.enableVertexAttribArray(liquid.pos); gl.vertexAttribPointer(liquid.pos,3,gl.FLOAT,false,0,0);
+  if(liquid.nor>=0){ gl.enableVertexAttribArray(liquid.nor); gl.vertexAttribPointer(liquid.nor,3,gl.FLOAT,false,0,0); }
+  for(const d of data.devices){ const s=shown.get(d.id); if(!s) continue;
+    const grow=Math.min(1,(performance.now()-s.born)/700), pop=grow<1? (1-Math.cos(grow*Math.PI*2.5)*(1-grow)*0.5)*grow : 1;
+    const r=0.075*pop*(d.nearest?1+0.08*Math.sin(time*4):1);
+    gl.uniformMatrix4fv(liquid.u.uModel,false,M.mul(model,M.mul(M.trans(s.x,H,s.z),M.scale(r,r,r))));
+    gl.uniform1f(liquid.u.uWobble,0.06); gl.uniform3f(liquid.u.uA,0.24,0.86,0.82); gl.uniform3f(liquid.u.uB,0.56,0.49,1); gl.drawArrays(gl.TRIANGLES,0,sphere.n); }
+  if(you){ const r=0.06*(1+0.12*Math.sin(time*3));
+    gl.uniformMatrix4fv(liquid.u.uModel,false,M.mul(model,M.mul(M.trans(you.x,1.0,you.z),M.scale(r,r,r))));
+    gl.uniform1f(liquid.u.uWobble,0.1); gl.uniform3f(liquid.u.uA,1,0.89,0.6); gl.uniform3f(liquid.u.uB,1,0.62,0.26); gl.drawArrays(gl.TRIANGLES,0,sphere.n); }
+  if(liquid.nor>=0) gl.disableVertexAttribArray(liquid.nor);
+  // Labels: names over the drops, distances at the middle of each link.
+  gl.useProgram(label.p); gl.uniformMatrix4fv(label.u.uProj,false,proj); gl.uniformMatrix4fv(label.u.uView,false,view);
+  gl.bindBuffer(gl.ARRAY_BUFFER,quad); gl.enableVertexAttribArray(label.pos); gl.vertexAttribPointer(label.pos,3,gl.FLOAT,false,0,0);
+  gl.disable(gl.DEPTH_TEST);
+  const tag=(str,col,p,h)=>{ const t=textTexture(str,col); gl.bindTexture(gl.TEXTURE_2D,t.t); gl.uniform3fv(label.u.uCenter,p); const k=session?1:2.4; gl.uniform2f(label.u.uSize,h*k*t.aspect,h*k); gl.drawArrays(gl.TRIANGLES,0,6); };
+  for(const d of data.devices){ const s=shown.get(d.id); if(s) tag(d.name,'#ffffff',P(s.x,H+0.16,s.z),0.06); }
+  for(const l of data.links){ const a=shown.get(l.a), b=shown.get(l.b); if(a&&b) tag(l.m.toFixed(2)+' m', l.bad?'#ff8a80':'#b8c4d6', P((a.x+b.x)/2,H+0.03,(a.z+b.z)/2), 0.04); }
+  if(you) tag('You','#ffc857',P(you.x,1.12,you.z),0.06);
+}
+
+// ---------- the flat preview in the browser ----------
+let dragging=false, lastX=0, last=performance.now(), session=null;
+canvas.addEventListener('pointerdown',e=>{ dragging=true; lastX=e.clientX; });
+addEventListener('pointerup',()=>dragging=false);
+addEventListener('pointermove',e=>{ if(dragging){ angle+=(e.clientX-lastX)*0.01; lastX=e.clientX; } });
+document.getElementById('mirror').onclick=()=>{ mirror=-mirror; };
+
+function preview(now){
+  if(session) return;
+  const dt=Math.min(0.05,(now-last)/1000); last=now; ease(dt);
+  const w=canvas.clientWidth*devicePixelRatio, h=canvas.clientHeight*devicePixelRatio; if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; }
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,w,h); gl.clearColor(0.027,0.039,0.059,1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  // Pull back far enough to see every device, a little from above.
+  let ext=1; for(const s of shown.values()) ext=Math.max(ext, Math.hypot(s.x,s.z));
+  const back=ext*1.35/Math.min(1,w/h)+0.5, eye=[0, H+back*0.75, -ahead+back];
+  draw(M.persp(0.9,w/h,0.05,80), M.lookAt(eye,[0,H*0.6,-ahead],[0,1,0]), eye, now/1000);
+  requestAnimationFrame(preview);
+}
+
+// ---------- the headset ----------
+let refSpace=null, mode=null, prevA=false;
+async function enter(){
+  session = await navigator.xr.requestSession(mode, { requiredFeatures:['local-floor'] });
+  await gl.makeXRCompatible();
+  session.updateRenderState({ baseLayer:new XRWebGLLayer(session,gl) });
+  refSpace = await session.requestReferenceSpace('local-floor');
+  session.addEventListener('end',()=>{ session=null; last=performance.now(); requestAnimationFrame(preview); });
+  session.requestAnimationFrame(frame);
+}
+function frame(now, f){
+  const s=f.session; s.requestAnimationFrame(frame);
+  const dt=Math.min(0.05,(now-last)/1000); last=now; ease(dt);
+  for(const src of s.inputSources){ const g=src.gamepad; if(!g) continue;
+    const ax=g.axes[2]||0, ay=g.axes[3]||0;
+    if(Math.abs(ax)>0.15) angle+=ax*dt*1.6;
+    if(Math.abs(ay)>0.15) ahead=Math.min(6,Math.max(0.4,ahead+ay*dt*1.2));
+    const a=g.buttons[4]&&g.buttons[4].pressed; if(a&&!prevA) mirror=-mirror; prevA=!!a;
+    if(g.buttons[1]&&g.buttons[1].pressed){ angle=0; ahead=1.6; } }
+  const pose=f.getViewerPose(refSpace); if(!pose) return;
+  const layer=s.renderState.baseLayer; gl.bindFramebuffer(gl.FRAMEBUFFER,layer.framebuffer);
+  gl.clearColor(0,0,0, mode==='immersive-ar'?0:1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  for(const v of pose.views){ const vp=layer.getViewport(v); gl.viewport(vp.x,vp.y,vp.width,vp.height);
+    const t=v.transform.position; draw(v.projectionMatrix, v.transform.inverse.matrix, [t.x,t.y,t.z], now/1000); }
+}
+
+(async () => {
+  const btn=document.getElementById('enter');
+  if(navigator.xr){
+    if(await navigator.xr.isSessionSupported('immersive-ar').catch(()=>false)){ mode='immersive-ar'; btn.textContent='Step in (see your room)'; }
+    else if(await navigator.xr.isSessionSupported('immersive-vr').catch(()=>false)){ mode='immersive-vr'; btn.textContent='Step in'; }
+  }
+  if(mode){ btn.disabled=false; btn.onclick=()=>enter().catch(e=>setStatus('Could not start: '+e.message)); }
+  else btn.textContent = window.isSecureContext ? 'No headset here' : 'Open the https:// address to step in';
+  await poll(); setInterval(poll,2000); requestAnimationFrame(preview);
+})();
+</script>
+</body>
+</html>
