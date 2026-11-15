@@ -30,8 +30,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * later through Health Connect. This link is Ultimate's own, so it works the moment you start moving.
  */
 object WatchActivity {
-    data class Now(val state: String, val spm: Int, val at: Long)
+    /** What the watch last said: [since] is when it says the current walk or run began (0 if it didn't say). */
+    data class Now(val state: String, val spm: Int, val at: Long, val since: Long = 0L)
     val now = MutableStateFlow<Now?>(null)
+    // The watch's step count when this walk's reports began, and its newest, so a recording that starts late knows what came before it.
+    @Volatile private var boutFirstCount: Long? = null
+    @Volatile private var lastCount = 0L
+    /** About how many steps the watch has counted in the current walk, which began at [since] (null if it hasn't said). */
+    fun stepsSince(since: Long): Long? = boutFirstCount?.let { (lastCount - it).takeIf { n -> n > 0 } }
 
     private fun prefs(c: Context) = c.getSharedPreferences("movement", Context.MODE_PRIVATE)
     /** Whether to offer a recording when the watch says you started walking or running. On unless turned off. */
@@ -46,19 +52,21 @@ object WatchActivity {
                 val p = text.removePrefix("activity:").split(':')
                 val state = p.getOrNull(0) ?: return true
                 val spm = p.getOrNull(1)?.toIntOrNull() ?: 0
-                now.value = Now(state, spm, t)
+                now.value = Now(state, spm, t, p.getOrNull(3)?.toLongOrNull() ?: 0L)
                 val label = when (state) { "walking" -> "Your watch says you started walking"; "running" -> "Your watch says you started running"; else -> "Your watch says you stopped" }
                 app.senses.publish(Signal("watch", state, label, mapOf("spm" to spm.toString())))
                 runCatching { FriendsHub.hear(app, state) } // tells the owner's chosen friends, if they asked it to
                 val rec = MovementRecorder.get(app)
                 if ((state == "walking" || state == "running") && !rec.live.value.recording && offers(app)) offer(app, state, spm)
-                if (state == "still") app.getSystemService(NotificationManager::class.java)?.cancel(OFFER_ID)
+                if (state == "still") { boutFirstCount = null; app.getSystemService(NotificationManager::class.java)?.cancel(OFFER_ID) }
             }
             text.startsWith("steps:") -> {
                 val p = text.removePrefix("steps:").split(':')
                 val count = p.getOrNull(0)?.toLongOrNull() ?: return true
                 val spm = p.getOrNull(1)?.toIntOrNull() ?: 0
-                now.value = Now(now.value?.state ?: if (spm >= 60) "walking" else "still", spm, t)
+                if (boutFirstCount == null || count < (boutFirstCount ?: 0L)) boutFirstCount = count
+                lastCount = count
+                now.value = Now(now.value?.state ?: if (spm >= 60) "walking" else "still", spm, t, now.value?.since ?: 0L)
                 if (spm >= 60) runCatching { FriendsHub.hear(app, now.value?.state?.takeIf { it == "running" } ?: "walking") }
                 MovementRecorder.get(app).watchSteps(count)
             }

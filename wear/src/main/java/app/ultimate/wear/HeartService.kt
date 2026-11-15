@@ -70,7 +70,7 @@ class HeartService : Service() {
             val now = System.currentTimeMillis()
             val change = steps.feed(count, now)
             // A change of state is sent reliably (the phone may offer to record); while moving, a count goes every batch.
-            change?.let { link?.send("activity:${it.state.key}:${it.spm}:${it.steps}") }
+            change?.let { link?.send("activity:${it.state.key}:${it.spm}:${it.steps}:${it.since}") }
             if (steps.state != StepActivity.State.Still || StepActivity.phoneRecording.value != null) link?.stream("steps:$count:${steps.spm.toInt()}")
         }
     }

@@ -42,6 +42,20 @@ object LauncherMath {
     fun index(position: Float, count: Int): Int = position.roundToInt().coerceIn(0, (count - 1).coerceAtLeast(0))
 
     /**
+     * Like [index], but stays on the letter it was on until the finger is clearly past it ([STICK] of the way to the next one
+     * rather than halfway). A thumb sliding down a rail wobbles sideways and a little up and down; without this the letter
+     * flickers back and forth on the boundary, buzzing and flashing the wrong app list. Pass the previous answer as [previous].
+     */
+    fun indexSticky(position: Float, previous: Int?, count: Int): Int {
+        val raw = index(position, count)
+        if (previous == null || previous !in 0 until count) return raw
+        return if (kotlin.math.abs(position - previous) <= STICK) previous else raw
+    }
+
+    /** How far past a letter's centre (in letters) the finger must go before the rail moves on: a little more than half. */
+    const val STICK = 0.7f
+
+    /**
      * How far letter [i] bulges out from the edge when the finger is at [at] (a fractional letter index): 1 under the finger,
      * falling off like a bell over about [spread] letters either side. Multiplied by the drag's strength, so it eases in and out.
      */

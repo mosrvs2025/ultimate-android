@@ -54,4 +54,13 @@ class StepActivityTest {
         assertNull(StepActivity.phoneRecording.value)
         assertTrue(!StepActivity.fromPhone("stream:on"))
     }
+
+    @Test fun aChangeSaysWhenTheWalkBegan() {
+        val a = StepActivity()
+        a.feed(0, 1_000_000)
+        val (_, ch) = run(a, 1_000_000, 0, 100, 3)
+        val c = ch.first { it.state == StepActivity.State.Walking }
+        // The pace is first seen about half a minute in; the start the phone adopts is that, less the half minute it takes to measure.
+        assertTrue("since ${c.since}", c.since in 1_000_000L..1_040_000L)
+    }
 }

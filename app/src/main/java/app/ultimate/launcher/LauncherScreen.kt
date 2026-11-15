@@ -121,7 +121,12 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     val follow by animateFloatAsState(fingerY, if (motion) spring(0.45f, Spring.StiffnessMediumLow) else spring(1f, 10_000f), label = "follow")
     val inset = with(density) { 22.dp.toPx() }
     val usable = (railHeight - 2 * inset).coerceAtLeast(1f)
-    val index = LauncherMath.index(LauncherMath.position(fingerY, inset, usable, letters.size), letters.size)
+    // The letter stays put until the finger is clearly on the next one, so a wobbly slide doesn't flicker between two.
+    var held by remember { mutableStateOf<Int?>(null) }
+    val rawPos = LauncherMath.position(fingerY, inset, usable, letters.size)
+    val index = if (dragging) LauncherMath.indexSticky(rawPos, held, letters.size) else LauncherMath.index(rawPos, letters.size)
+    androidx.compose.runtime.SideEffect { held = if (dragging) index else null }
+    val indexNow by androidx.compose.runtime.rememberUpdatedState(index)
     val current: Char? = if (dragging) letters.getOrNull(index) else sticky
     LaunchedEffect(index, dragging) { if (dragging) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
     val pop = remember { Animatable(1f) }
@@ -191,14 +196,14 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
                         c.consume()
                         // Slid left onto the apps: the row under the finger is the one that opens on release.
                         hovered = if (fingerX < size.width * 0.15f) {
-                            val l = lettersNow.getOrNull(LauncherMath.index(LauncherMath.position(fingerY, inset, (size.height - 2 * inset).coerceAtLeast(1f), lettersNow.size), lettersNow.size))
+                            val l = lettersNow.getOrNull(indexNow)
                             val list = l?.let { LauncherMath.appsFor(appsNow, it) }.orEmpty()
                             val row = ((railTop + fingerY - panelTop) / rowPx).toInt()
                             list.getOrNull(row)?.pkg
                         } else null
                     }
                     val open = hovered
-                    val letter = lettersNow.getOrNull(LauncherMath.index(LauncherMath.position(fingerY, inset, (size.height - 2 * inset).coerceAtLeast(1f), lettersNow.size), lettersNow.size))
+                    val letter = lettersNow.getOrNull(indexNow)
                     dragging = false; hovered = null
                     if (open != null) repo.launch(open) else sticky = letter
                 }
