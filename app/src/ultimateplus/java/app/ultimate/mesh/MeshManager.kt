@@ -16,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import app.ultimate.MainActivity
 import app.ultimate.R
 import app.ultimate.UltimateApp
+import app.ultimate.web.WebNodes
 import app.ultimate.core.Signal
 import app.ultimate.movement.MovementStore
 import java.net.DatagramPacket
@@ -286,7 +287,14 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
 
     fun setAccepts(on: Boolean) { store.accepts = on; _state.update { it.copy(accepts = on) } }
 
-    override fun targets(): List<DeviceFling.Target> {
+    private fun web() = (app as? UltimateApp)?.sendServer?.web
+
+    /** Screens that joined by opening the phone's /join page: they take links, text, files and apps too. */
+    private fun webTargets(): List<DeviceFling.Target> = web()?.list().orEmpty().map { DeviceFling.Target(WEB + it.id, it.name, it.kind, false) }
+
+    override fun targets(): List<DeviceFling.Target> = meshTargets() + webTargets()
+
+    private fun meshTargets(): List<DeviceFling.Target> {
         val s = _state.value
         if (!s.running) return emptyList()
         // The device you are standing by (from the device map) comes first, then those this phone can feel nearby.
@@ -307,11 +315,18 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
         } catch (e: Exception) { log("could not send $what to $name: ${e.message}"); e.message ?: "it did not answer" }
     }
 
-    override suspend fun app(targetId: String, pkg: String, label: String) = fling(targetId, label) { it.command(targetId, Cmd.FLING_APP, mapOf("pkg" to pkg, "label" to label)) }
+    private fun toWeb(targetId: String, json: String): String? =
+        if (web()?.send(targetId.removePrefix(WEB), json) == true) null else "that screen has closed its page"
 
-    override suspend fun text(targetId: String, text: String) = fling(targetId, "a link") { it.command(targetId, Cmd.FLING_TEXT, mapOf("text" to text.take(4_000))) }
+    override suspend fun app(targetId: String, pkg: String, label: String) = if (targetId.startsWith(WEB)) toWeb(targetId, WebNodes.app(pkg, label, Build.MODEL)) else fling(targetId, label) { it.command(targetId, Cmd.FLING_APP, mapOf("pkg" to pkg, "label" to label)) }
 
-    override suspend fun file(targetId: String, name: String, mime: String, bytes: ByteArray, progress: (Float) -> Unit) = fling(targetId, Fling.safeName(name)) { n ->
+    override suspend fun text(targetId: String, text: String) = if (targetId.startsWith(WEB)) toWeb(targetId,
+        Fling.link(text)?.let { WebNodes.link(it, Build.MODEL) } ?: WebNodes.text(text, Build.MODEL)) else fling(targetId, "a link") { it.command(targetId, Cmd.FLING_TEXT, mapOf("text" to text.take(4_000))) }
+
+    override suspend fun file(targetId: String, name: String, mime: String, bytes: ByteArray, progress: (Float) -> Unit) = if (targetId.startsWith(WEB)) {
+        val w = web(); val safe = Fling.safeName(name)
+        if (w == null) "that screen has closed its page" else toWeb(targetId, WebNodes.file(w.keep(safe, mime, bytes), safe, mime, bytes.size, Build.MODEL)).also { progress(1f) }
+    } else fling(targetId, Fling.safeName(name)) { n ->
         val frames = Fling.frames(java.util.UUID.randomUUID().toString(), name, mime, bytes)
         frames.forEachIndexed { i, (cmd, args) -> n.command(targetId, cmd, args, timeoutMs = 15_000); progress((i + 1f) / frames.size) }
     }
@@ -597,6 +612,8 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
 
     companion object {
         const val PORT = 47801
+        /** Fling target ids for screens that joined through the browser. */
+        const val WEB = "web:"
         const val BEACON_PORT = 47800
         private const val ALERTS = "mesh-devices"
         @Volatile private var instance: MeshManager? = null

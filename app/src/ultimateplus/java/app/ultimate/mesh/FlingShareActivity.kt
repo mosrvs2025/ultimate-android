@@ -107,7 +107,7 @@ class FlingShareActivity : ComponentActivity() {
                 }, color = Liquid.dim, fontSize = 14.sp, maxLines = 3)
                 tooBig?.let { Text("Too big: $it.", color = Color(0xFFFF8A80), fontSize = 14.sp) }
                 Spacer(Modifier.height(6.dp))
-                if (!mesh.running) {
+                if (!mesh.running && targets.isEmpty()) {
                     Text("Octopus Mesh is off on this phone. Turn it on here and on the other phone, with the same code.", color = Color.White, fontSize = 15.sp)
                     LiquidButton("Open Octopus Mesh", { startActivity(Intent(this@FlingShareActivity, MainActivity::class.java).putExtra(MainActivity.EXTRA_TOOL, "mesh")); finish() }, Modifier.fillMaxWidth())
                 } else if (targets.isEmpty()) {

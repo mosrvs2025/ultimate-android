@@ -83,6 +83,8 @@ object SendHttp {
  * needs the random code in its address.
  */
 class SendServer(private val context: Context) {
+    /** Screens that joined through /join with nothing installed (a laptop, an iPhone, a TV, the Quest). */
+    val web = app.ultimate.web.WebNodes()
     data class State(val running: Boolean = false, val address: String? = null, val offered: List<Offered> = emptyList(), val received: List<Received> = emptyList(), val error: String? = null, val camera: Boolean = false, val playRequest: Received? = null, val mic: Boolean = false, val secureAddress: String? = null)
 
     private val _state = MutableStateFlow(State())
@@ -231,6 +233,20 @@ class SendServer(private val context: Context) {
                 out.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${body.size}\r\nCache-Control: no-store\r\n" +
                     "Set-Cookie: ult=$token; Max-Age=31536000; Path=/; HttpOnly; SameSite=Strict\r\nConnection: close\r\n\r\n").toByteArray())
                 out.write(body); out.flush()
+            }
+            // Any screen joins by opening /join: it says hello, then waits on its inbox (see WebNodes).
+            req.method == "GET" && rest == "/join" -> respond(out, 200, "text/html; charset=utf-8", context.assets.open("join.html").use { it.readBytes() })
+            req.method == "GET" && rest == "/node/hello" -> {
+                val n = web.hello(req.query["id"], req.query["name"] ?: "", req.headers["user-agent"] ?: "", req.query["w"]?.toIntOrNull() ?: 0, req.query["h"]?.toIntOrNull() ?: 0)
+                respond(out, 200, "application/json", org.json.JSONObject().put("id", n.id).put("name", n.name).put("phone", android.os.Build.MODEL).toString().toByteArray())
+            }
+            req.method == "GET" && rest == "/node/poll" -> {
+                val items = web.poll(req.query["id"] ?: "") ?: return respond(out, 404, "application/json", "{\"error\":\"say hello again\"}".toByteArray())
+                respond(out, 200, "application/json", ("{\"items\":[" + items.joinToString(",") + "]}").toByteArray())
+            }
+            req.method == "GET" && rest.startsWith("/node/blob/") -> {
+                val b = web.blob(rest.removePrefix("/node/blob/")) ?: return respond(out, 404, "text/plain", "Gone".toByteArray())
+                stream(out, req, b.name, b.mime, b.bytes.size.toLong()) { java.io.ByteArrayInputStream(b.bytes) }
             }
             // Your devices in 3D for a headset's browser (Quest): the page, and the live map it reads every two seconds.
             req.method == "GET" && rest == "/house" -> respond(out, 200, "text/html; charset=utf-8", context.assets.open("house_xr.html").use { it.readBytes() })
