@@ -38,6 +38,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- The watch as a trackpad for the phone; opened from the main screen. -->
+        <activity android:name=".PadActivity" android:exported="false" android:theme="@style/Pad" android:taskAffinity="" />
         <!-- Receives updates the phone sends (only Ultimate+ on the phone, same package and key, can). -->
         <service android:name=".WatchUpdateService" android:exported="true">
             <intent-filter>

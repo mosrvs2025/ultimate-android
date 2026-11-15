@@ -33,7 +33,7 @@ class AirCursorService : AccessibilityService() {
         val wm = getSystemService(WindowManager::class.java)
         val view = CursorView(this)
         val d = resources.displayMetrics.density
-        val w = (240 * d).toInt(); val h = (96 * d).toInt(); val ringY = (24 * d).toInt()
+        val w = (240 * d).toInt(); val h = (170 * d).toInt(); val ringY = (CursorView.CY * d).toInt()
         val lp = WindowManager.LayoutParams(w, h, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START }
@@ -66,8 +66,9 @@ class AirCursorService : AccessibilityService() {
             }
         }
         s.launch {
-            combine(AirBridge.running, AirBridge.cursor, AirBridge.hold, AirBridge.hint) { r, c, hold, hint -> listOf(r, c, hold, hint) }.collect { v ->
+            combine(combine(AirBridge.running, AirBridge.pad) { r, p -> r || p }, AirBridge.cursor, AirBridge.hold, AirBridge.hint) { r, c, hold, hint -> listOf(r, c, hold, hint) }.collect { v ->
                 val running = v[0] as Boolean; val c = v[1] as AirBridge.Cursor
+                view.push(c.vx, c.vy)
                 @Suppress("UNCHECKED_CAST") val hold = v[2] as Pair<String, Float>?
                 view.visibility = if (running && c.visible) View.VISIBLE else View.GONE
                 view.pinched = c.pinched; view.hold = hold; view.hint = v[3] as String?; view.invalidate()
@@ -75,9 +76,10 @@ class AirCursorService : AccessibilityService() {
                 runCatching { wm.updateViewLayout(view, lp) }
             }
         }
+        splashes()
         s.launch {
             AirBridge.actions.collect { a ->
-                if (!AirBridge.running.value) return@collect
+                if (!AirBridge.running.value && !AirBridge.pad.value) return@collect
                 when (a) {
                     is AirPointer.Action.Tap -> stroke(a.x, a.y, a.x, a.y, 50)
                     is AirPointer.Action.LongPress -> stroke(a.x, a.y, a.x, a.y, 800)
@@ -90,6 +92,8 @@ class AirCursorService : AccessibilityService() {
             }
         }
     }
+
+    private fun splashes() = scope?.launch { AirBridge.splash.collect { dot?.splash() } }
 
     /** One finger touching at (x0, y0), moving to (x1, y1) over [ms]: a tap, a long press or a drag. */
     private fun stroke(x0: Float, y0: Float, x1: Float, y1: Float, ms: Long) {
@@ -108,33 +112,95 @@ class AirCursorService : AccessibilityService() {
     }
 
     /**
-     * The cursor: a soft ring that fills in while you pinch. Below it, a tip while you're learning, or, while a shortcut
-     * shape is held, what it will do and a ring that fills until it happens.
+     * The cursor, as a drop of liquid. At rest it is a round, softly lit bead that breathes; moving, it stretches into a
+     * teardrop along its path and wobbles back to round when it stops, like jelly on a spring; a tap sends rings out from
+     * it like a finger touching water. It fills in while you pinch. Below it, a tip while you're learning, or, while a
+     * shortcut shape is held, what it will do and a ring that fills until it happens.
      */
     private class CursorView(c: Context) : View(c) {
         var pinched = false
         var hold: Pair<String, Float>? = null
         var hint: String? = null
         private val d = c.resources.displayMetrics.density
-        private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3 * d; color = 0xFFFFFFFF.toInt() }
-        private val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 6 * d; color = 0x55000000 }
-        private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC7FD3FF.toInt() }
+        private val motion = android.provider.Settings.Global.getFloat(c.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
+        private val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x44000000 }
+        private val body = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2 * d; color = 0xDDFFFFFF.toInt() }
+        private val shine = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xAAFFFFFF.toInt() }
+        private val wave = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
         private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 4 * d; strokeCap = Paint.Cap.ROUND; color = 0xFFFFC857.toInt() }
         private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt(); textSize = 13 * d; textAlign = Paint.Align.CENTER }
         private val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC000000.toInt() }
+        private val path = android.graphics.Path()
+
+        // A damped spring pulls the drop's stretch towards how fast it is moving; overshoot is the wobble.
+        private var sx = 0f; private var sy = 0f; private var svx = 0f; private var svy = 0f
+        private var tx = 0f; private var ty = 0f
+        private var lastFrame = 0L
+        private val rings = ArrayList<Long>()
+
+        /** The cursor's speed in screen pixels per second, from the latest update. */
+        fun push(vx: Float, vy: Float) { tx = vx; ty = vy; postInvalidateOnAnimation() }
+        fun splash() { if (motion) { rings += android.os.SystemClock.uptimeMillis(); postInvalidateOnAnimation() } }
+
         override fun onDraw(canvas: Canvas) {
-            val cx = width / 2f; val cy = 24 * d; val r = 15 * d
-            canvas.drawCircle(cx, cy, r, shadow)
-            if (pinched) canvas.drawCircle(cx, cy, r, fill)
-            canvas.drawCircle(cx, cy, r, ring)
+            val now = android.os.SystemClock.uptimeMillis()
+            val dt = if (lastFrame == 0L) 0.016f else ((now - lastFrame) / 1000f).coerceIn(0.001f, 0.05f); lastFrame = now
+            // Target stretch: proportional to speed, capped; the target itself fades so the drop rounds off when updates stop.
+            val k = 1.6f; tx *= kotlin.math.exp(-dt * 9f); ty *= kotlin.math.exp(-dt * 9f)
+            val gx = (tx / 1000f).coerceIn(-k, k); val gy = (ty / 1000f).coerceIn(-k, k)
+            if (motion) {
+                svx += ((gx - sx) * 220f - svx * 14f) * dt; svy += ((gy - sy) * 220f - svy * 14f) * dt
+                sx += svx * dt; sy += svy * dt
+            } else { sx = 0f; sy = 0f }
+            val cx = width / 2f; val cy = CY * d
+            val r = 14 * d * (if (pinched) 0.86f else 1f)
+            val stretch = kotlin.math.hypot(sx, sy).coerceAtMost(k)
+            val angle = Math.toDegrees(kotlin.math.atan2(sy, sx).toDouble()).toFloat()
+
+            // Rings: expand and fade over 700 ms, three per splash a beat apart.
+            val it = rings.iterator()
+            while (it.hasNext()) {
+                val age = now - it.next(); if (age > 1_000) { it.remove(); continue }
+                for (j in 0..2) {
+                    val a = (age - j * 110) / 700f; if (a <= 0f || a >= 1f) continue
+                    wave.strokeWidth = (3.5f - 2.5f * a) * d
+                    wave.color = android.graphics.Color.argb((170 * (1 - a)).toInt(), 0x7F, 0xE8, 0xFF)
+                    canvas.drawCircle(cx, cy, r + a * 46 * d, wave)
+                }
+            }
+
+            canvas.save()
+            canvas.rotate(angle, cx, cy)
+            // A teardrop: round head leading, tail trailing behind, its length set by the stretch.
+            val tail = r * (1f + stretch * 1.1f); val head = r * (1f - stretch * 0.08f); val waist = r * (1f - stretch * 0.22f)
+            path.reset()
+            path.moveTo(cx + head, cy)
+            path.cubicTo(cx + head, cy + waist * 1.1f, cx - tail * 0.35f, cy + waist, cx - tail, cy)
+            path.cubicTo(cx - tail * 0.35f, cy - waist, cx + head, cy - waist * 1.1f, cx + head, cy)
+            canvas.translate(0f, 2 * d); canvas.drawPath(path, shadow); canvas.translate(0f, -2 * d)
+            body.shader = android.graphics.RadialGradient(cx + head * 0.3f, cy - waist * 0.4f, tail * 1.4f,
+                intArrayOf(if (pinched) 0xF27FE8FF.toInt() else 0xD07FE8FF.toInt(), 0xC88E7CFF.toInt()), null, android.graphics.Shader.TileMode.CLAMP)
+            canvas.drawPath(path, body)
+            canvas.drawPath(path, rim)
+            canvas.restore()
+            canvas.drawCircle(cx - r * 0.35f, cy - r * 0.4f, r * 0.22f, shine)
+
             val h = hold
-            if (h != null) canvas.drawArc(cx - r - 5 * d, cy - r - 5 * d, cx + r + 5 * d, cy + r + 5 * d, -90f, 360f * h.second, false, arc)
-            val label = h?.let { "Keep holding: ${it.first}" } ?: hint ?: return
-            val tw = text.measureText(label)
-            val top = cy + r + 10 * d
-            canvas.drawRoundRect(cx - tw / 2 - 10 * d, top, cx + tw / 2 + 10 * d, top + 26 * d, 13 * d, 13 * d, pill)
-            canvas.drawText(label, cx, top + 18 * d, text)
+            if (h != null) canvas.drawArc(cx - r - 6 * d, cy - r - 6 * d, cx + r + 6 * d, cy + r + 6 * d, -90f, 360f * h.second, false, arc)
+            val label = h?.let { "Keep holding: ${it.first}" } ?: hint
+            if (label != null) {
+                val tw = text.measureText(label)
+                val top = cy + r + 12 * d
+                canvas.drawRoundRect(cx - tw / 2 - 10 * d, top, cx + tw / 2 + 10 * d, top + 26 * d, 13 * d, 13 * d, pill)
+                canvas.drawText(label, cx, top + 18 * d, text)
+            }
+            // Keep animating while the drop is still wobbling or a ring is spreading.
+            if (motion && (rings.isNotEmpty() || kotlin.math.abs(sx) + kotlin.math.abs(sy) + kotlin.math.abs(svx) + kotlin.math.abs(svy) > 0.01f)) postInvalidateOnAnimation()
+            else lastFrame = 0L
         }
+
+        companion object { const val CY = 66f }
     }
 
     /** The Ask pill: a mic and what it's doing; it lights up when the cursor is over it. */
