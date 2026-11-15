@@ -75,6 +75,17 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application android:requestLegacyExternalStorage="true">
+        <!-- Ultimate's home screen. Android only uses it after you choose it as your home app (Home screen tool), and you can switch back any time. -->
+        <activity android:name="app.ultimate.launcher.HomeActivity" android:exported="true" android:launchMode="singleTask" android:stateNotNeeded="true"
+            android:excludeFromRecents="true" android:clearTaskOnLaunch="true" android:resumeWhilePausing="true" android:taskAffinity="app.ultimate.home"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation" android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Ultimate" android:label="Ultimate Home">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <service android:name="app.ultimate.player.PlaybackService" android:exported="true" android:foregroundServiceType="mediaPlayback">
             <intent-filter><action android:name="androidx.media3.session.MediaSessionService" /></intent-filter>
         </service>

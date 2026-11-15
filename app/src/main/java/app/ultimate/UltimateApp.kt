@@ -83,6 +83,8 @@ class UltimateApp : Application(), androidx.work.Configuration.Provider {
 
     val tools: List<Tool> by lazy {
         buildList {
+            // The home screen needs to list every app, which only the two full editions may do.
+            if (BuildConfig.FLAVOR == "ultimateplus" || BuildConfig.FLAVOR == "ultimate") add(app.ultimate.launcher.LauncherTool(this@UltimateApp))
             if (BuildConfig.FLAVOR == "ultimateplus") add(Class.forName("app.ultimate.watch.WatchTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool)
             if (BuildConfig.FLAVOR == "ultimateplus") runCatching { add(Class.forName("app.ultimate.room.RoomScanTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
             if (BuildConfig.FLAVOR == "ultimateplus") runCatching { add(Class.forName("app.ultimate.movement.MovementTool").getConstructor(UltimateApp::class.java).newInstance(this@UltimateApp) as Tool) }
