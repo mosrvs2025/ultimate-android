@@ -23,8 +23,6 @@ import java.util.Calendar
  * is done before Android puts the process back to sleep.
  */
 object FriendsHub {
-    class Result(val ok: Boolean, val error: String?)
-
     private var announcer: WalkAnnouncer? = null
     private var boutAnnounced = 0L // when this walk was announced, so its finish can be too
 
@@ -49,10 +47,10 @@ object FriendsHub {
     /** Posts "<name> is going for a walk" to each circle in [circleIds]; remembers when. */
     fun tell(c: Context, store: FriendsStore, circleIds: Set<String>, state: String) {
         val now = System.currentTimeMillis()
-        val msg = Delivery.text(store.name, state)
+        val msg = Delivery.text(store.name, state, store.templateStart)
         val mine = store.circles().filter { it.id in circleIds }
         val told = HashMap(store.told)
-        for (circle in mine) if (send(circle.target, msg).ok) told[circle.id] = now
+        for (circle in mine) if (deliver(store, circle, msg, "walk").ok) told[circle.id] = now
         store.told = told
         if (mine.isNotEmpty()) boutAnnounced = now
     }
@@ -62,16 +60,23 @@ object FriendsHub {
         val s = store.settings
         val minutes = ((now - boutAnnounced) / 60_000L).toInt()
         if (minutes < s.steadyMinutes) return
-        val msg = Delivery.summary(store.name, "walking", minutes, null)
-        store.circles().filter { it.id in s.notify }.forEach { send(it.target, msg) }
+        val msg = Delivery.summary(store.name, "walking", minutes, null, store.templateFinish)
+        store.circles().filter { it.id in s.notify }.forEach { deliver(store, it, msg, "finish") }
+    }
+
+    /** Sends [message] to one chat and writes what happened in the activity log, which the dashboard shows. Blocking. */
+    fun deliver(store: FriendsStore, circle: Circle, message: String, what: String): SendResult {
+        val r = send(circle.target, message)
+        store.record(LogEntry(System.currentTimeMillis(), circle.target.label, what, r.ok, r.error.orEmpty()))
+        return r
     }
 
     /** One message to one target, retrying once if told to slow down. Blocking: call off the main thread. */
-    fun send(t: Target, message: String): Result {
-        Delivery.problem(t)?.let { return Result(false, it) }
+    fun send(t: Target, message: String): SendResult {
+        Delivery.problem(t)?.let { return SendResult(false, it) }
         repeat(2) { attempt ->
             val r = Delivery.build(t, message)
-            val conn = runCatching { URL(r.url).openConnection() as HttpURLConnection }.getOrNull() ?: return Result(false, "Could not open the connection.")
+            val conn = runCatching { URL(r.url).openConnection() as HttpURLConnection }.getOrNull() ?: return SendResult(false, "Could not open the connection.")
             try {
                 conn.requestMethod = "POST"; conn.connectTimeout = 6_000; conn.readTimeout = 6_000; conn.doOutput = true
                 conn.setRequestProperty("Content-Type", r.contentType); conn.setRequestProperty("User-Agent", "UltimateAndroid/2")
@@ -79,12 +84,12 @@ object FriendsHub {
                 conn.outputStream.use { it.write(r.body.toByteArray()) }
                 val code = conn.responseCode
                 val body = runCatching { (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.readText().orEmpty() }.getOrDefault("")
-                if (code in 200..299) return Result(true, null)
+                if (code in 200..299) return SendResult(true, null)
                 Delivery.retryAfterMs(code, body, conn.getHeaderField("Retry-After"))?.let { if (attempt == 0) { Thread.sleep(it.coerceAtMost(8_000L)); return@repeat } }
-                return Result(false, when (code) { 401, 403, 404 -> "The chat refused it (the link may have been deleted or revoked)."; 429 -> "Slow down: the chat is rate limiting. Try again in a moment."; else -> "The chat answered $code." })
-            } catch (e: Exception) { return Result(false, "No connection: ${e.message ?: e.javaClass.simpleName}") } finally { conn.disconnect() }
+                return SendResult(false, when (code) { 401, 403, 404 -> "The chat refused it (the link may have been deleted or revoked)."; 429 -> "Slow down: the chat is rate limiting. Try again in a moment."; else -> "The chat answered $code." })
+            } catch (e: Exception) { return SendResult(false, "No connection: ${e.message ?: e.javaClass.simpleName}") } finally { conn.disconnect() }
         }
-        return Result(false, "Try again in a moment.")
+        return SendResult(false, "Try again in a moment.")
     }
 
     private fun ask(c: Context, d: Announce.Ask) {

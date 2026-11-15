@@ -48,18 +48,11 @@ object Delivery {
         .filter { it >= ' ' && it != '\u007f' && it !in "@<>`*_~|\\[]()#:" }
         .replace(Regex("\\s+"), " ").trim().take(max)
 
-    fun text(name: String, state: String): String {
-        val n = safe(name, 24).ifBlank { "A friend" }
-        return if (state == "running") "🏃 $n is going for a run. Join them!" else "🚶 $n is going for a walk. Join them!"
-    }
+    /** "🚶 Maurice is going for a walk. Join them!", or the owner's own wording for it. */
+    fun text(name: String, state: String, template: String = Templates.START): String = Templates.render(template, name, state)
 
     /** "🏁 Maurice finished a walk: 2.3 km in 31 min", only with what the owner agreed to share. */
-    fun summary(name: String, state: String, minutes: Int?, km: Double?): String {
-        val n = safe(name, 24).ifBlank { "A friend" }
-        val what = if (state == "running") "a run" else "a walk"
-        val bits = listOfNotNull(km?.takeIf { it > 0.05 }?.let { "%.1f km".format(java.util.Locale.US, it) }, minutes?.takeIf { it > 0 }?.let { "$it min" })
-        return "🏁 $n finished $what" + if (bits.isEmpty()) "" else ": " + bits.joinToString(" in ")
-    }
+    fun summary(name: String, state: String, minutes: Int?, km: Double?, template: String = Templates.FINISH): String = Templates.render(template, name, state, minutes, km)
 
     fun build(t: Target, message: String): Request = when (t) {
         is Target.Discord -> Request(t.url.trim(), "application/json", emptyMap(),
