@@ -35,7 +35,8 @@ class HouseLayoutTest {
     @Test fun realisticNoiseGivesARoughlyRightMap() {
         repeat(20) { seed ->
             val r = HouseLayout.solve(room.keys.toList(), measures(room, noise = 0.05, rnd = Random(seed))) as HouseLayout.Result.Map
-            assertTrue("seed $seed: ${worstPairError(room, r.at)}", worstPairError(room, r.at) < 0.2)
+            assertTrue("seed $seed: ${worstPairError(room, r.at)}", worstPairError(room, r.at) < 0.15)
+            assertTrue("seed $seed: no false alarms", r.doubtful.isEmpty())
         }
     }
 

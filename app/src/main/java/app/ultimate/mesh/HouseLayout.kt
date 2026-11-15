@@ -58,23 +58,34 @@ object HouseLayout {
             if (loose.isNotEmpty()) return Result.NotEnough("Each device needs its distance measured to at least two others; these have only one.", loose)
         }
 
-        // Start from classical scaling over the shortest-path distances (fills unmeasured pairs), then refine against the
-        // measured distances only: each device in turn moves to where its measured neighbours say it should be.
-        val full = shortestPaths(n, d)
-        val p = classical(full)
-        repeat(sweeps) {
-            for (i in 0 until n) {
-                var sx = 0.0; var sy = 0.0; var sw = 0.0
-                for (j in 0 until n) {
-                    if (w[i][j] <= 0) continue
-                    val dx = p[i].first - p[j].first; val dy = p[i].second - p[j].second
-                    val len = hypot(dx, dy)
-                    val ux: Double; val uy: Double
-                    if (len < 1e-9) { ux = 1.0; uy = 0.0 } else { ux = dx / len; uy = dy / len }
-                    sx += w[i][j] * (p[j].first + d[i][j] * ux); sy += w[i][j] * (p[j].second + d[i][j] * uy); sw += w[i][j]
-                }
-                if (sw > 0) p[i] = sx / sw to sy / sw
+        // A measurement that disagrees with all the others (an echo heard instead of the direct sound) would bend the
+        // whole map if it were kept. Each measurement in turn is left out and predicted from the rest; the one that the
+        // rest disagree with most, by far more than the map's usual error, is set aside and the map solved again.
+        val doubtful = ArrayList<Measure>()
+        var p = layout(n, d, w, sweeps)
+        while (true) {
+            val edges = (0 until n).flatMap { i -> (i + 1 until n).filter { j -> w[i][j] > 0 }.map { j -> i to j } }
+            if (edges.size <= 2 * n - 3 || doubtful.size >= edges.size / 3) break
+            var worst = -1 to -1; var worstGap = 0.0; var worstRms = 0.0
+            for ((i, j) in edges) {
+                val wi = Array(n) { w[it].copyOf() }; wi[i][j] = 0.0; wi[j][i] = 0.0
+                if (!pinned(n, wi)) continue
+                val q = layout(n, d, wi, sweeps / 2, start = p)
+                val gap = abs(hypot(q[i].first - q[j].first, q[i].second - q[j].second) - d[i][j])
+                if (gap > worstGap) { worstGap = gap; worst = i to j; worstRms = fit(n, d, wi, q) }
             }
+            if (worst.first < 0 || worstGap < max(0.3, 5 * worstRms)) break
+            // And it must also misfit the map as it stands, clearly more than the others do: a pair that the rest of the
+            // map only loosely pins down can be "predicted" badly without being wrong, and is kept.
+            val (i, j) = worst
+            val own = abs(hypot(p[i].first - p[j].first, p[i].second - p[j].second) - d[i][j])
+            val others = fit(n, d, Array(n) { a -> DoubleArray(n) { b -> if ((a == i && b == j) || (a == j && b == i)) 0.0 else w[a][b] } }, p)
+            // (An echo bends the whole map, so its own misfit can hide; then the giveaway is that everything else fits
+            // markedly better once it is left out.)
+            if (own < max(0.15, 3 * others) && others - worstRms < 0.06) break
+            doubtful += Measure(ids[i], ids[j], d[i][j])
+            w[i][j] = 0.0; w[j][i] = 0.0
+            p = layout(n, d, w, sweeps, start = p)
         }
 
         // A tidy frame: the first device at the centre, the second straight to its right, the third above the line.
@@ -97,8 +108,6 @@ object HouseLayout {
             val mine = res.filter { it.first == i || it.second == i }
             ids[i] to if (mine.isEmpty()) 0.0 else sqrt(mine.sumOf { it.third * it.third } / mine.size)
         }
-        val typical = res.map { abs(it.third) }.sorted().let { if (it.isEmpty()) 0.0 else it[it.size / 2] }
-        val doubtful = res.filter { abs(it.third) > max(0.25, 4 * typical) }.map { Measure(ids[it.first], ids[it.second], d[it.first][it.second]) }
         return Result.Map(at, error, rms, doubtful)
     }
 
@@ -134,6 +143,38 @@ object HouseLayout {
         val minor = tr / 2 - sqrt(max(0.0, tr * tr / 4 - det))
         return sqrt(max(0.0, minor))
     }
+
+    /** Classical scaling over shortest paths as a start, then each device moved in turn to where its neighbours put it. */
+    private fun layout(n: Int, d: Array<DoubleArray>, w: Array<DoubleArray>, sweeps: Int, start: Array<Pair<Double, Double>>? = null): Array<Pair<Double, Double>> {
+        val p = start?.copyOf() ?: run {
+            val dm = Array(n) { i -> DoubleArray(n) { j -> if (w[i][j] > 0) d[i][j] else Double.NaN } }
+            classical(shortestPaths(n, dm))
+        }
+        repeat(sweeps) {
+            for (i in 0 until n) {
+                var sx = 0.0; var sy = 0.0; var sw = 0.0
+                for (j in 0 until n) {
+                    if (w[i][j] <= 0) continue
+                    val dx = p[i].first - p[j].first; val dy = p[i].second - p[j].second
+                    val len = hypot(dx, dy)
+                    val ux = if (len < 1e-9) 1.0 else dx / len; val uy = if (len < 1e-9) 0.0 else dy / len
+                    sx += w[i][j] * (p[j].first + d[i][j] * ux); sy += w[i][j] * (p[j].second + d[i][j] * uy); sw += w[i][j]
+                }
+                if (sw > 0) p[i] = sx / sw to sy / sw
+            }
+        }
+        return p
+    }
+
+    /** Root-mean-square disagreement between a layout and the measurements it was given. */
+    private fun fit(n: Int, d: Array<DoubleArray>, w: Array<DoubleArray>, p: Array<Pair<Double, Double>>): Double {
+        var s = 0.0; var c = 0
+        for (i in 0 until n) for (j in i + 1 until n) if (w[i][j] > 0) { val e = hypot(p[i].first - p[j].first, p[i].second - p[j].second) - d[i][j]; s += e * e; c++ }
+        return if (c == 0) 0.0 else sqrt(s / c)
+    }
+
+    /** Linked up, and in a flat map every device (when three or more) has at least two measured neighbours. */
+    private fun pinned(n: Int, w: Array<DoubleArray>) = connected(n, w) && (n < 3 || (0 until n).all { i -> (0 until n).count { j -> w[i][j] > 0 } >= 2 })
 
     private fun reachable(n: Int, w: Array<DoubleArray>, from: Int): Set<Int> {
         val seen = hashSetOf(from); val todo = ArrayDeque(listOf(from))

@@ -90,14 +90,25 @@ private fun HouseCanvas(r: HouseLayout.Result.Map, names: Map<String, String>, m
         fun at(id: String): Offset { val p = r.at.getValue(id); return Offset(ox + ((p.x - minX) * k).toFloat(), size.height - (oy + ((p.y - minY) * k).toFloat())) }
         val label = android.graphics.Paint().apply { isAntiAlias = true; color = android.graphics.Color.WHITE; textSize = 12.sp.toPx(); textAlign = android.graphics.Paint.Align.CENTER }
         val small = android.graphics.Paint(label).apply { textSize = 10.sp.toPx(); color = 0xCCB8C4D6.toInt() }
-        // Lines between measured pairs, with the measured distance at the middle.
+        // Lines between measured pairs, with the measured distance at the middle, nudged off the line; a label that
+        // would sit on top of one already drawn (or on a device) is left out rather than smudged.
+        val taken = ArrayList<android.graphics.RectF>()
+        r.at.keys.forEach { id -> val c = at(id); val q = 20.dp.toPx(); taken += android.graphics.RectF(c.x - q, c.y - q, c.x + q, c.y + q + 16.sp.toPx()) }
         for (m in measured) {
             if (m.a !in r.at || m.b !in r.at) continue
             val a = at(m.a); val b = at(m.b); val isBad = setOf(m.a, m.b) in bad
             drawLine(if (isBad) Color(0xFFFF8A80) else Liquid.teal.copy(alpha = 0.35f + 0.4f * m.weight.toFloat().coerceAtMost(1f)), a, b, 2.dp.toPx(),
                 pathEffect = if (isBad || m.weight < 1) PathEffect.dashPathEffect(floatArrayOf(10f, 8f)) else null)
             val mid = (a + b) / 2f
-            drawIntoCanvas { it.nativeCanvas.drawText("%.2f m".format(m.metres), mid.x, mid.y - 4.dp.toPx(), small) }
+            val dir = b - a; val len = dir.getDistance().coerceAtLeast(1f)
+            val off = Offset(-dir.y / len, dir.x / len) * 9.dp.toPx()
+            val text = "%.2f m".format(m.metres); val tw = small.measureText(text); val th = small.textSize
+            val spot = mid + off
+            val box = android.graphics.RectF(spot.x - tw / 2 - 2, spot.y - th, spot.x + tw / 2 + 2, spot.y + 3)
+            if (taken.none { android.graphics.RectF.intersects(it, box) }) {
+                taken += box
+                drawIntoCanvas { it.nativeCanvas.drawText(text, spot.x, spot.y, small) }
+            }
         }
         // Devices as drops that swell into place.
         r.at.keys.forEach { id ->
