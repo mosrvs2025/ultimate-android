@@ -307,7 +307,7 @@ private fun Clock(onOpenUltimate: () -> Unit) {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun AppRow(repo: LauncherRepo, a: HomeApp, highlighted: Boolean, delayIndex: Int, onOpen: () -> Unit, big: Boolean) {
+internal fun AppRow(repo: LauncherRepo, a: HomeApp, highlighted: Boolean, delayIndex: Int, onOpen: () -> Unit, big: Boolean) {
     var icon by remember(a.pkg) { mutableStateOf(repo.icon(a.pkg)) }
     LaunchedEffect(a.pkg) { if (icon == null) icon = repo.loadIcon(a.pkg) }
     val motion = motionOn()
