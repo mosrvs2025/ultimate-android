@@ -181,6 +181,10 @@ class Alignment2D(val theta: Double, val tx: Double, val ty: Double, val rms: Do
 /** Where the person went, second by second, on one map frame, with which sensor drew each stretch. */
 class FusedPath(val t: DoubleArray, val e: DoubleArray, val n: DoubleArray, val from: Array<String>, val frame: String, val registrationRms: Double?) {
     val size get() = t.size
+    /** Latitude and longitude of the point (0, 0) when the frame is GPS north-up, so the path can sit on a street map. */
+    var anchor: DoubleArray? = null
+    /** Height at each point in metres relative to the start, from the barometer, when there is one. */
+    var height: DoubleArray? = null
     fun lengthBetween(a: Int, b: Int): Double { var d = 0.0; for (i in a + 1..b) d += hypot(e[i] - e[i - 1], n[i] - n[i - 1]); return d }
     val length: Double get() = if (size < 2) 0.0 else lengthBetween(0, size - 1)
 
@@ -212,9 +216,35 @@ class FusedPath(val t: DoubleArray, val e: DoubleArray, val n: DoubleArray, val 
             var cx = start[0]; var cy = start[1]
             var t = firstTime(live)
             ts += t; es += cx; ns += cy; who += order.first().name
+            // With good GPS and steps both present, each second's direction comes from GPS (over a few seconds either side, so
+            // its noise averages out) and its length from the steps. A step heading drifts a little more at every turn, which on a
+            // walk back and forth draws a scribble; GPS knows which way the line runs, steps know how far you went.
+            val steps = live.firstOrNull { it.name == "inertial steps" }
+            val camera = live.firstOrNull { it.name == "camera tracking" }
+            val gpsGood = gps != null && gps.absSigma <= 12.0
             while (t + 1.0 <= durationS + 1e-9) {
                 val t1 = t + 1.0
                 var moved = false
+                if (gpsGood && steps != null && (camera == null || camera.position(t) == null || camera.position(t1) == null)) {
+                    val len = steps.length(Span(t, t1))
+                    val a = gps!!.position(t - 3.0) ?: gps.position(t); val b = gps.position(t1 + 3.0) ?: gps.position(t1)
+                    if (len != null && a != null && b != null) {
+                        val dx = b[0] - a[0]; val dy = b[1] - a[1]; val dl = hypot(dx, dy)
+                        if (len < 1e-6) { ts += t1; es += cx; ns += cy; who += "inertial steps"; t = t1; continue }
+                        if (dl > 0.8) {
+                            cx += dx / dl * len; cy += dy / dl * len
+                            // A gentle pull towards where GPS says you are (a fifth of the gap each second), so small direction errors
+                            // never pile up into a scribble, while the steps still give the second-to-second shape; and never further
+                            // from GPS than its own uncertainty.
+                            gps.position(t1)?.let { g ->
+                                cx += 0.2 * (g[0] - cx); cy += 0.2 * (g[1] - cy)
+                                val ox = cx - g[0]; val oy = cy - g[1]; val off = hypot(ox, oy); val lim = 1.5 * gps.absSigma
+                                if (off > lim) { cx = g[0] + ox / off * lim; cy = g[1] + oy / off * lim }
+                            }
+                            ts += t1; es += cx; ns += cy; who += "GPS + steps"; t = t1; continue
+                        }
+                    }
+                }
                 for (s in order) {
                     val a = s.position(t); val b = s.position(t1)
                     if (a != null && b != null) {

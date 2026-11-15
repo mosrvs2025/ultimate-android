@@ -408,7 +408,7 @@ class MovementTool(private val host: UltimateApp) : Tool {
 
     // ---------------------------------------------------------------- drawing
 
-    private fun sourceColor(n: String) = when (n) { "camera tracking" -> WorldColors.teal; "GPS" -> WorldColors.amber; "inertial steps" -> WorldColors.violet; else -> WorldColors.dim }
+    private fun sourceColor(n: String) = when (n) { "camera tracking" -> WorldColors.teal; "GPS" -> WorldColors.amber; "GPS + steps" -> WorldColors.green; "inertial steps" -> WorldColors.violet; else -> WorldColors.dim }
     private fun gaitColor(g: Gait) = when (g) { Gait.Walking -> WorldColors.green; Gait.Running -> WorldColors.amber; Gait.Still -> WorldColors.line; Gait.Other -> WorldColors.violet.copy(alpha = 0.5f) }
 
     @Composable private fun Legend() {

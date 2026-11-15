@@ -109,7 +109,7 @@ class PoseSource private constructor(b: Built, relSigma: Double) :
  * others and weights each by its own stated accuracy. Fixes worse than [MAX_ACC_M] are ignored. The reported accuracy is taken as
  * one sigma, which is optimistic for some receivers; the calibration layer is where that would be learned.
  */
-class GpsSource(trace: Trace, relSigma: Double = 0.04, private val anchorLat: Double, private val anchorLon: Double, private val sm: Smoothed) :
+class GpsSource(trace: Trace, relSigma: Double = 0.04, val anchorLat: Double, val anchorLon: Double, private val sm: Smoothed) :
     PolylineSource("GPS", Basis.Derived, relSigma, max(3.0, sm.medianAcc), sm.t, sm.e, sm.n, sm.blind, 12.0) {
     init { countJumps() }
     class Smoothed(val t: DoubleArray, val e: DoubleArray, val n: DoubleArray, val blind: List<Span>, val medianAcc: Double, val latRef: Double, val lonRef: Double)
