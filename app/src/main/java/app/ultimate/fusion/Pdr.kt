@@ -43,6 +43,24 @@ object Pdr {
         val east: DoubleArray, val north: DoubleArray,
         val stride: StrideModel,
     ) {
+        /**
+         * The same walk with the step count corrected by an independent counter (the watch): [ratio] is true steps per counted
+         * step. Each counted step then stands for [ratio] real steps, taken at [ratio] times the counted cadence, so each gets
+         * the stride the model gives that real cadence. (Scaling the count alone would keep the inflated stride that a doubled
+         * cadence implies.) Directions are kept; positions are rebuilt from the corrected lengths.
+         */
+        fun correctedBy(ratio: Double): Result {
+            val fixed = steps.map { s -> Step(s.t, s.peak, s.cadenceHz * ratio, ratio * stride.length(s.cadenceHz * ratio), s.headingRad) }
+            val e = DoubleArray(steps.size); val n = DoubleArray(steps.size)
+            var x = 0.0; var y = 0.0; var px = 0.0; var py = 0.0
+            for (i in steps.indices) {
+                val dx = east[i] - px; val dy = north[i] - py; px = east[i]; py = north[i]
+                val k = if (steps[i].length > 1e-9) fixed[i].length / steps[i].length else ratio
+                x += dx * k; y += dy * k; e[i] = x; n[i] = y
+            }
+            return Result(fixed, windows, gyroUsed, gyroBiasDegPerS, e, n, stride)
+        }
+
         val distance: Quantity get() {
             val d = steps.sumOf { it.length }
             val n = steps.size.coerceAtLeast(1)

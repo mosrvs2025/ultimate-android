@@ -383,6 +383,18 @@ class WatchStepsTest {
         assertTrue(r.failures.any { it.kind == "steps" })
     }
 
+    @Test fun aDoubleCountingPhoneIsCorrectedByTheWatch() {
+        // Like a real walk where the phone counted 2075 steps and the watch 1395: steps must not inflate the distance.
+        val c = SimConfig(laps = 2, cadenceHz = 1.5, bouncesPerStep = 2, camera = false)
+        val sim = WalkSim.run(c)
+        val r = MovementAnalyzer.analyze(withWatch(c))
+        val steps = r.fusion.sources.first { it.name == "inertial steps" }.total.value
+        assertEquals("steps after correction $steps vs truth ${sim.truthMetres}; check ${r.stepCheck?.watch?.value}/${r.stepCheck?.phone?.value} agree=${r.stepCheck?.agree}; notes ${r.calibration}; pdr steps ${r.pdr?.steps?.size}",
+            sim.truthMetres, steps, sim.truthMetres * 0.12)
+        assertEquals("fused ${r.distance!!.value}", sim.truthMetres, r.distance!!.value, sim.truthMetres * 0.08)
+        assertTrue(r.calibration.any { it.startsWith("Steps corrected by your watch") })
+    }
+
     @Test fun noWatchNoCheck() {
         assertNull(MovementAnalyzer.analyze(Trace.read(WalkSim.run(SimConfig(laps = 1)).lines.asSequence())).stepCheck)
     }

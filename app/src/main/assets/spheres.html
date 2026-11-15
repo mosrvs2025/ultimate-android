@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Step inside</title>
+<style>
+  :root { --ink:#e8eef6; --dim:#93a1b5; --teal:#3ddcd0; --violet:#8e7cff; }
+  html,body { margin:0; height:100%; background:#05070a; color:var(--ink); font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; overflow:hidden; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; touch-action:none; display:block; }
+  .tag { position:fixed; transform:translate(-50%,-140%); padding:5px 11px; border-radius:999px; background:rgba(10,14,20,.7); font-size:12px;
+         pointer-events:none; white-space:nowrap; transition:opacity .2s; }
+  .bar { position:fixed; left:12px; right:12px; bottom:max(12px, env(safe-area-inset-bottom)); display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+  button { padding:11px 16px; border:0; border-radius:999px; font:600 14px system-ui,sans-serif; color:#0a0e14; background:linear-gradient(90deg,var(--teal),var(--violet)); }
+  button.ghost { background:rgba(20,27,38,.8); color:var(--ink); }
+  #title { position:fixed; top:max(12px, env(safe-area-inset-top)); left:0; right:0; text-align:center; color:#fff; font-size:13px; pointer-events:none; text-shadow:0 1px 6px rgba(0,0,0,.8); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="title">Loading…</div>
+<div id="tags"></div>
+<div class="bar">
+  <button class="ghost" id="gyro">Look with the phone</button>
+  <button id="vr" style="display:none">Step in (headset)</button>
+</div>
+<script>
+"use strict";
+// ---- matrices (column-major) ----
+const M = {
+  persp(fov, a, n, f){ const t = 1/Math.tan(fov/2); return [t/a,0,0,0, 0,t,0,0, 0,0,(f+n)/(n-f),-1, 0,0,2*f*n/(n-f),0]; },
+  rotYX(yaw, pitch){ const cy=Math.cos(yaw), sy=Math.sin(yaw), cp=Math.cos(pitch), sp=Math.sin(pitch);
+    // view = Rx(pitch) * Ry(yaw), rotation only
+    return [cy, sp*sy, -cp*sy, 0, 0, cp, sp, 0, sy, -sp*cy, cp*cy, 0, 0,0,0,1]; },
+  mul(a,b){ const o=new Array(16); for(let c=0;c<4;c++) for(let r=0;r<4;r++){ let s=0; for(let k=0;k<4;k++) s+=a[k*4+r]*b[c*4+k]; o[c*4+r]=s; } return o; },
+  inv(m){ const o=new Array(16), a=m; const b00=a[0]*a[5]-a[1]*a[4], b01=a[0]*a[6]-a[2]*a[4], b02=a[0]*a[7]-a[3]*a[4], b03=a[1]*a[6]-a[2]*a[5],
+    b04=a[1]*a[7]-a[3]*a[5], b05=a[2]*a[7]-a[3]*a[6], b06=a[8]*a[13]-a[9]*a[12], b07=a[8]*a[14]-a[10]*a[12], b08=a[8]*a[15]-a[11]*a[12],
+    b09=a[9]*a[14]-a[10]*a[13], b10=a[9]*a[15]-a[11]*a[13], b11=a[10]*a[15]-a[11]*a[14];
+    let d=b00*b11-b01*b10+b02*b09+b03*b08-b04*b07+b05*b06; if(!d) return null; d=1/d;
+    o[0]=(a[5]*b11-a[6]*b10+a[7]*b09)*d; o[1]=(a[2]*b10-a[1]*b11-a[3]*b09)*d; o[2]=(a[13]*b05-a[14]*b04+a[15]*b03)*d; o[3]=(a[10]*b04-a[9]*b05-a[11]*b03)*d;
+    o[4]=(a[6]*b08-a[4]*b11-a[7]*b07)*d; o[5]=(a[0]*b11-a[2]*b08+a[3]*b07)*d; o[6]=(a[14]*b02-a[12]*b05-a[15]*b01)*d; o[7]=(a[8]*b05-a[10]*b02+a[11]*b01)*d;
+    o[8]=(a[4]*b10-a[5]*b08+a[7]*b06)*d; o[9]=(a[1]*b08-a[0]*b10-a[3]*b06)*d; o[10]=(a[12]*b04-a[13]*b02+a[15]*b00)*d; o[11]=(a[9]*b02-a[8]*b04-a[11]*b00)*d;
+    o[12]=(a[5]*b07-a[4]*b09-a[6]*b06)*d; o[13]=(a[0]*b09-a[1]*b07+a[2]*b06)*d; o[14]=(a[13]*b01-a[12]*b03-a[14]*b00)*d; o[15]=(a[8]*b03-a[9]*b01+a[10]*b00)*d; return o; },
+};
+
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl', { xrCompatible:true, antialias:false });
+const vs = 'attribute vec2 p; varying vec2 q; void main(){ q = p; gl_Position = vec4(p, 0.0, 1.0); }';
+// Every pixel looks along its own direction into the panorama. During a move, the old and new panoramas blend through a
+// ripple that spreads from the centre, and the view pushes forward, so it feels like stepping through water.
+const fs = `precision highp float;
+varying vec2 q; uniform mat4 uInv; uniform sampler2D uA, uB; uniform float uT, uTime; uniform vec4 uDoor[8]; uniform int uDoors;
+const float PI = 3.14159265;
+vec3 dirOf(vec2 s){ vec4 a = uInv * vec4(s, 1.0, 1.0); return normalize(a.xyz / a.w); }
+vec2 uvOf(vec3 d){ return vec2(atan(d.x, -d.z) / (2.0*PI) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / PI); }
+void main(){
+  float k = sin(uT * PI);
+  vec2 s = q * (1.0 - 0.35 * k);
+  float r = length(q);
+  s += q * 0.04 * k * sin(r * 28.0 - uTime * 9.0);
+  vec3 d = dirOf(s);
+  vec3 col = mix(texture2D(uA, uvOf(d)).rgb, texture2D(uB, uvOf(d)).rgb, smoothstep(0.25, 0.75, uT));
+  for (int i = 0; i < 8; i++) {
+    if (i >= uDoors) break;
+    vec3 dd = uDoor[i].xyz; float near = uDoor[i].w;
+    float ang = acos(clamp(dot(d, dd), -1.0, 1.0));
+    float rad = mix(0.055, 0.11, near);
+    float wob = rad * (1.0 + 0.08 * sin(atan(d.y - dd.y, d.x - dd.x) * 5.0 + uTime * 2.5));
+    float body = smoothstep(wob, wob * 0.82, ang);
+    float rim = smoothstep(wob * 1.6, wob, ang) - body;
+    vec3 drop = mix(vec3(0.24, 0.86, 0.82), vec3(0.56, 0.49, 1.0), clamp((d.y - dd.y) / rad * 0.5 + 0.5, 0.0, 1.0));
+    col = mix(col, drop + 0.25 * pow(max(0.0, 1.0 - ang / (wob * 0.5)), 3.0), body * 0.85);
+    col += vec3(0.24, 0.86, 0.82) * rim * 0.35;
+  }
+  gl_FragColor = vec4(col, 1.0);
+}`;
+function sh(t, src){ const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(prog); gl.useProgram(prog);
+const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+const U = n => gl.getUniformLocation(prog, n);
+
+function texture(img){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, img); return t; }
+const cache = new Map();
+function load(id){ if (cache.has(id)) return cache.get(id);
+  const p = new Promise((ok, bad) => { const i = new Image(); i.crossOrigin = 'anonymous'; i.onload = () => ok(texture(i)); i.onerror = bad; i.src = 'sphere/' + encodeURIComponent(id) + '.jpg'; });
+  cache.set(id, p); return p; }
+
+// ---- the tour ----
+let tour = null, here = null, texA = null, texB = null, trans = 1, target = null, yaw = 0, pitch = 0, fov = 1.25;
+const D2R = Math.PI / 180;
+function doors(){ return (tour.links[here] || []).slice(0, 8); }
+function doorDir(l){ const lo = l.lon * D2R, pi = Math.max(-0.5, Math.min(0.5, (l.pitch || 0) * D2R - 0.12)); return [Math.cos(pi)*Math.sin(lo), Math.sin(pi), -Math.cos(pi)*Math.cos(lo)]; }
+
+async function go(id, smooth){
+  if (!tour.stops.some(s => s.id === id)) return;
+  const t = await load(id);
+  if (!texA || !smooth) { texA = t; texB = t; here = id; trans = 1; } else { texB = t; target = id; trans = 0; }
+  if (!smooth) { here = id; }
+  label();
+}
+function label(){ const i = tour.stops.findIndex(s => s.id === (target || here)); document.getElementById('title').textContent = tour.name + ' · ' + (i + 1) + ' of ' + tour.stops.length; }
+
+// ---- looking around ----
+let drag = null, gyro = false, gyroBase = null;
+canvas.addEventListener('pointerdown', e => { drag = { x:e.clientX, y:e.clientY, t:performance.now(), moved:0 }; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', e => { if (!drag || gyro) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.moved += Math.abs(dx) + Math.abs(dy);
+  yaw -= dx * fov / canvas.clientHeight; pitch = Math.max(-1.45, Math.min(1.45, pitch + dy * fov / canvas.clientHeight)); drag.x = e.clientX; drag.y = e.clientY; });
+canvas.addEventListener('pointerup', e => { if (drag && drag.moved < 10) tap(e.clientX, e.clientY); drag = null; });
+canvas.addEventListener('wheel', e => { fov = Math.max(0.5, Math.min(1.8, fov + e.deltaY * 0.001)); });
+function viewMat(){ return M.rotYX(yaw, pitch); }
+function screenDir(x, y){ const a = canvas.clientWidth / canvas.clientHeight; const inv = M.inv(M.mul(M.persp(fov, a, 0.1, 10), viewMat()));
+  const sx = x / canvas.clientWidth * 2 - 1, sy = 1 - y / canvas.clientHeight * 2; const v = [0,1,2,3].map(r => inv[r]*sx + inv[4+r]*sy + inv[8+r] + inv[12+r]);
+  const d = [v[0]/v[3], v[1]/v[3], v[2]/v[3]]; const l = Math.hypot(...d); return d.map(c => c / l); }
+function pick(d){ let best = null, ang = 0.2; for (const l of doors()) { const dd = doorDir(l); const a = Math.acos(Math.max(-1, Math.min(1, d[0]*dd[0]+d[1]*dd[1]+d[2]*dd[2]))); if (a < ang) { ang = a; best = l; } } return best; }
+function tap(x, y){ if (trans < 1) return; const l = pick(screenDir(x, y)); if (l) go(l.to, true); }
+
+document.getElementById('gyro').onclick = async () => {
+  if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) { try { await DeviceOrientationEvent.requestPermission(); } catch (e) {} }
+  gyro = !gyro; gyroBase = null; document.getElementById('gyro').textContent = gyro ? 'Look by dragging' : 'Look with the phone';
+};
+addEventListener('deviceorientation', e => { if (!gyro || e.alpha == null) return;
+  const a = e.alpha * D2R, b = e.beta * D2R; if (!gyroBase) gyroBase = { a, yaw };
+  yaw = gyroBase.yaw - (a - gyroBase.a); pitch = Math.max(-1.45, Math.min(1.45, b - Math.PI / 2)); });
+
+// ---- drawing ----
+function frame(inv, now){
+  gl.uniformMatrix4fv(U('uInv'), false, inv);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texA); gl.uniform1i(U('uA'), 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texB); gl.uniform1i(U('uB'), 1);
+  gl.uniform1f(U('uT'), trans); gl.uniform1f(U('uTime'), now / 1000);
+  const ds = trans < 1 ? [] : doors(); const arr = new Float32Array(32);
+  ds.forEach((l, i) => { const d = doorDir(l); arr.set([d[0], d[1], d[2], Math.max(0, Math.min(1, 1 - l.m / 8))], i * 4); });
+  gl.uniform4fv(U('uDoor[0]'), arr); gl.uniform1i(U('uDoors'), ds.length);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+function step(dt){ if (trans < 1) { trans = Math.min(1, trans + dt / 0.9); if (trans >= 1 && target) { here = target; texA = texB; target = null; } } }
+
+const tags = document.getElementById('tags');
+function placeTags(){
+  const ds = trans < 1 ? [] : doors(); const a = canvas.clientWidth / canvas.clientHeight; const vp = M.mul(M.persp(fov, a, 0.1, 10), viewMat());
+  while (tags.children.length < ds.length) { const t = document.createElement('div'); t.className = 'tag'; tags.appendChild(t); }
+  [...tags.children].forEach((t, i) => { const l = ds[i]; if (!l) { t.style.opacity = 0; return; }
+    const d = doorDir(l); const c = [0,1,2,3].map(r => vp[r]*d[0] + vp[4+r]*d[1] + vp[8+r]*d[2] + vp[12+r]);
+    if (c[3] <= 0) { t.style.opacity = 0; return; }
+    t.style.left = ((c[0]/c[3] + 1) / 2 * canvas.clientWidth) + 'px'; t.style.top = ((1 - c[1]/c[3]) / 2 * canvas.clientHeight) + 'px';
+    t.textContent = l.m.toFixed(1) + ' m'; t.style.opacity = 1; });
+}
+let last = performance.now();
+function loop(now){
+  if (session) return;
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; step(dt);
+  const w = canvas.clientWidth * devicePixelRatio, h = canvas.clientHeight * devicePixelRatio; if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, w, h);
+  if (texA) { frame(M.inv(M.mul(M.persp(fov, w / h, 0.1, 10), viewMat())), now); placeTags(); }
+  requestAnimationFrame(loop);
+}
+
+// ---- in a headset ----
+let session = null, ref = null;
+async function enterVR(){
+  session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures:['local-floor'] });
+  await gl.makeXRCompatible(); session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+  ref = await session.requestReferenceSpace('local').catch(() => session.requestReferenceSpace('viewer'));
+  [...tags.children].forEach(t => t.style.opacity = 0);
+  session.addEventListener('select', e => { const p = e.frame.getPose(e.inputSource.targetRaySpace, ref); if (!p || trans < 1) return;
+    const o = p.transform.orientation; const q = [o.x, o.y, o.z, o.w];
+    // The controller points along its -Z; turn that by its orientation.
+    const v = [0, 0, -1]; const ix = q[3]*v[0] + q[1]*v[2] - q[2]*v[1], iy = q[3]*v[1] + q[2]*v[0] - q[0]*v[2], iz = q[3]*v[2] + q[0]*v[1] - q[1]*v[0], iw = -q[0]*v[0] - q[1]*v[1] - q[2]*v[2];
+    const d = [ix*q[3] + iw*-q[0] + iy*-q[2] - iz*-q[1], iy*q[3] + iw*-q[1] + iz*-q[0] - ix*-q[2], iz*q[3] + iw*-q[2] + ix*-q[1] - iy*-q[0]];
+    const l = pick(d); if (l) go(l.to, true); });
+  session.addEventListener('end', () => { session = null; last = performance.now(); requestAnimationFrame(loop); });
+  session.requestAnimationFrame(xrFrame);
+}
+function xrFrame(now, f){
+  const s = f.session; s.requestAnimationFrame(xrFrame);
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; step(dt);
+  const pose = f.getViewerPose(ref); if (!pose) return;
+  const layer = s.renderState.baseLayer; gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+  for (const v of pose.views) { const vp = layer.getViewport(v); gl.viewport(vp.x, vp.y, vp.width, vp.height);
+    const rot = v.transform.inverse.matrix.slice(); rot[12] = rot[13] = rot[14] = 0;
+    frame(M.inv(M.mul(v.projectionMatrix, rot)), now); }
+}
+
+(async () => {
+  try {
+    tour = await (await fetch('tour.json', { cache:'no-store' })).json();
+    if (!tour.stops.length) { document.getElementById('title').textContent = 'This place has no spheres yet.'; return; }
+    await go(tour.stops[0].id, false);
+    if (navigator.xr && await navigator.xr.isSessionSupported('immersive-vr').catch(() => false)) { const b = document.getElementById('vr'); b.style.display = ''; b.onclick = () => enterVR().catch(e => alert(e.message)); }
+    requestAnimationFrame(loop);
+  } catch (e) { document.getElementById('title').textContent = 'Could not open this place: ' + e.message; }
+})();
+</script>
+</body>
+</html>

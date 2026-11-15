@@ -42,7 +42,14 @@ object MovementAnalyzer {
         val sources = ArrayList<DistanceSource>()
         if (trace.hasPoses) sources += PoseSource(trace, camera?.factor ?: 1.0, camera?.relSigma ?: 0.02)
         GpsSource.of(trace)?.let { sources += it }
-        if (pdr != null) PdrSource(pdr, dur).takeIf { it.usable }?.let { sources += it }
+        // The watch, on the wrist all the time, is an independent count of the same steps. When the phone counted clearly more
+        // (a swinging arm or a bouncing phone counted twice) or fewer, the phone's step distance is scaled to the watch's count,
+        // and the step source's own uncertainty grows a little, since the correction is an average over the whole time.
+        val stepCheck = stepCheckOf(trace, pdr)
+        val watchScale = stepCheck?.takeIf { !it.agree && it.phone.value >= 30 && it.watch.value >= 30 }?.let { it.watch.value / it.phone.value }?.takeIf { it in 0.3..3.0 }
+        if (watchScale != null) notes += "Steps corrected by your watch: the phone counted %.0f where the watch counted %.0f, so each phone step was counted as %.2f of a real step, at the stride of the real pace.".format(stepCheck.phone.value, stepCheck.watch.value, watchScale)
+        val stepsUsed = if (pdr != null && watchScale != null) pdr.correctedBy(watchScale) else pdr
+        if (stepsUsed != null) PdrSource(stepsUsed, dur, 1.0, if (watchScale != null) stepsUsed.stride.relSigma + 0.05 else stepsUsed.stride.relSigma).takeIf { it.usable }?.let { sources += it }
         val fusion = Fusion.run(sources, dur)
         // The path is drawn only by sensors that were trusted: a sensor ruled out for disagreeing must not draw the map either.
         val path = FusedPath.build(sources.filter { it.name !in fusion.excluded }, dur)
@@ -83,7 +90,6 @@ object MovementAnalyzer {
             if (v.size < 5) null else HeartSummary(Quantity(v.average(), 2.0, "bpm", Basis.Observed, "heart-rate samples"), Quantity(v.max(), 3.0, "bpm", Basis.Observed, "heart-rate samples"), v.size)
         }
         val elevation = elevationOf(trace)
-        val stepCheck = stepCheckOf(trace, pdr)
         if (stepCheck != null && !stepCheck.agree) failures += Finding("steps", Span(trace.watchSteps.first().t, trace.watchSteps.last().t), stepCheck.text, Basis.Observed, 0.8)
         return MovementReport(ALGO, dur, trace.sources(), trace.poseClock, fusion, path, pdr, speeds, avg, top, steps, cadence, gait, stops, turns, laps, Events.lapConsistency(laps), failures, heart, elevation, notes, stepCheck)
     }
