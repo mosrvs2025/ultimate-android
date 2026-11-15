@@ -3,6 +3,14 @@
 Generated from `app/src/main/java/app/ultimate/home/AboutInfo.kt` by `scripts/changelog-md.py`; edit the entries there, not here.
 The newest version is first. The watch app has its own version (see `wear/build.gradle.kts`) and ships inside the phone app.
 
+## 2.19.0
+- Fixed: walking back and forth along a straight line no longer draws a scribble. The route used to take its shape from the phone's step headings, which drift a little more at every turn-around; with good GPS it now takes its direction from GPS (averaged over a few seconds) and its length from your steps, pulled gently towards GPS so small errors never pile up. Steps still fill in where GPS drops out.
+- Faster while recording: the clock, GPS and your position now update every second, and the recording is no longer re-read from the start for every refresh (which slowed the screen more and more as a walk went on).
+- New: a living map while you record and in the review. Streets underneath from OpenStreetMap, once you allow it (their server then sees which area you're viewing; the pictures are kept on the phone for a month), darkened to match the app. The route glows in the colour of your pace (teal easy, violet steady, amber fast), you're a pulsing drop with a halo as wide as the GPS uncertainty and a soft cone pointing where you're heading. Pinch to zoom, drag to move, twist to turn, double-tap to follow you again; it shows the whole route while it fits and follows you once it doesn't.
+- New: 3D. Tap 3D and the ground tilts away in true perspective (streets included) and the route lifts off it by the barometer's heights, standing on light curtains so hills and stairs read at a glance. Tap 2D to come back.
+- New: a liquid heart in Synced with your watch that beats at your real heart rate (a strong beat then a softer one), sends a ring out with each beat, dims when the reading is old, and shows a trace of the last few minutes beside the number.
+- Tested with a simulated back-and-forth walk with a drifting gyroscope (it drew a blob before the fix and a line after), the map and 3D maths, the heartbeat curve, and renderings of the map flat and tilted; streets and real walks still need trying outdoors.
+
 ## 2.18.0
 - New: Keyboard & mouse (Ultimate+, under Phone). Your phone becomes an ordinary Bluetooth keyboard and mouse called Ultimate, so any computer, tablet, TV or the Quest can use it with nothing installed there. Pair it once from that device's Bluetooth settings (Let a new device find this phone helps), then tap it to connect.
 - A liquid trackpad: one finger moves the pointer (quick swipes go further), tap to click, hold to right-click, two fingers to scroll, with ripples where you touch. Type into the box and it types on the computer (US layout; characters without a key are counted and skipped). Quick keys for Esc, Tab, arrows, Backspace and Enter, and media keys for previous, play/pause, next and volume.

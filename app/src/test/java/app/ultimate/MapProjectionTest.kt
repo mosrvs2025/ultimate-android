@@ -60,4 +60,11 @@ class MapProjectionTest {
         assertEquals(0.0, g[0], 1e-6); assertEquals(50.0, g[1], 1e-6)
         assertNull(c.ground(0f, -5000f, 0f, 0f, 800.0)) // above the horizon
     }
+
+    @Test fun aHeartbeatIsLubDub() {
+        val curve = (0 until 100).map { app.ultimate.core.HeartBeat.swell(it / 100.0) }
+        val peaks = (1 until 99).filter { curve[it] > curve[it - 1] && curve[it] >= curve[it + 1] && curve[it] > 0.02 }
+        assertEquals(2, peaks.size); assertTrue(curve[peaks[0]] > curve[peaks[1]]) // a stronger beat, then a softer one
+        assertEquals(app.ultimate.core.HeartBeat.swell(0.3), app.ultimate.core.HeartBeat.swell(1.3), 1e-9)
+    }
 }

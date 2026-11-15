@@ -150,7 +150,14 @@ class WorldSensorRecorder(private val context: Context, private val maxBytes: Lo
     /** A reading from another device (the watch's heart rate or step count), stamped on this phone's clock when it arrived. */
     fun extra(kind: String, json: String) { if (active) line(kind, json) }
 
+    /**
+     * When set, every line written is also handed here (Movement's live view reads them as they happen instead of re-reading
+     * the whole compressed file each time, which slowed the screen down more and more as a walk went on).
+     */
+    @Volatile var tap: java.util.Queue<String>? = null
+
     private fun line(kind: String, json: String) {
+        tap?.add(json)
         synchronized(lock) {
             val w = writer ?: return
             val o = out ?: return

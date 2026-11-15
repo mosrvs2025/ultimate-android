@@ -185,7 +185,9 @@ class MovementTool(private val host: UltimateApp) : Tool {
         val fresh = w?.let { System.currentTimeMillis() - it.at < 90_000 } == true
         if (!fresh && hr == null) return
         Card("Synced with your watch", live = fresh, accent = WorldColors.violet) {
-            app.ultimate.core.LiquidSync(fresh, "This phone", "Watch", status = listOfNotNull(w?.takeIf { fresh }?.let { "${it.spm} steps a minute" }, hr?.let { "heart ${it.first} bpm" }).joinToString(" · ").ifBlank { null })
+            app.ultimate.core.LiquidSync(fresh, "This phone", "Watch", status = w?.takeIf { fresh }?.let { "${it.spm} steps a minute" })
+            // The heart beats at the rate the watch reads; it dims when the last reading is more than two minutes old.
+            app.ultimate.core.HeartPanel(hr?.takeIf { System.currentTimeMillis() - it.second < 120_000 }?.first)
             live.report?.stepCheck?.let { Text(it.text, color = if (it.agree) WorldColors.green else WorldColors.amber, fontSize = 13.sp, lineHeight = 19.sp) }
         }
     }
@@ -223,7 +225,11 @@ class MovementTool(private val host: UltimateApp) : Tool {
                 Metric("Laps", "${r?.laps?.size ?: 0}", "${r?.turns?.size ?: 0} turns", Modifier.weight(1f))
             }
             WatchSyncLive(live)
-            r?.path?.let { Card("Where you have been") { PathCanvas(it, r.laps, r.turns, null, Modifier.fillMaxWidth().height(240.dp)) } }
+            Card("Where you are") {
+                LiveMap(r?.path, live.fix, live = true, modifier = Modifier.fillMaxWidth().height(if (Liquid.compact()) 300.dp else 360.dp))
+                Text("Glows by pace: teal easy, violet steady, amber fast. Pinch, drag and twist; double-tap to follow you again; 3D lifts the route by height.",
+                    color = WorldColors.dim, fontSize = 11.sp, lineHeight = 15.sp)
+            }
             Card("Sensors") {
                 val g = live.gps
                 Text("GPS: " + if (!g.enabled) "off or no signal" else g.accuracyM?.let { "±${"%.0f".format(it)} m, ${g.fixes} fixes" } ?: "searching…", color = Color.White, fontSize = 13.sp)
@@ -283,7 +289,7 @@ class MovementTool(private val host: UltimateApp) : Tool {
         Column(Modifier.fillMaxSize().background(Liquid.bg).verticalScroll(rememberScrollState()).padding(pad), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Headline(entry, r)
             r.path?.let { p -> Card("Where you went") {
-                PathCanvas(p, r.laps, r.turns, scrub, Modifier.fillMaxWidth().height(if (Liquid.compact()) 240.dp else 280.dp))
+                LiveMap(p, null, live = false, modifier = Modifier.fillMaxWidth().height(if (Liquid.compact()) 280.dp else 340.dp), scrub = scrub)
                 Legend()
                 Text("Frame: ${p.frame}" + (p.registrationRms?.let { " · camera and GPS fit to ${"%.1f".format(it)} m" } ?: ""), color = WorldColors.dim, fontSize = 11.sp)
             } }
