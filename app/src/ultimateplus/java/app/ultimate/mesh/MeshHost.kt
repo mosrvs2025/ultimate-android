@@ -13,7 +13,8 @@ import kotlinx.coroutines.launch
  * owner has switched on "Lend this phone"; a recording shows in Live now with a Stop button and in the mesh
  * notification for as long as it runs, so nothing is ever recorded or played here without being visible.
  */
-class MeshHost(context: Context, private val lends: () -> Boolean, private val onChange: () -> Unit, private val notifyPing: (String) -> Unit, accepts: () -> Boolean = { true }) {
+class MeshHost(context: Context, private val lends: () -> Boolean, private val onChange: () -> Unit, private val notifyPing: (String) -> Unit, accepts: () -> Boolean = { true },
+                private val rangeToPeer: suspend (String) -> MeshManager.Ranged = { MeshManager.Ranged.Failed("not supported") }) {
     private val app = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val recorder = MotionRecorder(app)
@@ -25,6 +26,8 @@ class MeshHost(context: Context, private val lends: () -> Boolean, private val o
     @Volatile var recordingFor: String? = null; private set
     @Volatile private var rangeResult: PeerRanger.Outcome? = null
     @Volatile private var rangeBusy = false
+    @Volatile private var pairResult: Map<String, String>? = null
+    @Volatile private var pairBusy = false
 
     private var cache: Pair<Int, RepCounter.Summary>? = null
 
@@ -58,6 +61,22 @@ class MeshHost(context: Context, private val lends: () -> Boolean, private val o
                 }
                 mapOf("state" to "armed")
             }
+            Cmd.RANGE_PAIR -> {
+                val to = args["to"] ?: throw IllegalArgumentException("no device named")
+                if (pairBusy || rangeBusy) throw IllegalStateException("this phone is already measuring")
+                pairBusy = true; pairResult = null
+                senses().begin(PAIR, "mesh", "Measuring distances for ${from.name}'s device map", sensitive = true) { }
+                scope.launch {
+                    try {
+                        pairResult = when (val r = rangeToPeer(to)) {
+                            is MeshManager.Ranged.Ok -> mapOf("state" to "done", "metres" to r.metres.toString(), "good" to if (r.confidence == PeerRange.Confidence.Good) "1" else "0")
+                            is MeshManager.Ranged.Failed -> mapOf("state" to "failed", "why" to r.why)
+                        }
+                    } finally { pairBusy = false; senses().end(PAIR) }
+                }
+                mapOf("state" to "started")
+            }
+            Cmd.RANGE_PAIR_RESULT -> pairResult ?: mapOf("state" to if (pairBusy) "pending" else "none")
             Cmd.RANGE_RESULT -> when (val r = rangeResult) {
                 null -> mapOf("state" to if (rangeBusy) "pending" else "none")
                 is PeerRanger.Outcome.Failed -> mapOf("state" to "failed", "why" to r.why)
@@ -97,6 +116,7 @@ class MeshHost(context: Context, private val lends: () -> Boolean, private val o
     companion object {
         const val SESSION = "mesh.record"
         const val RANGE = "mesh.range"
+        const val PAIR = "mesh.pair"
         fun decodeSide(p: Map<String, String>): PeerRange.Side? = runCatching {
             PeerRange.Side(
                 PeerRange.Detection(p.getValue("ownPos").toDouble(), p.getValue("ownStr").toDouble(), p.getValue("ownNoise").toDouble()),

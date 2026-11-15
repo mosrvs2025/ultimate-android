@@ -34,6 +34,11 @@ class MeshStore(context: Context) {
         get() = prefs.getBoolean("wasOn", false)
         set(v) { prefs.edit().putBoolean("wasOn", v).apply() }
 
+    /** The last device map's measured distances (see HouseStore), so the map is there the next time. */
+    var house: String
+        get() = prefs.getString("house", "") ?: ""
+        set(v) { prefs.edit().putString("house", v).apply() }
+
     var roster: String
         get() = prefs.getString("roster", "") ?: ""
         set(v) { prefs.edit().putString("roster", v).apply() }

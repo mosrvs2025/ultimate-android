@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Runs this phone's side of the Octopus Mesh while the user has it switched on: finding the owner's other devices
@@ -60,6 +61,13 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
         data class Failed(val peerName: String, val why: String) : RangeState
     }
 
+    /** The map of the owner's devices, built from the distances between every pair (see [HouseLayout]). */
+    sealed interface HouseState {
+        data object Idle : HouseState
+        data class Measuring(val a: String, val b: String, val done: Int, val total: Int) : HouseState
+        data class Done(val result: HouseLayout.Result, val names: Map<String, String>, val measured: List<HouseLayout.Measure>, val failed: List<String>, val at: Long) : HouseState
+    }
+
     data class State(
         val running: Boolean = false,
         val selfId: String = "",
@@ -85,6 +93,7 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
         val busy: Int = 0,
         val remote: RemoteRecording? = null,
         val range: RangeState = RangeState.Idle,
+        val house: HouseState = HouseState.Idle,
         val error: String? = null,
     ) {
         /** How many times this phone's own speed the connected devices add, counting this one. */
@@ -104,7 +113,7 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
     private var remoteJob: Job? = null
     private var udp: DatagramSocket? = null
     private var lock: WifiManager.MulticastLock? = null
-    private val host = MeshHost(app, lends = { store.lends }, onChange = ::onHostChange, notifyPing = ::notifyPing, accepts = { store.accepts })
+    private val host = MeshHost(app, lends = { store.lends }, onChange = ::onHostChange, notifyPing = ::notifyPing, accepts = { store.accepts }, rangeToPeer = { id -> rangeTo(id, runs = 2) })
     private val ranger = PeerRanger(app)
     private var rangeRecord: Job? = null
 
@@ -381,45 +390,115 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
     // ---- distance by sound ----
 
     /** Measures the distance to [peerId] [runs] times and reports the median and how much the runs disagreed. */
+    /** One distance between this phone and [peerId]: the median of [runs] sound measurements, or why it failed. */
+    sealed interface Ranged {
+        data class Ok(val metres: Double, val spread: Double, val runs: Int, val confidence: PeerRange.Confidence, val note: String) : Ranged
+        data class Failed(val why: String) : Ranged
+    }
+
+    private val rangeLock = kotlinx.coroutines.sync.Mutex()
+
+    /** Measures by sound to [peerId] (blocking the caller for a few seconds per run). One measurement at a time per phone. */
+    suspend fun rangeTo(peerId: String, runs: Int = 3, progress: (Int) -> Unit = {}): Ranged = rangeLock.withLock {
+        val n = node ?: return@withLock Ranged.Failed("Octopus Mesh is off")
+        val name = peerName(peerId)
+        val results = mutableListOf<PeerRange.Result>()
+        var lastFail: String? = null
+        for (i in 1..runs) {
+            progress(i)
+            try {
+                n.command(peerId, Cmd.RANGE_ARM, timeoutMs = 4_000)
+                val mine = ranger.run(PeerRange.Role.Caller)
+                if (mine is PeerRanger.Outcome.Failed) { lastFail = "this phone: ${mine.why}"; if (i == 1) break else continue }
+                val side = (mine as PeerRanger.Outcome.Done).side
+                var theirs: Map<String, String>? = null
+                for (attempt in 0 until 10) {
+                    val r = n.command(peerId, Cmd.RANGE_RESULT)
+                    if (r["state"] == "pending") { delay(400); continue }
+                    theirs = r; break
+                }
+                if (theirs == null) { lastFail = "$name did not report in time"; continue }
+                if (theirs["state"] != "done") { lastFail = "$name: ${theirs["why"] ?: "no result"}"; continue }
+                val other = MeshHost.decodeSide(theirs) ?: run { lastFail = "$name sent an unreadable result"; null } ?: continue
+                val r = PeerRange.distance(side, other)
+                if (r.confidence == PeerRange.Confidence.None) lastFail = r.note else results += r
+            } catch (e: Exception) { lastFail = e.message; if (i == 1) break }
+            delay(500)
+        }
+        val usable = results.map { it.metres }.sorted()
+        if (usable.isEmpty()) return@withLock Ranged.Failed(lastFail ?: "no measurement")
+        val median = usable[usable.size / 2]
+        val spread = usable.last() - usable.first()
+        val conf = if (results.all { r -> r.confidence == PeerRange.Confidence.Good } && spread < 0.10) PeerRange.Confidence.Good else PeerRange.Confidence.Doubtful
+        Ranged.Ok(median, spread, usable.size, conf,
+            if (usable.size < runs) "${usable.size} of $runs runs worked" else if (spread >= 0.10) "the runs disagreed by ${(spread * 100).toInt()} cm: a reflective room, or something in the way" else "the runs agree")
+    }
+
     fun measureDistance(peerId: String, runs: Int = 3) {
-        val n = node ?: return
-        if (_state.value.range is RangeState.Measuring) return
+        if (node == null || _state.value.range is RangeState.Measuring) return
         val name = peerName(peerId)
         rangeRecord = scope.launch {
-            val results = mutableListOf<PeerRange.Result>()
-            var lastFail: String? = null
-            for (i in 1..runs) {
-                _state.update { it.copy(range = RangeState.Measuring(name, i, runs)) }
-                try {
-                    n.command(peerId, Cmd.RANGE_ARM, timeoutMs = 4_000)
-                    val mine = ranger.run(PeerRange.Role.Caller)
-                    if (mine is PeerRanger.Outcome.Failed) { lastFail = "this phone: ${mine.why}"; if (i == 1) break else continue }
-                    val side = (mine as PeerRanger.Outcome.Done).side
-                    var theirs: Map<String, String>? = null
-                    for (attempt in 0 until 10) {
-                        val r = n.command(peerId, Cmd.RANGE_RESULT)
-                        if (r["state"] == "pending") { delay(400); continue }
-                        theirs = r; break
-                    }
-                    if (theirs == null) { lastFail = "$name did not report in time"; continue }
-                    if (theirs["state"] != "done") { lastFail = "$name: ${theirs["why"] ?: "no result"}"; continue }
-                    val other = MeshHost.decodeSide(theirs) ?: run { lastFail = "$name sent an unreadable result"; null } ?: continue
-                    val r = PeerRange.distance(side, other)
-                    if (r.confidence == PeerRange.Confidence.None) lastFail = r.note else results += r
-                } catch (e: Exception) { lastFail = e.message; if (i == 1) break }
-                delay(500)
-            }
-            val usable = results.map { it.metres }.sorted()
-            _state.update {
-                it.copy(range = if (usable.isEmpty()) RangeState.Failed(name, lastFail ?: "no measurement") else {
-                    val median = usable[usable.size / 2]
-                    val spread = usable.last() - usable.first()
-                    val conf = if (results.all { r -> r.confidence == PeerRange.Confidence.Good } && spread < 0.10) PeerRange.Confidence.Good else PeerRange.Confidence.Doubtful
-                    RangeState.Result(name, median, spread, usable.size, conf,
-                        if (usable.size < runs) "${usable.size} of $runs runs worked" else if (spread >= 0.10) "the runs disagreed by ${(spread * 100).toInt()} cm: a reflective room, or something in the way" else "the runs agree")
-                })
-            }
+            val r = rangeTo(peerId, runs) { i -> _state.update { it.copy(range = RangeState.Measuring(name, i, runs)) } }
+            _state.update { it.copy(range = when (r) {
+                is Ranged.Failed -> RangeState.Failed(name, r.why)
+                is Ranged.Ok -> RangeState.Result(name, r.metres, r.spread, r.runs, r.confidence, r.note)
+            }) }
         }
+    }
+
+    // ---- the map of all the owner's devices ----
+
+    private var houseJob: Job? = null
+
+    /**
+     * Measures every pair among this phone and the connected devices that lend themselves, one pair at a time (two chirps
+     * at once would confuse each other), then solves the map. Pairs that do not involve this phone are measured by one of
+     * the two devices, asked over the mesh.
+     */
+    fun mapHouse() {
+        val n = node ?: return
+        if (_state.value.house is HouseState.Measuring) return
+        houseJob = scope.launch {
+            val me = n.id
+            val peers = n.peers().filter { n.alive(it) }
+            val names = mapOf(me to "${Build.MODEL} (this phone)") + peers.associate { it.id to it.name }
+            val ids = listOf(me) + peers.map { it.id }
+            val pairs = ids.flatMapIndexed { i, a -> ids.drop(i + 1).map { b -> a to b } }
+            val measured = ArrayList<HouseLayout.Measure>(); val failed = ArrayList<String>()
+            pairs.forEachIndexed { k, (a, b) ->
+                _state.update { it.copy(house = HouseState.Measuring(names.getValue(a), names.getValue(b), k, pairs.size)) }
+                val r: Ranged = try {
+                    if (a == me) rangeTo(b, runs = 2) else {
+                        n.command(a, Cmd.RANGE_PAIR, mapOf("to" to b), timeoutMs = 4_000)
+                        var res: Map<String, String>? = null
+                        for (t in 0 until 60) { delay(500); val q = n.command(a, Cmd.RANGE_PAIR_RESULT); if (q["state"] != "pending") { res = q; break } }
+                        when (res?.get("state")) {
+                            "done" -> Ranged.Ok(res.getValue("metres").toDouble(), 0.0, 2, if (res["good"] == "1") PeerRange.Confidence.Good else PeerRange.Confidence.Doubtful, "")
+                            null -> Ranged.Failed("no answer in time")
+                            else -> Ranged.Failed(res["why"] ?: "no result")
+                        }
+                    }
+                } catch (e: Exception) { Ranged.Failed(e.message ?: "failed") }
+                when (r) {
+                    is Ranged.Ok -> measured += HouseLayout.Measure(a, b, r.metres, if (r.confidence == PeerRange.Confidence.Good) 1.0 else 0.35)
+                    is Ranged.Failed -> failed += "${names.getValue(a)} ↔ ${names.getValue(b)}: ${r.why}"
+                }
+                delay(300)
+            }
+            store.house = HouseStore.encode(names, measured)
+            val result = HouseLayout.solve(ids, measured)
+            _state.update { it.copy(house = HouseState.Done(result, names, measured, failed, System.currentTimeMillis())) }
+            log("device map: ${measured.size} of ${pairs.size} distances measured")
+            senses()?.publish(Signal("mesh", "house_mapped", "Mapped ${ids.size} devices", mapOf("devices" to ids.size.toString())))
+        }
+    }
+
+    /** The last map, solved again from the distances kept from last time (shown before measuring anew). */
+    fun loadHouse() {
+        if (_state.value.house !is HouseState.Idle) return
+        val (names, measured) = HouseStore.decode(store.house) ?: return
+        if (measured.isEmpty()) return
+        _state.update { it.copy(house = HouseState.Done(HouseLayout.solve(names.keys.toList(), measured), names, measured, emptyList(), 0L)) }
     }
 
     fun clearRange() = _state.update { it.copy(range = RangeState.Idle) }

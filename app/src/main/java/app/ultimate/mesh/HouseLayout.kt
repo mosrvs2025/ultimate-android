@@ -178,3 +178,26 @@ object HouseLayout {
         return lambda to v
     }
 }
+
+/** The measured distances and device names, as text for keeping between runs. One line per entry, tab-separated. */
+object HouseStore {
+    fun encode(names: Map<String, String>, measured: List<HouseLayout.Measure>): String = buildString {
+        names.forEach { (id, name) -> append("n\t").append(clean(id)).append('\t').append(clean(name)).append('\n') }
+        measured.forEach { m -> append("m\t").append(clean(m.a)).append('\t').append(clean(m.b)).append('\t').append(m.metres).append('\t').append(m.weight).append('\n') }
+    }
+
+    fun decode(text: String): Pair<Map<String, String>, List<HouseLayout.Measure>>? {
+        if (text.isBlank()) return null
+        val names = LinkedHashMap<String, String>(); val measured = ArrayList<HouseLayout.Measure>()
+        for (line in text.lines()) {
+            val p = line.split('\t')
+            when (p.firstOrNull()) {
+                "n" -> if (p.size >= 3) names[p[1]] = p[2]
+                "m" -> if (p.size >= 5) { val m = p[3].toDoubleOrNull(); val w = p[4].toDoubleOrNull(); if (m != null && w != null) measured += HouseLayout.Measure(p[1], p[2], m, w) }
+            }
+        }
+        return names to measured.filter { it.a in names && it.b in names }
+    }
+
+    private fun clean(s: String) = s.replace('\t', ' ').replace('\n', ' ')
+}

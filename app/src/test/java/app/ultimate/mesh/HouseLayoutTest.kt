@@ -79,4 +79,12 @@ class HouseLayoutTest {
         val line = mapOf("A" to HouseLayout.Point(0.0, 0.0), "B" to HouseLayout.Point(1.0, 0.0), "C" to HouseLayout.Point(2.0, 0.0))
         assertNull(HouseLayout.locate(line, mapOf("A" to 1.0, "B" to 1.0, "C" to 1.5))) // mirror image fits equally
     }
+
+    @Test fun theMapIsKeptAndComesBack() {
+        val names = mapOf("a1" to "Galaxy Z Fold6 (this phone)", "b2" to "Flip\twith tab", "c3" to "S21")
+        val ms = listOf(HouseLayout.Measure("a1", "b2", 2.25, 1.0), HouseLayout.Measure("b2", "c3", 1.5, 0.35))
+        val (n2, m2) = HouseStore.decode(HouseStore.encode(names, ms))!!
+        assertEquals(setOf("a1", "b2", "c3"), n2.keys); assertEquals("Flip with tab", n2["b2"]); assertEquals(ms, m2)
+        assertNull(HouseStore.decode(""))
+    }
 }
