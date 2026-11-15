@@ -23,6 +23,8 @@ class LauncherRepo(context: Context) {
     private val app = context.applicationContext
     private val prefs = app.getSharedPreferences("launcher", Context.MODE_PRIVATE)
     private val icons = object : LruCache<String, ImageBitmap>(160) {}
+    /** Learns which apps you open when, from launches made here, to offer them at the right moment. */
+    val habits = LauncherHabits(app)
 
     private val _apps = MutableStateFlow<List<HomeApp>>(emptyList())
     val apps: StateFlow<List<HomeApp>> = _apps
@@ -40,6 +42,16 @@ class LauncherRepo(context: Context) {
             else LauncherMath.defaultFavourites(usage(), phoneDefaults(), list.map { it.pkg }.toSet(), app.packageName)
     }
 
+    /** What is worth offering right now (see [NowSuggest]); read off the main thread. */
+    suspend fun now(): List<Now> = withContext(Dispatchers.IO) {
+        val list = _apps.value
+        val installed = list.map { it.pkg }.toSet()
+        val labels = list.associate { it.pkg to it.label }
+        runCatching { NowSuggest.suggest(NowReader.read(app, installed, habits), labels::get) }.getOrDefault(emptyList())
+    }
+
+    fun act(id: String) = NowReader.act(app, id)
+
     /** For previews and tests: a fixed set of apps instead of the phone's. */
     internal fun seed(apps: List<HomeApp>, favourites: List<String>) { _apps.value = apps; _favourites.value = favourites }
 
@@ -54,7 +66,9 @@ class LauncherRepo(context: Context) {
 
     fun launch(pkg: String): Boolean {
         val i = app.packageManager.getLaunchIntentForPackage(pkg) ?: return false
-        return runCatching { app.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)); true }.getOrDefault(false)
+        val ok = runCatching { app.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)); true }.getOrDefault(false)
+        if (ok) runCatching { habits.record(pkg) }
+        return ok
     }
 
     fun appInfo(pkg: String) { runCatching { app.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$pkg")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }

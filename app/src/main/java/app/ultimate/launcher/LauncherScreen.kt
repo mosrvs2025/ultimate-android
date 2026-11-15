@@ -8,6 +8,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -117,7 +118,6 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     val follow by animateFloatAsState(fingerY, if (motion) spring(0.45f, Spring.StiffnessMediumLow) else spring(1f, 10_000f), label = "follow")
     val inset = with(density) { 22.dp.toPx() }
     val usable = (railHeight - 2 * inset).coerceAtLeast(1f)
-    val pos = LauncherMath.position(follow, inset, usable, letters.size)
     val index = LauncherMath.index(LauncherMath.position(fingerY, inset, usable, letters.size), letters.size)
     val current: Char? = if (dragging) letters.getOrNull(index) else sticky
     LaunchedEffect(index, dragging) { if (dragging) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
@@ -138,6 +138,10 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(start = 28.dp, end = 96.dp, top = 48.dp)) {
             Clock(onOpenUltimate)
             Spacer(Modifier.height(36.dp))
+            // What is worth offering right now: refreshed every half minute and whenever you come home.
+            var nowItems by remember { mutableStateOf<List<Now>>(emptyList()) }
+            LaunchedEffect(homePresses, apps.size) { while (true) { nowItems = repo.now(); delay(30_000) } }
+            if (nowItems.isNotEmpty() && current == null) { NowRow(repo, nowItems); Spacer(Modifier.height(20.dp)) }
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 val favAlpha = (1f - (if (current != null) 1f else 0f)).coerceIn(0f, 1f)
                 Column(Modifier.alpha(favAlpha), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -165,7 +169,6 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
         }
 
         // ---- the liquid letter rail
-        val measurer = rememberTextMeasurer()
         Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight(0.74f).width(110.dp)
             .onGloballyPositioned { val p = it.positionInRoot(); railTop = p.y; railLeft = p.x; railHeight = it.size.height.toFloat() }
             .semantics { contentDescription = "Letter rail: slide to find an app" }
@@ -195,42 +198,91 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
                     if (open != null) repo.launch(open) else sticky = letter
                 }
             }) {
-            val spineX = with(density) { 92.dp.toPx() }
-            // The liquid: a spine, a drop under the finger, and two beads joining them, melted together by the gooey effect.
-            Canvas(Modifier.fillMaxSize().gooey(14f)) {
-                if (wave > 0.02f) {
-                    val y = (follow).coerceIn(0f, size.height)
-                    val reach = 64.dp.toPx() * wave
-                    val brush = Brush.verticalGradient(listOf(Liquid.teal, Liquid.violet), y - 120.dp.toPx(), y + 120.dp.toPx())
-                    drawLine(brush, Offset(spineX, (y - 140.dp.toPx() * wave).coerceAtLeast(0f)), Offset(spineX, (y + 140.dp.toPx() * wave).coerceAtMost(size.height)), 6.dp.toPx() * wave)
-                    drawCircle(brush, 10.dp.toPx() * wave, Offset(spineX - reach * 0.35f, y))
-                    drawCircle(brush, 14.dp.toPx() * wave, Offset(spineX - reach * 0.68f, y))
-                    drawCircle(brush, 24.dp.toPx() * wave * pop.value, Offset(spineX - reach, y))
-                }
-            }
-            Canvas(Modifier.fillMaxSize()) {
-                val n = letters.size
-                if (n == 0) return@Canvas
-                for ((i, ch) in letters.withIndex()) {
-                    val y = inset + if (n == 1) 0f else usable * i / (n - 1)
-                    val b = LauncherMath.bulge(i, pos) * wave
-                    val selected = current == ch && dragging
-                    val x = spineX - b * 44.dp.toPx()
-                    val fs = (11f + 9f * b).sp
-                    val style = TextStyle(color = if (selected) Color(0xFF0B0F14) else Color.White.copy(alpha = 0.45f + 0.55f * b), fontSize = fs, fontWeight = if (selected || b > 0.6f) FontWeight.Bold else FontWeight.Medium)
-                    val layout = measurer.measure(ch.toString(), style)
-                    if (selected) {
-                        // The bubble: the letter the finger is on, inside the drop that melted out of the rail.
-                        val bx = spineX - 64.dp.toPx() * wave
-                        val big = measurer.measure(ch.toString(), style.copy(fontSize = 22.sp, color = Color(0xFF0B0F14)))
-                        drawText(big, topLeft = Offset(bx - big.size.width / 2f, follow - big.size.height / 2f))
-                    } else drawText(layout, topLeft = Offset(x - layout.size.width / 2f, y - layout.size.height / 2f))
-                }
-            }
+            RailVisual(letters, follow, wave, pop.value, current, dragging)
         }
 
         // ---- search
         if (searching) SearchSheet(repo, apps, onClose = { searching = false })
+    }
+}
+
+/** The "Now" offers as liquid pods: each says what and why, springs in, and is one tap away. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+internal fun NowRow(repo: LauncherRepo, items: List<Now>, onDone: () -> Unit = {}) {
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        items.forEachIndexed { i, n ->
+            val motion = motionOn()
+            val enter = remember(n) { Animatable(if (motion) 0f else 1f) }
+            LaunchedEffect(n) { if (motion) { delay(70L * i); enter.animateTo(1f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow)) } }
+            var icon by remember(n) { mutableStateOf((n as? Now.App)?.let { repo.icon(it.pkg) }) }
+            LaunchedEffect(n) { if (n is Now.App && icon == null) icon = repo.loadIcon(n.pkg) }
+            Row(Modifier.scale(0.6f + 0.4f * enter.value).alpha(enter.value.coerceIn(0f, 1f)).clip(RoundedCornerShape(22.dp))
+                .background(Brush.linearGradient(listOf(Liquid.teal.copy(alpha = 0.22f), Liquid.violet.copy(alpha = 0.18f))))
+                .androidxBorder()
+                .combinedClickable(onClick = { when (n) { is Now.App -> repo.launch(n.pkg); is Now.Action -> repo.act(n.id) }; onDone() })
+                .padding(start = 8.dp, end = 14.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(28.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Liquid.teal, Liquid.violet))), contentAlignment = Alignment.Center) {
+                    val ic = icon
+                    if (ic != null) Image(ic, null, Modifier.fillMaxSize()) else Text(if (n is Now.Action) "●" else n.label.take(1), color = Color(0xFF0B0F14), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(n.label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                    Text(n.because, color = Liquid.dim, fontSize = 11.sp, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+private fun Modifier.androidxBorder(): Modifier = this.then(Modifier.border(1.dp, Brush.linearGradient(listOf(Liquid.teal.copy(alpha = 0.6f), Liquid.violet.copy(alpha = 0.4f))), RoundedCornerShape(22.dp)))
+
+/**
+ * The rail itself, drawing only: the letters, the wave they make around the finger, and the liquid drop that melts out of the
+ * spine with the current letter in it. [follow] is where the finger is (lagging on a spring), [wave] how strongly the rail is
+ * swollen (0 to 1, springing), [pop] the bubble's bounce. Shared by the home screen and the edge rail over other apps.
+ */
+@Composable
+internal fun RailVisual(letters: List<Char>, follow: Float, wave: Float, pop: Float, current: Char?, dragging: Boolean, modifier: Modifier = Modifier.fillMaxSize()) {
+    val measurer = rememberTextMeasurer()
+    Box(modifier) {
+        // The liquid: a spine, a drop under the finger, and two beads joining them, melted together by the gooey effect.
+        Canvas(Modifier.fillMaxSize().gooey(14f)) {
+            val spineX = size.width - 18.dp.toPx()
+            if (wave > 0.02f) {
+                val y = follow.coerceIn(0f, size.height)
+                val reach = 64.dp.toPx() * wave
+                val brush = Brush.verticalGradient(listOf(Liquid.teal, Liquid.violet), y - 120.dp.toPx(), y + 120.dp.toPx())
+                drawLine(brush, Offset(spineX, (y - 140.dp.toPx() * wave).coerceAtLeast(0f)), Offset(spineX, (y + 140.dp.toPx() * wave).coerceAtMost(size.height)), 6.dp.toPx() * wave)
+                drawCircle(brush, 10.dp.toPx() * wave, Offset(spineX - reach * 0.35f, y))
+                drawCircle(brush, 14.dp.toPx() * wave, Offset(spineX - reach * 0.68f, y))
+                drawCircle(brush, 24.dp.toPx() * wave * pop, Offset(spineX - reach, y))
+            }
+        }
+        Canvas(Modifier.fillMaxSize()) {
+            val n = letters.size
+            if (n == 0) return@Canvas
+            val spineX = size.width - 18.dp.toPx()
+            val inset = 22.dp.toPx(); val usable = (size.height - 2 * inset).coerceAtLeast(1f)
+            val pos = LauncherMath.position(follow, inset, usable, n)
+            for ((i, ch) in letters.withIndex()) {
+                val y = inset + if (n == 1) 0f else usable * i / (n - 1)
+                val b = LauncherMath.bulge(i, pos) * wave
+                val selected = current == ch && dragging
+                val x = spineX - b * 44.dp.toPx()
+                val style = TextStyle(color = if (selected) Color(0xFF0B0F14) else Color.White.copy(alpha = 0.45f + 0.55f * b), fontSize = (11f + 9f * b).sp, fontWeight = if (selected || b > 0.6f) FontWeight.Bold else FontWeight.Medium)
+                if (selected) {
+                    // The bubble: the letter the finger is on, inside the drop that melted out of the rail.
+                    val bx = spineX - 64.dp.toPx() * wave
+                    val big = measurer.measure(ch.toString(), style.copy(fontSize = 22.sp, color = Color(0xFF0B0F14)))
+                    drawText(big, topLeft = Offset(bx - big.size.width / 2f, follow - big.size.height / 2f))
+                } else {
+                    val layout = measurer.measure(ch.toString(), style)
+                    drawText(layout, topLeft = Offset(x - layout.size.width / 2f, y - layout.size.height / 2f))
+                }
+            }
+        }
     }
 }
 
