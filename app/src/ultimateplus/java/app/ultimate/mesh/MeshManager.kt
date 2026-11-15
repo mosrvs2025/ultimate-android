@@ -282,10 +282,12 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
     override fun targets(): List<DeviceFling.Target> {
         val s = _state.value
         if (!s.running) return emptyList()
+        // The device you are standing by (from the device map) comes first, then those this phone can feel nearby.
+        val byYou = s.you?.nearest
         return s.peers.filter { it.id in s.alive }.map { p ->
             val band = s.bleBands[p.id]
-            DeviceFling.Target(p.id, p.name, p.profile.kind.key, band == MeshBleCodec.Band.Touching || band == MeshBleCodec.Band.Near)
-        }
+            DeviceFling.Target(p.id, p.name, p.profile.kind.key, p.id == byYou || band == MeshBleCodec.Band.Touching || band == MeshBleCodec.Band.Near)
+        }.sortedWith(compareByDescending<DeviceFling.Target> { it.id == byYou }.thenByDescending { it.near })
     }
 
     private suspend fun fling(targetId: String, what: String, block: (MeshNode) -> Unit): String? = kotlinx.coroutines.withContext(Dispatchers.IO) {
@@ -497,6 +499,7 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
     }
 
     private var youJob: Job? = null
+    private var lastNearest: String? = null
 
     /** Keeps placing you on the map every few seconds while [on] (the map card is showing and tracking is switched on). */
     fun trackYou(on: Boolean) {
@@ -520,6 +523,13 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
                     parse(p.id, r ?: emptyMap())?.let { heard += it } ?: deaf.add(p.name + if (r?.get("running") == "0") " (Spatial sensing is off)" else "")
                 }
                 val est = WhereAmI.estimate(map, heard)
+                // Rules can react to which device you walk up to ("When I'm near the S21…"): once per change, and only
+                // when the estimate is sure, so standing between two phones does not flicker back and forth.
+                if (est.sure && est.nearest != null && est.nearest != lastNearest) {
+                    lastNearest = est.nearest
+                    val name = if (est.nearest == n.id) Build.MODEL else peerName(est.nearest)
+                    senses()?.publish(Signal("mesh", "you_near", "You're by the $name", mapOf("device" to name)))
+                }
                 _state.update { it.copy(you = est, youNote = if (deaf.isEmpty()) null else "Not hearing your watch: " + deaf.joinToString()) }
                 delay(2_500)
             }
