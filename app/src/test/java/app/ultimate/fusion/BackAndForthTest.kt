@@ -24,6 +24,8 @@ class BackAndForthTest {
             val gpsMinor = spread(gp.map { it[0] }.toDoubleArray(), gp.map { it[1] }.toDoubleArray()).first
             assertTrue("seed $seed: across ${"%.1f".format(minor)} m vs GPS ${"%.1f".format(gpsMinor)} m, along ${"%.1f".format(major)} m",
                 minor <= gpsMinor * 1.25 + 0.5 && minor < 0.62 * major)
+            // The distance: GPS cuts every turn-around short, so it must not drag the total down.
+            assertTrue("seed $seed: distance ${"%.0f".format(r.distance!!.value)} vs ${"%.0f".format(sim.truthMetres)} m", abs(r.distance!!.value - sim.truthMetres) < sim.truthMetres * 0.10)
             // The drawn route's own length follows the steps; it must not be inflated by GPS jitter or shrunk by its corner-cutting.
             assertTrue("seed $seed: route length ${"%.0f".format(p.length)} vs ${"%.0f".format(sim.truthMetres)} m", abs(p.length - sim.truthMetres) < sim.truthMetres * 0.15)
         }

@@ -119,10 +119,24 @@ class GpsSource(trace: Trace, relSigma: Double = 0.04, val anchorLat: Double, va
      * typical accuracy of where they began, GPS reports no movement at all (and so cannot see a very slow walk; the other sensors can).
      */
     override fun length(span: Span): Double? {
+        // A turn-around (walking back the way you came) tighter than GPS's own noise is invisible to it: the smoothed track
+        // cuts the corner and the distance comes out short, a few metres per turn. Over a stretch whose direction flips like
+        // that, GPS stays out and the other sensors measure it.
+        if (reverses(span)) return null
         val raw = super.length(span) ?: return null
         if (span.length > 20.0) return raw
         val a = position(span.from) ?: return raw; val b = position(span.to) ?: return raw
         return if (hypot(b[0] - a[0], b[1] - a[1]) < 1.2 * sm.medianAcc) 0.0 else raw
+    }
+
+    /** Whether GPS's direction of travel flips by more than 120° across [span] (looking 6 s either side). */
+    fun reverses(span: Span): Boolean {
+        val a = position(span.from - 6.0) ?: return false; val d = position(span.to + 6.0) ?: return false
+        val m = position((span.from + span.to) / 2) ?: return false
+        val v1 = doubleArrayOf(m[0] - a[0], m[1] - a[1]); val v2 = doubleArrayOf(d[0] - m[0], d[1] - m[1])
+        val l1 = hypot(v1[0], v1[1]); val l2 = hypot(v2[0], v2[1])
+        if (l1 < 1.5 || l2 < 1.5) return false
+        return (v1[0] * v2[0] + v1[1] * v2[1]) / (l1 * l2) < -0.5
     }
 
     /** Metres east/north of the first accepted fix → latitude/longitude. */
@@ -200,8 +214,8 @@ class GpsSource(trace: Trace, relSigma: Double = 0.04, val anchorLat: Double, va
 }
 
 /** Inertial steps, as a distance source. Blind where the phone moved without a steady gait (so a bicycle or a fidgeting hand is not read as standing still). */
-class PdrSource(val result: Pdr.Result, private val dur: Double) :
-    PolylineSource("inertial steps", Basis.Derived, result.stride.relSigma, 1.0, times(result), result.east, result.north, blindSpans(result, dur), 9.0) {
+class PdrSource(val result: Pdr.Result, private val dur: Double, private val scale: Double = 1.0, relSigma: Double = result.stride.relSigma) :
+    PolylineSource("inertial steps", Basis.Derived, relSigma, 1.0, times(result), scaled(result.east, scale), scaled(result.north, scale), blindSpans(result, dur), 9.0) {
     init { countJumps() }
     /** Steps carry their lengths exactly, so distance over a span is their sum, not a straight-line chord. */
     override fun length(span: Span): Double? {
@@ -209,11 +223,12 @@ class PdrSource(val result: Pdr.Result, private val dur: Double) :
         if (result.steps.isEmpty() || span.from < -1e-9 || span.to > dur + 1e-9) return null
         var s = 0.0
         for (st in result.steps) if (st.t > span.from && st.t <= span.to) s += st.length
-        return s
+        return s * scale
     }
     override val usable: Boolean get() = result.steps.size >= 8
     companion object {
         private fun times(r: Pdr.Result) = DoubleArray(r.steps.size) { r.steps[it].t }
+        private fun scaled(a: DoubleArray, k: Double) = if (k == 1.0) a else DoubleArray(a.size) { a[it] * k }
         private fun blindSpans(r: Pdr.Result, dur: Double): List<Span> {
             val out = ArrayList<Span>()
             for (w in r.windows) if (w.gait == Gait.Other) { val l = out.lastOrNull(); if (l != null && w.span.from <= l.to + 1e-9) out[out.size - 1] = Span(l.from, w.span.to) else out += w.span }
