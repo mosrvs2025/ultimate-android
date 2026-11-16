@@ -24,11 +24,14 @@ class MeshTest {
     }
 
     @Test fun framesRoundTripAndRefuseTamperingStaleAndWrongKeys() {
-        val f = MeshWire.Frame(MeshWire.Type.TASK, "abc", 1, 1_000_000, mapOf("n" to "10", "odd" to "a=b&c|d"))
+        // Long, distinctive markers: a short string like "abc" turns up by chance in random-looking sealed text about once in a thousand
+        // runs, which made this check fail now and then without anything being wrong.
+        val id = "request-marker-5e1d9a"; val key2 = "odd-marker-b27f3c"
+        val f = MeshWire.Frame(MeshWire.Type.TASK, id, 1, 1_000_000, mapOf("n" to "10", key2 to "a=b&c|d"))
         val line = MeshWire.encode(f, key)
         assertEquals(f, MeshWire.decode(line, key, now = 1_000_000))
         // Sealed: nothing about the frame is readable on the wire, and two sealings of the same frame differ.
-        assertFalse(line.contains("TASK")); assertFalse(line.contains("abc")); assertFalse(line.contains("odd"))
+        assertFalse(line.contains("|TASK|")); assertFalse(line.contains(id)); assertFalse(line.contains(key2)); assertFalse(line.contains("marker"))
         assertNotEquals(line, MeshWire.encode(f, key))
         // Any changed character anywhere is refused.
         for (i in listOf(5, line.length / 2, line.length - 2)) {
