@@ -74,4 +74,14 @@ class RtcSignalTest {
         assertTrue(send(calls, "d", "s", sdp(300)) != null)                            // so there is room again
         assertNull(calls.offerPiece("e", RtcSignal.piece("s", RtcSignal.split(sdp(20_000)), 0)))   // a first piece of several is not yet an offer
     }
+
+    @Test fun `a connected call is not dropped as idle, only an unfinished one`() {
+        var now = 0L; val calls = RtcSignal.Calls { now }
+        send(calls, "up", "s", sdp(300)); calls.answered("up", sdp(300))            // connected: nothing more is said over the mesh
+        send(calls, "stuck", "s", sdp(300))                                         // never answered
+        now += RtcSignal.IDLE_MS * 3
+        assertEquals(emptyList<String>(), calls.expired().filter { it == "up" })
+        assertEquals(setOf("up"), calls.active())                                   // the stuck one is forgotten, the connected one stays
+        assertTrue(calls.bye("up"))
+    }
 }
