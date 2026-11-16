@@ -69,7 +69,9 @@ class LauncherFixesShotsTest {
         show(listOf("Alpha", "Zed") + (1..24).map { "Mapper %02d".format(it) })
         val rail = compose.onNodeWithContentDescription("Letter rail: slide to find an app")
         // Letters are A, M, Z: M is the middle one. Put a thumb there and let go.
-        rail.performTouchInput { down(Offset(width * 0.85f, height * 0.5f)) }
+        rail.performTouchInput { down(Offset(width * 0.85f, height * 0.40f)) }
+        // A thumb is never perfectly still: a few small moves, as the existing rail test does, ending on M.
+        for (i in 1..6) { frames(1); rail.performTouchInput { moveTo(Offset(width * 0.85f, height * (0.40f + 0.10f * i / 6f))) } }
         frames(12)
         rail.performTouchInput { up() }
         frames(40)
@@ -94,6 +96,7 @@ class LauncherFixesShotsTest {
         drag(compose.onRoot(), Offset(300f, 1_900f), Offset(300f, 800f), steps = 10)
         frames(40)
         save("launcher-search-all")
+        compose.mainClock.autoAdvance = true            // scrolling to a node waits for the screen to settle, which a manual clock never lets it do
         compose.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("App 120"))   // well past the old limit of 60
         frames(10)
         compose.onNodeWithText("App 120").assertIsDisplayed()

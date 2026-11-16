@@ -185,7 +185,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
 
         // ---- the letter's apps, springing in level with the finger
         if (current != null && shown.isNotEmpty()) {
-            val topMin = with(density) { 120.dp.toPx() }
+            val topMin = with(density) { 196.dp.toPx() }   // below the clock and the Ultimate line, so a long list never covers them
             // A letter with more apps than fit is cut to the room there is and scrolls (a swipe up or down on it), instead of running off the screen.
             val availH = (railTop + railHeight - topMin).coerceAtLeast(rowPx)
             val panelH = kotlin.math.min(rowPx * shown.size, availH)
