@@ -63,6 +63,11 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -90,8 +95,12 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Unit, autoLoad: Boolean = true) {
-    val apps by repo.apps.collectAsState()
+    val allApps by repo.apps.collectAsState()
+    val settings by repo.settings.collectAsState()
     val favs by repo.favourites.collectAsState()
+    // Apps the owner hid stay out of the rail, the lists and search.
+    val apps = remember(allApps, settings.hidden) { LauncherMath.visible(allApps, settings.hidden) }
+    var settingsOpen by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { if (autoLoad) repo.load() }
     val letters = remember(apps) { LauncherMath.letters(apps) }
     val haptic = LocalHapticFeedback.current
@@ -101,8 +110,9 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     var searching by remember { mutableStateOf(false) }
     var sticky by remember { mutableStateOf<Char?>(null) }
     // Pressing Home while already home closes whatever is open, like every launcher.
-    LaunchedEffect(homePresses) { searching = false; sticky = null }
-    BackHandler(enabled = searching || sticky != null) { searching = false; sticky = null }
+    LaunchedEffect(homePresses) { searching = false; sticky = null; settingsOpen = false }
+    BackHandler(enabled = settingsOpen) { settingsOpen = false }
+    BackHandler(enabled = !settingsOpen && (searching || sticky != null)) { searching = false; sticky = null }
 
     // The rail's drag: where the finger is (in the rail's own coordinates) and whether it is down.
     var dragging by remember { mutableStateOf(false) }
@@ -114,6 +124,8 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     // The panel of apps for the current letter, measured so the finger can slide onto a row.
     var panelTop by remember { mutableFloatStateOf(0f) }
     var hovered by remember { mutableStateOf<String?>(null) }
+    // How many rows of the letter's list are on screen (a long list is cut to fit and scrolls), so only those can be slid onto.
+    var panelRows by remember { mutableIntStateOf(Int.MAX_VALUE) }
 
     // Springs: the wave swells in and out with a bounce, and its centre follows the finger a moment behind, so a quick slide
     // overshoots and wobbles back like jelly. With animations off it simply snaps.
@@ -128,7 +140,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     androidx.compose.runtime.SideEffect { held = if (dragging) index else null }
     val indexNow by androidx.compose.runtime.rememberUpdatedState(index)
     val current: Char? = if (dragging) letters.getOrNull(index) else sticky
-    LaunchedEffect(index, dragging) { if (dragging) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+    LaunchedEffect(index, dragging) { if (dragging && settings.railTicks) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
     val pop = remember { Animatable(1f) }
     LaunchedEffect(current) { if (current != null && motion) { pop.snapTo(0.6f); pop.animateTo(1f, spring(Spring.DampingRatioHighBouncy, Spring.StiffnessMedium)) } }
 
@@ -137,26 +149,33 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     // (a restart in the middle of a drag would drop the finger).
     val lettersNow by androidx.compose.runtime.rememberUpdatedState(letters)
     val appsNow by androidx.compose.runtime.rememberUpdatedState(apps)
+    val stickyNow by androidx.compose.runtime.rememberUpdatedState(sticky)
     val rowPx = with(density) { 56.dp.toPx() }
 
     val flingDrag = remember { FlingDrag() }
-    androidx.compose.runtime.CompositionLocalProvider(LocalFlingDrag provides flingDrag) {
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF070A0F), Color(0xFF0E141C), Color(0xFF0A0E14))))
-        .pointerInput(Unit) { detectVerticalDragGestures { _, dy -> if (dy < -18f && !dragging) searching = true } }) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalFlingDrag provides flingDrag, LocalLauncherTheme provides settings.accent) {
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(settings.backdrop.colors))
+        // Swipe up for search: a real swipe (not the first few pixels of a scroll), and not while a letter's list is open, where
+        // swiping up is how that list is scrolled.
+        .pointerInput(Unit) {
+            var total = 0f
+            detectVerticalDragGestures(onDragStart = { total = 0f }, onDragEnd = { total = 0f }, onDragCancel = { total = 0f }) { _, dy ->
+                if (!dragging && stickyNow == null) { total += dy; if (total < -72.dp.toPx()) { searching = true; total = 0f } }
+            }
+        }) {
 
         // ---- left: clock, favourites, or the letter's apps
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(start = 28.dp, end = 96.dp, top = 48.dp)) {
-            Clock(onOpenUltimate)
+            Clock(onOpenUltimate, settings)
             Spacer(Modifier.height(36.dp))
             // What is worth offering right now: refreshed every half minute and whenever you come home.
             var nowItems by remember { mutableStateOf<List<Now>>(emptyList()) }
             LaunchedEffect(homePresses, apps.size) { while (true) { nowItems = repo.now(); delay(30_000) } }
-            if (nowItems.isNotEmpty() && current == null) { NowRow(repo, nowItems); Spacer(Modifier.height(20.dp)) }
+            if (settings.suggestions && nowItems.isNotEmpty() && current == null) { NowRow(repo, nowItems); Spacer(Modifier.height(20.dp)) }
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 val favAlpha = (1f - (if (current != null) 1f else 0f)).coerceIn(0f, 1f)
                 Column(Modifier.alpha(favAlpha), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    favs.forEachIndexed { i, pkg ->
-                        val a = apps.firstOrNull { it.pkg == pkg } ?: return@forEachIndexed
+                    favs.mapNotNull { pkg -> apps.firstOrNull { it.pkg == pkg } }.take(settings.favouritesShown).forEachIndexed { i, a ->
                         AppRow(repo, a, highlighted = false, delayIndex = i, onOpen = { repo.launch(a.pkg) }, big = true)
                     }
                     if (favs.isEmpty() && apps.isNotEmpty()) Text("Long-press any app to make it a favourite.", color = Liquid.dim, fontSize = 14.sp)
@@ -166,12 +185,16 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
 
         // ---- the letter's apps, springing in level with the finger
         if (current != null && shown.isNotEmpty()) {
-            val panelH = rowPx * shown.size
+            val topMin = with(density) { 196.dp.toPx() }   // below the clock and the Ultimate line, so a long list never covers them
+            // A letter with more apps than fit is cut to the room there is and scrolls (a swipe up or down on it), instead of running off the screen.
+            val availH = (railTop + railHeight - topMin).coerceAtLeast(rowPx)
+            val panelH = kotlin.math.min(rowPx * shown.size, availH)
             val wanted = railTop + (if (dragging) fingerY else railHeight / 2) - panelH / 2
-            val screenH = with(density) { 800.dp.toPx() }
-            val top = wanted.coerceIn(with(density) { 120.dp.toPx() }, (railTop + railHeight - panelH).coerceAtLeast(with(density) { 120.dp.toPx() }).coerceAtMost(screenH))
-            Column(Modifier.offset { IntOffset(with(density) { 28.dp.roundToPx() }, top.roundToInt()) }.width(260.dp)
-                .onGloballyPositioned { panelTop = it.positionInRoot().y }) {
+            val top = wanted.coerceIn(topMin, (railTop + railHeight - panelH).coerceAtLeast(topMin))
+            val scroll = remember(current) { androidx.compose.foundation.ScrollState(0) }
+            Column(Modifier.offset { IntOffset(with(density) { 28.dp.roundToPx() }, top.roundToInt()) }.width(260.dp).height(with(density) { panelH.toDp() })
+                .verticalScroll(scroll)
+                .onGloballyPositioned { panelTop = it.positionInRoot().y; panelRows = (it.size.height / rowPx).toInt().coerceAtLeast(1) }) {
                 shown.forEachIndexed { i, a ->
                     AppRow(repo, a, highlighted = hovered == a.pkg, delayIndex = i, onOpen = { repo.launch(a.pkg); sticky = null }, big = false)
                 }
@@ -199,7 +222,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
                             val l = lettersNow.getOrNull(indexNow)
                             val list = l?.let { LauncherMath.appsFor(appsNow, it) }.orEmpty()
                             val row = ((railTop + fingerY - panelTop) / rowPx).toInt()
-                            list.getOrNull(row)?.pkg
+                            if (row in 0 until panelRows) list.getOrNull(row)?.pkg else null
                         } else null
                     }
                     val open = hovered
@@ -214,8 +237,15 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
         // ---- flinging an app to another device
         FlingLayer(repo, flingDrag)
 
+        // ---- settings: a small gear in the top right
+        if (!searching && !settingsOpen) Box(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 6.dp, end = 8.dp).size(48.dp).clip(CircleShape)
+            .clickable { settingsOpen = true }.semantics { contentDescription = "Launcher settings" }, contentAlignment = Alignment.Center) {
+            androidx.compose.material3.Icon(Icons.Rounded.Settings, null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(24.dp))
+        }
+
         // ---- search
         if (searching) SearchSheet(repo, apps, onClose = { searching = false })
+        if (settingsOpen) LauncherSettingsSheet(repo, allApps, settings, onClose = { settingsOpen = false })
     }
     }
 }
@@ -224,6 +254,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun NowRow(repo: LauncherRepo, items: List<Now>, onDone: () -> Unit = {}) {
+    val th = LocalLauncherTheme.current
     androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items.forEachIndexed { i, n ->
             val motion = motionOn()
@@ -232,11 +263,11 @@ internal fun NowRow(repo: LauncherRepo, items: List<Now>, onDone: () -> Unit = {
             var icon by remember(n) { mutableStateOf((n as? Now.App)?.let { repo.icon(it.pkg) }) }
             LaunchedEffect(n) { if (n is Now.App && icon == null) icon = repo.loadIcon(n.pkg) }
             Row(Modifier.scale(0.6f + 0.4f * enter.value).alpha(enter.value.coerceIn(0f, 1f)).clip(RoundedCornerShape(22.dp))
-                .background(Brush.linearGradient(listOf(Liquid.teal.copy(alpha = 0.22f), Liquid.violet.copy(alpha = 0.18f))))
-                .androidxBorder()
+                .background(Brush.linearGradient(listOf(th.a.copy(alpha = 0.22f), th.b.copy(alpha = 0.18f))))
+                .androidxBorder(th.a, th.b)
                 .combinedClickable(onClick = { when (n) { is Now.App -> repo.launch(n.pkg); is Now.Action -> repo.act(n.id) }; onDone() })
                 .padding(start = 8.dp, end = 14.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(28.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Liquid.teal, Liquid.violet))), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(28.dp).clip(CircleShape).background(Brush.linearGradient(listOf(th.a, th.b))), contentAlignment = Alignment.Center) {
                     val ic = icon
                     if (ic != null) Image(ic, null, Modifier.fillMaxSize()) else Text(if (n is Now.Action) "●" else n.label.take(1), color = Color(0xFF0B0F14), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
@@ -250,7 +281,7 @@ internal fun NowRow(repo: LauncherRepo, items: List<Now>, onDone: () -> Unit = {
     }
 }
 
-private fun Modifier.androidxBorder(): Modifier = this.then(Modifier.border(1.dp, Brush.linearGradient(listOf(Liquid.teal.copy(alpha = 0.6f), Liquid.violet.copy(alpha = 0.4f))), RoundedCornerShape(22.dp)))
+private fun Modifier.androidxBorder(a: Color, b: Color): Modifier = this.then(Modifier.border(1.dp, Brush.linearGradient(listOf(a.copy(alpha = 0.6f), b.copy(alpha = 0.4f))), RoundedCornerShape(22.dp)))
 
 /**
  * The rail itself, drawing only: the letters, the wave they make around the finger, and the liquid drop that melts out of the
@@ -259,6 +290,7 @@ private fun Modifier.androidxBorder(): Modifier = this.then(Modifier.border(1.dp
  */
 @Composable
 internal fun RailVisual(letters: List<Char>, follow: Float, wave: Float, pop: Float, current: Char?, dragging: Boolean, modifier: Modifier = Modifier.fillMaxSize()) {
+    val th = LocalLauncherTheme.current
     val measurer = rememberTextMeasurer()
     Box(modifier) {
         // The liquid: a spine, a drop under the finger, and two beads joining them, melted together by the gooey effect.
@@ -267,7 +299,7 @@ internal fun RailVisual(letters: List<Char>, follow: Float, wave: Float, pop: Fl
             if (wave > 0.02f) {
                 val y = follow.coerceIn(0f, size.height)
                 val reach = 64.dp.toPx() * wave
-                val brush = Brush.verticalGradient(listOf(Liquid.teal, Liquid.violet), y - 120.dp.toPx(), y + 120.dp.toPx())
+                val brush = Brush.verticalGradient(listOf(th.a, th.b), y - 120.dp.toPx(), y + 120.dp.toPx())
                 drawLine(brush, Offset(spineX, (y - 140.dp.toPx() * wave).coerceAtLeast(0f)), Offset(spineX, (y + 140.dp.toPx() * wave).coerceAtMost(size.height)), 6.dp.toPx() * wave)
                 drawCircle(brush, 10.dp.toPx() * wave, Offset(spineX - reach * 0.35f, y))
                 drawCircle(brush, 14.dp.toPx() * wave, Offset(spineX - reach * 0.68f, y))
@@ -302,18 +334,20 @@ internal fun RailVisual(letters: List<Char>, follow: Float, wave: Float, pop: Fl
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun Clock(onOpenUltimate: () -> Unit) {
+private fun Clock(onOpenUltimate: () -> Unit, settings: LauncherSettings) {
+    val th = LocalLauncherTheme.current
+    val system24 = android.text.format.DateFormat.is24HourFormat(androidx.compose.ui.platform.LocalContext.current)
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(60_000 - now % 60_000 + 50) } }
     val d = Date(now)
     val day = SimpleDateFormat("EEE", Locale.getDefault()).format(d).uppercase().take(3)
     Row(verticalAlignment = Alignment.Bottom) {
-        Text(day, style = TextStyle(brush = Brush.linearGradient(listOf(Color.White, Liquid.teal, Liquid.violet)), fontSize = 64.sp, fontWeight = FontWeight.Thin, letterSpacing = 10.sp))
+        Text(day, style = TextStyle(brush = Brush.linearGradient(listOf(Color.White, th.a, th.b)), fontSize = 64.sp, fontWeight = FontWeight.Thin, letterSpacing = 10.sp))
     }
-    Text(SimpleDateFormat("HH:mm · d MMMM", Locale.getDefault()).format(d), color = Color.White.copy(alpha = 0.75f), fontSize = 16.sp, letterSpacing = 1.sp)
+    Text(LauncherMath.clockLine(now, settings.clock, settings.showDate, system24), color = Color.White.copy(alpha = 0.75f), fontSize = 16.sp, letterSpacing = 1.sp)
     // A quiet way into Ultimate itself.
     Row(Modifier.padding(top = 10.dp).clip(RoundedCornerShape(14.dp)).combinedClickable(onClick = onOpenUltimate).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(10.dp).background(Brush.linearGradient(listOf(Liquid.teal, Liquid.violet)), CircleShape))
+        Box(Modifier.size(10.dp).background(Brush.linearGradient(listOf(th.a, th.b)), CircleShape))
         Spacer(Modifier.width(8.dp))
         Text("Ultimate", color = Liquid.dim, fontSize = 13.sp)
     }
@@ -322,6 +356,7 @@ private fun Clock(onOpenUltimate: () -> Unit) {
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun AppRow(repo: LauncherRepo, a: HomeApp, highlighted: Boolean, delayIndex: Int, onOpen: () -> Unit, big: Boolean) {
+    val th = LocalLauncherTheme.current
     var icon by remember(a.pkg) { mutableStateOf(repo.icon(a.pkg)) }
     LaunchedEffect(a.pkg) { if (icon == null) icon = repo.loadIcon(a.pkg) }
     val motion = motionOn()
@@ -336,7 +371,8 @@ internal fun AppRow(repo: LauncherRepo, a: HomeApp, highlighted: Boolean, delayI
     val haptic = LocalHapticFeedback.current
     var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     val openNow by androidx.compose.runtime.rememberUpdatedState(onOpen)
-    // Tap opens; a long-press that stays put opens the menu; a long-press that pulls away carries the app to another device.
+    // Tap opens. Holding opens the menu (favourite, app info, send to a device) straight away. If the finger then pulls away without
+    // letting go, the menu gives way and the app is carried to another device instead; letting go in place leaves the menu open.
     val gesture = if (fling == null) Modifier.combinedClickable(onClick = onOpen, onLongClick = { menu = true })
         else Modifier.onGloballyPositioned { origin = it.positionInRoot() }.pointerInput(a.pkg) {
             awaitEachGesture {
@@ -346,15 +382,18 @@ internal fun AppRow(repo: LauncherRepo, a: HomeApp, highlighted: Boolean, delayI
                 if (!timedOut) { if (up != null) { up.consume(); openNow() }; return@awaitEachGesture }
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 down.consume()
-                if (!fling.start(a, origin + down.position)) { menu = true; return@awaitEachGesture }
-                var moved = 0f
+                menu = true
+                var moved = 0f; var carrying = false
                 while (true) {
                     val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
                     if (!c.pressed) { c.consume(); break }
                     val d = c.position - c.previousPosition
-                    moved += d.getDistance(); fling.pos += d; c.consume()
+                    moved += d.getDistance()
+                    // Pulled well away from where it was held: carry it, if there is somewhere to carry it to (else the menu stays).
+                    if (!carrying && moved > viewConfiguration.touchSlop * 3 && fling.start(a, origin + c.position)) { carrying = true; menu = false }
+                    if (carrying) { fling.pos += d; c.consume() }
                 }
-                if (moved < viewConfiguration.touchSlop * 2) { fling.cancel(); menu = true; return@awaitEachGesture }
+                if (!carrying) return@awaitEachGesture
                 val hit = fling.release() ?: return@awaitEachGesture
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 scope.launch { val err = DeviceFling.provider?.app(hit.second.id, hit.first.pkg, hit.first.label)
@@ -365,7 +404,7 @@ internal fun AppRow(repo: LauncherRepo, a: HomeApp, highlighted: Boolean, delayI
         Row(Modifier.fillMaxWidth().height(if (big) 52.dp else 56.dp)
             .offset { IntOffset(((1f - enter.value) * 120).roundToInt(), 0) }.alpha(enter.value.coerceIn(0f, 1f)).scale(lift)
             .clip(RoundedCornerShape(16.dp))
-            .background(if (highlighted) Brush.horizontalGradient(listOf(Liquid.teal.copy(alpha = 0.35f), Liquid.violet.copy(alpha = 0.18f))) else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent)))
+            .background(if (highlighted) Brush.horizontalGradient(listOf(th.a.copy(alpha = 0.35f), th.b.copy(alpha = 0.18f))) else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent)))
             .then(gesture).padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(if (big) 30.dp else 34.dp)) { icon?.let { Image(it, null, Modifier.fillMaxSize()) } }
@@ -394,7 +433,7 @@ private fun SearchSheet(repo: LauncherRepo, apps: List<HomeApp>, onClose: () -> 
         .offset { IntOffset(0, ((1f - enter.value) * 400).roundToInt()) }.padding(horizontal = 20.dp)) {
         // Results above, the box at the bottom where the thumb already is; the closest match sits right above the box.
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), reverseLayout = true) {
-            items(results.take(60), key = { it.pkg }) { a -> AppRow(repo, a, highlighted = a == results.firstOrNull() && q.isNotBlank(), delayIndex = 0, onOpen = { repo.launch(a.pkg); onClose() }, big = false) }
+            items(results, key = { it.pkg }) { a -> AppRow(repo, a, highlighted = a == results.firstOrNull() && q.isNotBlank(), delayIndex = 0, onOpen = { repo.launch(a.pkg); onClose() }, big = false) }
         }
         LiquidInput(q, { q = it }, "Search apps", { results.firstOrNull()?.let { repo.launch(it.pkg); onClose() } }, Modifier.padding(vertical = 12.dp), sendLabel = "Open")
     }

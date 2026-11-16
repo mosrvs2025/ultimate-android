@@ -39,5 +39,5 @@ class MovementService : Service() {
         return START_NOT_STICKY
     }
 
-    companion object { private const val CHANNEL = "movement"; private const val ACTION_STOP = "app.ultimate.movement.STOP"; const val ACTION_START = "app.ultimate.movement.START" }
+    companion object { private const val CHANNEL = "movement"; const val ACTION_STOP = "app.ultimate.movement.STOP"; const val ACTION_START = "app.ultimate.movement.START" }
 }

@@ -28,6 +28,19 @@ class LauncherRepo(context: Context) {
 
     private val _apps = MutableStateFlow<List<HomeApp>>(emptyList())
     val apps: StateFlow<List<HomeApp>> = _apps
+    private fun readSettings() = SettingsCodec.decode(prefs.getString("accent", null), prefs.getString("backdrop", null), prefs.getString("clock", null),
+        prefs.getBoolean("showDate", true), prefs.getBoolean("railTicks", true), prefs.getInt("favsShown", 5), prefs.getBoolean("suggestions", true), prefs.getString("hidden", null))
+    private val _settings = MutableStateFlow(readSettings())
+    /** The owner's choices about how the launcher looks and behaves. */
+    val settings: StateFlow<LauncherSettings> = _settings
+    fun update(change: (LauncherSettings) -> LauncherSettings) {
+        val s = change(_settings.value).clamped(); _settings.value = s
+        prefs.edit().putString("accent", s.accent.name).putString("backdrop", s.backdrop.name).putString("clock", s.clock.name).putBoolean("showDate", s.showDate)
+            .putBoolean("railTicks", s.railTicks).putInt("favsShown", s.favouritesShown).putBoolean("suggestions", s.suggestions).putString("hidden", SettingsCodec.encodeHidden(s.hidden)).apply()
+    }
+    /** Starts the favourites over from what the phone would suggest. */
+    suspend fun resetFavourites() { prefs.edit().remove("favs").apply(); load() }
+
     private val _favourites = MutableStateFlow<List<String>>(emptyList())
     val favourites: StateFlow<List<String>> = _favourites
 

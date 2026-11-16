@@ -102,8 +102,42 @@ object Events {
                 out[out.size - 1] = GaitSegment(Span(l.span.from, w.span.to), l.gait, listOfNotNull(l.cadenceHz, w.cadenceHz).average().takeIf { !it.isNaN() }, min(l.confidence, w.confidence))
             } else out += GaitSegment(w.span, w.gait, w.cadenceHz, w.confidence)
         }
-        return out
+        return smooth(out)
     }
+
+    /**
+     * The phone's step detector says "moving, not a steady gait" for the few seconds around every turn, and a quick swing of the
+     * phone can read as a few seconds of running. Left alone, a back-and-forth walk is reported as a hundred short pieces. A short
+     * unsteady stretch between two stretches of the same gait is part of that gait, and running has to last [MIN_RUN_S] to count.
+     * Only the report's wording changes; distances are not worked out from these labels.
+     */
+    fun smooth(segments: List<GaitSegment>, bridgeS: Double = 10.0): List<GaitSegment> {
+        var cur = segments
+        repeat(4) {
+            val next = ArrayList<GaitSegment>()
+            for ((i, g) in cur.withIndex()) {
+                val before = cur.getOrNull(i - 1); val after = cur.getOrNull(i + 1)
+                val len = g.span.to - g.span.from
+                val relabel = when {
+                    before != null && after != null && before.gait == after.gait && before.gait != g.gait &&
+                        ((g.gait == Gait.Other && len <= bridgeS) || (g.gait == Gait.Running && len < MIN_RUN_S)) -> before.gait
+                    g.gait == Gait.Running && len < MIN_RUN_S && before != null && before.gait == Gait.Walking -> Gait.Walking
+                    else -> null
+                }
+                val seg = if (relabel != null) GaitSegment(g.span, relabel, g.cadenceHz, g.confidence) else g
+                val last = next.lastOrNull()
+                if (last != null && last.gait == seg.gait && seg.span.from <= last.span.to + 1e-9)
+                    next[next.size - 1] = GaitSegment(Span(last.span.from, seg.span.to), last.gait, listOfNotNull(last.cadenceHz, seg.cadenceHz).average().takeIf { !it.isNaN() }, min(last.confidence, seg.confidence))
+                else next += seg
+            }
+            if (next.size == cur.size) return next
+            cur = next
+        }
+        return cur
+    }
+
+    /** Running that lasts less than this is not reported as running. */
+    const val MIN_RUN_S = 12.0
 
     /** Spread of lap lengths, as a fraction: how steady the person's route was. */
     fun lapConsistency(laps: List<Lap>): Double? {

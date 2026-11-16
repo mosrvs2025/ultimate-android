@@ -39,6 +39,18 @@ object LauncherMath {
         return ((y - top) / step).coerceIn(0f, (count - 1).toFloat())
     }
 
+    /** Apps the owner hasn't hidden. */
+    fun visible(apps: List<HomeApp>, hidden: Set<String>): List<HomeApp> = if (hidden.isEmpty()) apps else apps.filter { it.pkg !in hidden }
+
+    /** "21:05 · 16 November" or "9:05 PM · 16 November": the time in the chosen style, with the date if asked. [system24] is the phone's own preference. */
+    fun clockLine(nowMs: Long, style: ClockStyle, showDate: Boolean, system24: Boolean, locale: java.util.Locale = java.util.Locale.getDefault(), tz: java.util.TimeZone = java.util.TimeZone.getDefault()): String {
+        val h24 = when (style) { ClockStyle.H24 -> true; ClockStyle.H12 -> false; ClockStyle.System -> system24 }
+        val f = java.text.SimpleDateFormat(if (h24) "HH:mm" else "h:mm a", locale).apply { timeZone = tz }
+        val time = f.format(java.util.Date(nowMs))
+        if (!showDate) return time
+        return time + " · " + java.text.SimpleDateFormat("d MMMM", locale).apply { timeZone = tz }.format(java.util.Date(nowMs))
+    }
+
     fun index(position: Float, count: Int): Int = position.roundToInt().coerceIn(0, (count - 1).coerceAtLeast(0))
 
     /**

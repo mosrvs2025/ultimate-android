@@ -110,6 +110,8 @@ class SendServer(private val context: Context) {
     @Volatile var lastVisit = 0L
         private set
     @Volatile private var cameraFrame: ByteArray? = null
+    /** Every device currently sharing a camera or screen to this phone, newest picture each (see the cameras page). */
+    val cams = CamRegistry()
     private val clients = java.util.concurrent.ConcurrentHashMap.newKeySet<Socket>()
     val micStream = CompanionMic()
     /** Live microphone to the computer; the phone asks for the permission before calling this. */
@@ -270,6 +272,19 @@ class SendServer(private val context: Context) {
                 client.soTimeout = 0
                 micStream.listen(out)
                 try { while (_state.value.running && _state.value.mic && !client.isClosed) Thread.sleep(250) } finally { micStream.unlisten(out) }
+            }
+            // The cameras dashboard: a page showing every camera shared to this phone (and this phone's own), and the lists and pictures it reads.
+            req.method == "GET" && (rest == "/cameras" || rest == "/cameras/") -> respond(out, 200, "text/html; charset=utf-8", context.assets.open("cameras.html").use { it.readBytes() })
+            req.method == "GET" && rest == "/cams" -> {
+                val now = System.currentTimeMillis(); val arr = org.json.JSONArray()
+                if (_state.value.camera && cameraFrame != null) arr.put(org.json.JSONObject().put("id", "self").put("name", "This phone (" + android.os.Build.MODEL + ")").put("age", 0))
+                cams.list().forEach { arr.put(org.json.JSONObject().put("id", it.id).put("name", it.name).put("age", now - it.at)) }
+                respond(out, 200, "application/json; charset=utf-8", org.json.JSONObject().put("cams", arr).toString().toByteArray())
+            }
+            req.method == "GET" && rest.startsWith("/cam/") && rest.endsWith(".jpg") -> {
+                val id = CamRegistry.cleanId(rest.removePrefix("/cam/").removeSuffix(".jpg"))
+                val jpeg = if (id == "self") cameraFrame else cams.get(id)?.frame
+                if (jpeg == null) respond(out, 404, "text/plain", "No picture".toByteArray()) else respond(out, 200, "image/jpeg", jpeg)
             }
             req.method == "GET" && rest == "/camera" -> {
                 if (!_state.value.camera) return respond(out, 409, "text/plain", "Enable camera on the phone first".toByteArray())

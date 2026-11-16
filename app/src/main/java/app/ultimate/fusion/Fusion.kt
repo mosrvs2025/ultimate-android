@@ -116,12 +116,28 @@ object Fusion {
         // The partial last epoch is not counted anywhere (it is shorter than a window).
         val tail = max(0.0, durationS - epochs.size * EPOCH_S)
 
-        // Total uncertainty: independent sensors combine; a contradiction we could not resolve widens it.
+        // Total uncertainty. Each sensor is responsible for the stretch of the total it measured, and its error on that stretch is
+        // systematic (a wrong stride is wrong for every step), so it grows with that stretch's length and does not average away.
+        // Combining the sensors' totals as if each had measured the whole walk (what this did before) let a precise sensor that saw
+        // only part of the walk vouch for the rest: GPS seeing half the time reported "± 24 m" over steps that were good to ± 20%.
+        // A contradiction we could not resolve widens it further.
         val fusedSigma: Double? = run {
             if (trusted.isEmpty()) return@run null
-            var inv = 0.0
-            for (s in trusted) { val d = sumOver(s, epochs, live.indexOf(s), per); val sg = sigmaOf(s, d).coerceAtLeast(0.3); inv += 1 / (sg * sg) }
-            var sg = sqrt(1 / inv)
+            val share = HashMap<String, Double>()
+            for ((k, _) in epochs.withIndex()) {
+                val m = out[k].metres ?: continue
+                val w = HashMap<String, Double>(); var den = 0.0
+                for ((i, s) in live.withIndex()) {
+                    if (s.name in excluded) continue
+                    val d = per[i][k] ?: continue
+                    val sg = sqrt((s.relSigma * d) * (s.relSigma * d) + (s.absSigma * 0.3) * (s.absSigma * 0.3) + 1e-4)
+                    w[s.name] = 1 / (sg * sg); den += 1 / (sg * sg)
+                }
+                for ((n, x) in w) share[n] = (share[n] ?: 0.0) + m * x / den
+            }
+            var v = 0.0
+            for (s in trusted) { val d = share[s.name] ?: continue; v += (s.relSigma * d) * (s.relSigma * d) + s.absSigma * s.absSigma }
+            var sg = sqrt(v).coerceAtLeast(0.3)
             val unresolved = bad.filter { live[it.i].name !in excluded && live[it.j].name !in excluded }
             if (unresolved.isNotEmpty()) sg = sqrt(sg * sg + unresolved.maxOf { (abs(it.di - it.dj) / 2).let { x -> x * x } })
             sg

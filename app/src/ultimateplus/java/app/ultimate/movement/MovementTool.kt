@@ -2,6 +2,7 @@ package app.ultimate.movement
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -257,6 +258,7 @@ class MovementTool(private val host: UltimateApp) : Tool {
                     r?.fusion?.contradictions?.firstOrNull()?.let { Text(it.text, color = WorldColors.amber, fontSize = 12.sp) }
                     Text("Numbers here are live and rough; the review after you stop uses everything recorded.", color = WorldColors.dim, fontSize = 12.sp)
                 }
+                WatchMeCard()
             }
             androidx.compose.animation.AnimatedVisibility(bigClockGone, Modifier.align(Alignment.TopCenter), enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { -it }, exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically { -it }) {
                 Row(Modifier.fillMaxWidth().background(Liquid.bg.copy(alpha = 0.94f)).padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -266,6 +268,7 @@ class MovementTool(private val host: UltimateApp) : Tool {
                     heart?.let { Text("♥ $it", color = WorldColors.amber, fontSize = 15.sp) }
                 }
             }
+            CameraPip(host.sendServer, Modifier.align(Alignment.TopEnd).padding(top = 64.dp, end = 12.dp))
             // Stop never scrolls away: it is right here however far down the sensors you have looked.
             Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Liquid.bg))).padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -368,6 +371,35 @@ class MovementTool(private val host: UltimateApp) : Tool {
                 }
             }
             else -> Unit
+        }
+    }
+
+    /** Set up another device's camera to watch you walk, shown as a small window on this screen (see [CameraPip]). */
+    @Composable private fun WatchMeCard() {
+        val ctx = LocalContext.current
+        val server = host.sendServer
+        val st by server.state.collectAsState()
+        val shot by server.actions.screen.collectAsState()
+        Card("Watch me with another camera") {
+            Text("Prop up another phone, tablet or laptop where it can see you walk. Its picture appears here in a small window you can drag, so a screen recording of this page captures you and the numbers together. It is only shown, never saved.", color = WorldColors.dim, fontSize = 12.sp, lineHeight = 17.sp)
+            if (!st.running) {
+                LiquidButton("Turn on Send to computer", { androidx.core.content.ContextCompat.startForegroundService(ctx, Intent(ctx, app.ultimate.send.SendService::class.java)) }, Modifier.fillMaxWidth())
+            } else {
+                val link = st.secureAddress?.let { "$it#desk" }
+                Text(if (shot != null) "Showing ${shot!!.from}." else "Waiting for a camera…", color = if (shot != null) WorldColors.green else Color.White, fontSize = 13.sp)
+                if (link != null && shot == null) {
+                    Text("On the other device (same Wi-Fi), open:", color = WorldColors.dim, fontSize = 12.sp)
+                    Text(link.removePrefix("https://"), color = Color.White, fontSize = 14.sp)
+                    Text("Its browser warns once about the certificate: choose Advanced, then Proceed. Then tap Share my camera.", color = WorldColors.dim, fontSize = 12.sp, lineHeight = 17.sp)
+                    Text("Share this link", color = WorldColors.teal, fontSize = 13.sp, modifier = Modifier.clickable {
+                        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link), "Share").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) })
+                } else if (link == null) Text("Starting the secure address…", color = WorldColors.dim, fontSize = 12.sp)
+                st.address?.let { addr ->
+                    Text("Every camera on one page (open on a computer, the Quest or another phone):", color = WorldColors.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                    Text("${addr.removePrefix("http://")}/cameras", color = Color.White, fontSize = 14.sp)
+                    Text("Open it", color = WorldColors.teal, fontSize = 13.sp, modifier = Modifier.clickable { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("$addr/cameras")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } })
+                }
+            }
         }
     }
 
