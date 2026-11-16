@@ -37,6 +37,10 @@ main{padding:8px clamp(14px,3vw,32px) 40px}
 @media(hover:none){.tile .acts{opacity:1}}
 .tile .acts button{border:0;background:#000a;padding:6px 12px;border-radius:10px;font-size:13px}
 .tile .lost{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim);background:#000c;font-size:14px}
+.nodes{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:0 clamp(14px,3vw,32px) 10px}
+.nodes .lbl{font-size:13px;color:var(--dim);margin-right:4px}
+.node{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--card);padding:7px 14px;border-radius:99px;font-size:14px}
+.node[aria-pressed=true]{background:var(--teal);color:#06241F;border-color:transparent;font-weight:600}
 .empty{max-width:560px;margin:8vh auto;text-align:center;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:26px}
 .empty h2{margin:0 0 8px;font-size:18px}.empty p{margin:6px 0;color:var(--dim)}.empty code{background:rgba(0,0,0,.35);padding:2px 8px;border-radius:8px;color:var(--tx);word-break:break-all}
 .full{position:fixed;inset:0;z-index:20;background:#000;display:flex;flex-direction:column}
@@ -53,6 +57,7 @@ main{padding:8px clamp(14px,3vw,32px) 40px}
   <div class="seg" role="group" aria-label="Layout" id="layout"></div>
   <span class="pill" id="conn"><i class="dot off"></i><span>Connecting…</span></span>
 </header>
+<div class="nodes" id="nodes" hidden></div>
 <main>
   <div class="grid" id="grid"></div>
   <div class="empty" id="empty" hidden>
@@ -60,6 +65,7 @@ main{padding:8px clamp(14px,3vw,32px) 40px}
     <p>On another phone, tablet or laptop on this Wi-Fi, open this address in its browser, choose <b>Share my camera</b> and allow it:</p>
     <p><code id="addr"></code></p>
     <p>The browser may warn once about the certificate (secure mode): choose Advanced, then Proceed. Or turn on this phone's own camera under Send to computer.</p>
+    <p>Your own devices that share a camera through Octopus Mesh appear above as buttons: tap one to watch it.</p>
   </div>
 </main>
 <div class="full" id="full" hidden><div class="top"><b id="ftitle"></b><button id="fsave" type="button">Save picture</button><button id="fclose" type="button">Close</button></div><img id="fimg" alt=""></div>
@@ -111,6 +117,15 @@ function closeFull(){if(focus)focus.fimg=null;focus=null;$("#full").hidden=true}
 $("#fclose").onclick=closeFull;$("#fsave").onclick=()=>focus&&save(focus);
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeFull()});
 
+// Your own devices sharing a camera through Octopus Mesh: tap one to start or stop watching it.
+function drawNodes(nodes){
+  const box=$("#nodes");box.hidden=nodes.length===0;
+  box.replaceChildren(...(nodes.length?[h("span",{class:"lbl"},"Your devices")]:[]),...nodes.map(n=>h("button",{class:"node",type:"button","aria-pressed":String(!!n.viewing),onclick:async(e)=>{
+    const b=e.currentTarget;b.disabled=true;
+    try{const r=await fetch(base+"/cams/watch?id="+encodeURIComponent(n.id)+"&on="+(n.viewing?0:1),{method:"POST",headers:{"X-Ultimate":"1"}});if(!r.ok)throw 0;n.viewing=!n.viewing;b.setAttribute("aria-pressed",String(n.viewing))}catch(x){b.title="Couldn't reach that device"}
+    b.disabled=false;poll()}},n.viewing?"● ":"",n.name,n.viewing?" · watching":" · Watch camera")));
+}
+
 // The list of cameras, every two seconds: tiles come and go as devices start and stop sharing.
 async function poll(){
   try{
@@ -121,6 +136,7 @@ async function poll(){
     for(const c of j.cams)if(!tiles.has(c.id))addTile(c);
     for(const [id,t] of [...tiles])if(!ids.has(id)){tiles.delete(id);t.el.remove();if(t.url)URL.revokeObjectURL(t.url);if(focus===t)closeFull()}
     for(const c of j.cams){const t=tiles.get(c.id);if(t&&t.name!==c.name){t.name=c.name;t.el.querySelector(".nm").textContent=c.name}}
+    drawNodes(j.nodes||[]);
     $("#empty").hidden=tiles.size>0;
     $("#sub").textContent=tiles.size?tiles.size+" camera"+(tiles.size>1?"s":"")+" live":"Waiting for cameras…";
   }catch(e){conn("lost","Can't reach the phone")}

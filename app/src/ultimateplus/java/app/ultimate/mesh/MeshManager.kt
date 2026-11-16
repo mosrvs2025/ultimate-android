@@ -93,6 +93,8 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
         val stats: MeshNode.Stats? = null,
         val busy: Int = 0,
         val remote: RemoteRecording? = null,
+        /** Devices whose cameras this phone is showing right now (ids). */
+        val viewing: Set<String> = emptySet(),
         val range: RangeState = RangeState.Idle,
         val house: HouseState = HouseState.Idle,
         /** You on the device map, from the watch beacon (null while not tracking); and which devices could not hear it. */
@@ -105,6 +107,12 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    init {
+        // The Cameras page (in a computer's or the Quest's browser) lists these same devices and can start or stop watching them.
+        CamNodes.list = { _state.value.let { s -> s.peers.filter { it.id in s.alive && it.profile.camOn }.map { CamNodes.Node(it.id, it.name, it.id in s.viewing) } } }
+        CamNodes.watch = { id, on -> val known = _state.value.peers.any { it.id == id && it.id in _state.value.alive && it.profile.camOn }
+            if (known && on) viewCamera(id) else if (!on) stopViewingCamera(id); known || !on }
+    }
     private val _state = MutableStateFlow(State(lends = MeshStore(app).lends, accepts = MeshStore(app).accepts))
     val state: StateFlow<State> = _state.asStateFlow()
     val store = MeshStore(app)
@@ -338,6 +346,54 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
     }
 
     private fun peerName(id: String) = node?.peers()?.firstOrNull { it.id == id }?.name ?: id
+
+    // ---- watching another device's camera ----
+
+    private val viewJobs = HashMap<String, Job>()
+    private fun camId(peerId: String) = "mesh-" + peerId.filter { it.isLetterOrDigit() }.take(12)
+
+    /**
+     * Shows the camera of [peerId] (a device whose owner has shared it) on this phone, in the camera window and on the Cameras page.
+     * Pulls the newest picture over and over until stopped; if the device goes quiet for a few tries it stops and says so.
+     */
+    fun viewCamera(peerId: String) {
+        val n = node ?: return
+        if (viewJobs[peerId]?.isActive == true) return
+        val server = (app as? UltimateApp)?.sendServer ?: return
+        val name = peerName(peerId); val id = camId(peerId)
+        _state.update { it.copy(viewing = it.viewing + peerId) }
+        viewJobs[peerId] = scope.launch {
+            val asm = CamFrames.Assembler(); var have = -1; var misses = 0
+            try {
+                while (isActive) {
+                    try {
+                        var part = 0; var seq = -1; var pause = 80L
+                        while (isActive) {
+                            val r = n.command(peerId, Cmd.CAM_FRAME, mapOf("have" to have.toString(), "part" to part.toString(), "seq" to seq.toString()))
+                            misses = 0
+                            when (val st = asm.accept(r)) {
+                                is CamFrames.Step.More -> { part = st.next; seq = st.seq; continue }
+                                is CamFrames.Step.Done -> { server.camPut(id, "$name · camera", st.jpeg); have = st.seq; pause = 60L }
+                                CamFrames.Step.Same -> pause = 150L
+                                CamFrames.Step.None -> pause = 400L
+                                CamFrames.Step.Gone -> pause = 30L
+                            }
+                            delay(pause); break
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e
+                    } catch (e: Exception) {
+                        if (++misses >= 6) { notice("Lost contact with $name's camera (${e.message ?: "no answer"})."); break }
+                        delay(700)
+                    }
+                }
+            } finally {
+                server.camStop(id)
+                _state.update { it.copy(viewing = it.viewing - peerId) }
+            }
+        }
+    }
+
+    fun stopViewingCamera(peerId: String) { viewJobs.remove(peerId)?.cancel() }
 
     // ---- remote recording ----
 

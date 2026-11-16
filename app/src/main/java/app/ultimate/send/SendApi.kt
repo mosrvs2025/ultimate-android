@@ -99,10 +99,10 @@ class SendApi(private val context: Context, private val server: SendServer) {
                 server.actions.frame(buf, label)
                 // Also kept under this device's own id, so a dashboard can show every device that is sharing, not just the newest.
                 val id = CamRegistry.cleanId(req.query["id"], label)
-                server.cams.put(id, label + when (req.query["kind"]) { "screen" -> " · screen"; "camera" -> " · camera"; else -> "" }, buf)
+                server.camPut(id, label + when (req.query["kind"]) { "screen" -> " · screen"; "camera" -> " · camera"; else -> "" }, buf)
                 json(JSONObject().put("ok", true))
             }
-            req.method == "POST" && path == "/screen/stop" -> { server.actions.stopScreen(); req.query["id"]?.let { server.cams.stop(CamRegistry.cleanId(it)) }; json(JSONObject().put("ok", true)) }
+            req.method == "POST" && path == "/screen/stop" -> { server.actions.stopScreen(); req.query["id"]?.let { server.camStop(CamRegistry.cleanId(it)) }; json(JSONObject().put("ok", true)) }
             req.method == "POST" && path == "/open" -> { val url = body(req, input, 4000)?.trim().orEmpty(); if (url.isEmpty()) return deny("empty"); server.actions.openLink(url); app.insights.count("remote.open"); json(JSONObject().put("ok", true)) }
             req.method == "POST" && path == "/ring" -> { server.actions.ring(); app.insights.count("remote.ring"); json(JSONObject().put("ok", true)) }
             req.method == "POST" && path == "/ring/stop" -> { server.actions.stopRing(); json(JSONObject().put("ok", true)) }

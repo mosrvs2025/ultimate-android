@@ -112,6 +112,10 @@ class SendServer(private val context: Context) {
     @Volatile private var cameraFrame: ByteArray? = null
     /** Every device currently sharing a camera or screen to this phone, newest picture each (see the cameras page). */
     val cams = CamRegistry()
+    /** Goes up whenever a camera appears, sends a picture or stops, so the camera window redraws. */
+    val camTick = MutableStateFlow(0)
+    fun camPut(id: String, name: String, jpeg: ByteArray) { cams.put(id, name, jpeg); camTick.value++ }
+    fun camStop(id: String) { cams.stop(id); camTick.value++ }
     private val clients = java.util.concurrent.ConcurrentHashMap.newKeySet<Socket>()
     val micStream = CompanionMic()
     /** Live microphone to the computer; the phone asks for the permission before calling this. */
@@ -279,7 +283,15 @@ class SendServer(private val context: Context) {
                 val now = System.currentTimeMillis(); val arr = org.json.JSONArray()
                 if (_state.value.camera && cameraFrame != null) arr.put(org.json.JSONObject().put("id", "self").put("name", "This phone (" + android.os.Build.MODEL + ")").put("age", 0))
                 cams.list().forEach { arr.put(org.json.JSONObject().put("id", it.id).put("name", it.name).put("age", now - it.at)) }
-                respond(out, 200, "application/json; charset=utf-8", org.json.JSONObject().put("cams", arr).toString().toByteArray())
+                // Your own devices sharing a camera through Octopus Mesh, ready to tap (the mesh may not exist until the tools are built).
+                if (app.ultimate.mesh.CamNodes.list().isEmpty()) runCatching { (context.applicationContext as app.ultimate.UltimateApp).tools }
+                val nodes = org.json.JSONArray().also { a -> app.ultimate.mesh.CamNodes.list().forEach { a.put(org.json.JSONObject().put("id", it.id).put("name", it.name).put("viewing", it.viewing)) } }
+                respond(out, 200, "application/json; charset=utf-8", org.json.JSONObject().put("cams", arr).put("nodes", nodes).toString().toByteArray())
+            }
+            req.method == "POST" && rest == "/cams/watch" -> {
+                if (req.headers["x-ultimate"] != "1") return respond(out, 403, "application/json", "{\"error\":\"Open this from the Cameras page.\"}".toByteArray())
+                val ok = app.ultimate.mesh.CamNodes.watch(req.query["id"].orEmpty(), req.query["on"] == "1")
+                respond(out, if (ok) 200 else 409, "application/json", org.json.JSONObject().put("ok", ok).toString().toByteArray())
             }
             req.method == "GET" && rest.startsWith("/cam/") && rest.endsWith(".jpg") -> {
                 val id = CamRegistry.cleanId(rest.removePrefix("/cam/").removeSuffix(".jpg"))

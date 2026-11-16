@@ -82,6 +82,8 @@ class MeshTool(context: Context) : Tool {
             if (pendingHouse && ok) manager.mapHouse(); pendingHouse = false
         }
         val askAudioForLend = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { manager.setLends(true) }
+        val camShared by CameraNode.armed.collectAsState()
+        val askCameraForShare = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) CameraNode.arm(context) }
         val askBluetooth = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { manager.startBluetooth() }
         val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { manager.start(code) }
         fun hasAudio() = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -119,6 +121,8 @@ class MeshTool(context: Context) : Tool {
                 } else {
                     item { ThisPhone(s, showCode, { showCode = !showCode },
                         onLend = { on -> if (on && !hasAudio()) askAudioForLend.launch(Manifest.permission.RECORD_AUDIO) else manager.setLends(on) },
+                        camShared = camShared,
+                        onCam = { on -> if (!on) CameraNode.disarm(context) else if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) CameraNode.arm(context) else askCameraForShare.launch(Manifest.permission.CAMERA) },
                         onStopRecording = { manager.stopLocalRecording() },
                         onAccept = { manager.setAccepts(it) },
                         onBluetooth = { if (Build.VERSION.SDK_INT >= 31) askBluetooth.launch(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE)) else askBluetooth.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)) }) }
@@ -138,7 +142,8 @@ class MeshTool(context: Context) : Tool {
                         PeerCard(p, p.id in s.alive, s.bleBands[p.id],
                             onRecord = { manager.recordOn(p.id) },
                             onRange = { if (hasAudio()) manager.measureDistance(p.id) else { pendingRange = p.id; askAudioForRange.launch(Manifest.permission.RECORD_AUDIO) } },
-                            onPing = { manager.ping(p.id) })
+                            onPing = { manager.ping(p.id) },
+                            watching = p.id in s.viewing, onWatch = { if (p.id in s.viewing) manager.stopViewingCamera(p.id) else manager.viewCamera(p.id) })
                     }
                     if (s.strangersNearby.isNotEmpty()) item {
                         Text("${s.strangersNearby.size} device(s) with your code are nearby over Bluetooth (${s.strangersNearby.first().label}) but not reachable over Wi-Fi. Put both phones on the same Wi-Fi, or turn on a hotspot on one and join it from the other.",
@@ -179,7 +184,7 @@ class MeshTool(context: Context) : Tool {
         }
     }
 
-    @Composable private fun ThisPhone(s: MeshManager.State, showCode: Boolean, onToggleCode: () -> Unit, onLend: (Boolean) -> Unit, onStopRecording: () -> Unit, onBluetooth: () -> Unit, onAccept: (Boolean) -> Unit = {}) {
+    @Composable private fun ThisPhone(s: MeshManager.State, showCode: Boolean, onToggleCode: () -> Unit, onLend: (Boolean) -> Unit, onStopRecording: () -> Unit, onBluetooth: () -> Unit, onAccept: (Boolean) -> Unit = {}, camShared: Boolean = false, onCam: (Boolean) -> Unit = {}) {
         Column(Modifier.fillMaxWidth().padding(16.dp, 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("This phone: ${s.selfName}", style = MaterialTheme.typography.titleSmall)
             Text(s.profile.describe(), style = MaterialTheme.typography.bodySmall)
@@ -190,6 +195,14 @@ class MeshTool(context: Context) : Tool {
                         style = MaterialTheme.typography.labelSmall)
                 }
                 Switch(s.lends, onLend)
+            }
+            if (Cap.Camera in s.profile.caps) Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Let my other devices see through this camera", style = MaterialTheme.typography.bodyMedium)
+                    Text(if (!s.lends) "Turn on \"Lend this phone\" first. Then your paired devices can tap Watch camera on this phone from their Octopus Mesh screen or the recording screen. A notification stays up the whole time, says who is watching, and has Stop on it. It does not turn itself on again after a restart."
+                        else "On: your paired devices can look through the back camera now. Switch off, or tap Stop in the notification, to end it.", style = MaterialTheme.typography.labelSmall)
+                }
+                Switch(camShared, onCam, enabled = s.lends)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -227,7 +240,7 @@ class MeshTool(context: Context) : Tool {
         if (text.isNotEmpty()) Text(text, Modifier.padding(16.dp, 4.dp), style = MaterialTheme.typography.bodySmall)
     }
 
-    @Composable private fun PeerCard(p: MeshNode.Peer, alive: Boolean, band: MeshBleCodec.Band?, onRecord: () -> Unit, onRange: () -> Unit, onPing: () -> Unit) {
+    @Composable private fun PeerCard(p: MeshNode.Peer, alive: Boolean, band: MeshBleCodec.Band?, onRecord: () -> Unit, onRange: () -> Unit, onPing: () -> Unit, watching: Boolean = false, onWatch: () -> Unit = {}) {
         Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -238,10 +251,12 @@ class MeshTool(context: Context) : Tool {
                 }
                 Text(p.profile.describe(), style = MaterialTheme.typography.bodySmall)
                 band?.let { Text("Bluetooth: ${it.label} (estimate from signal strength)", style = MaterialTheme.typography.labelSmall) }
+                if (alive && p.profile.lends && Cap.Camera in p.profile.caps && !p.profile.camOn) Text("Its camera isn't shared. On that device, turn on \"Let my other devices see through this camera\" to watch it from here.", style = MaterialTheme.typography.labelSmall)
                 if (alive && !p.profile.lends) Text("Not lending its sensors. On that phone, turn on \"Lend this phone to my other devices\".", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (alive && p.profile.canRecordMotion) FilledTonalButton(onRecord) { Text("Record motion") }
                     if (alive && p.profile.canRange) FilledTonalButton(onRange) { Text("Distance") }
+                    if (alive && p.profile.camOn) FilledTonalButton(onWatch) { Text(if (watching) "Stop watching" else "Watch camera") }
                     if (alive) TextButton(onPing) { Text("Find") }
                 }
             }
