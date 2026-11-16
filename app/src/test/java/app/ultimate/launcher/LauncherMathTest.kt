@@ -68,3 +68,39 @@ class LauncherMathTest {
         assertTrue("changed $changes times", changes <= 1)
     }
 }
+
+class LauncherSettingsTest {
+    private val utc = java.util.TimeZone.getTimeZone("UTC")
+    private val t = java.time.Instant.parse("2026-11-16T21:05:00Z").toEpochMilli()
+
+    @org.junit.Test fun `the clock follows the chosen style`() {
+        val us = java.util.Locale.US
+        org.junit.Assert.assertEquals("21:05 · 16 November", LauncherMath.clockLine(t, ClockStyle.H24, true, false, us, utc))
+        org.junit.Assert.assertEquals("9:05 PM · 16 November", LauncherMath.clockLine(t, ClockStyle.H12, true, true, us, utc))
+        org.junit.Assert.assertEquals("9:05 PM", LauncherMath.clockLine(t, ClockStyle.System, false, false, us, utc))
+        org.junit.Assert.assertEquals("21:05", LauncherMath.clockLine(t, ClockStyle.System, false, true, us, utc))
+    }
+
+    @org.junit.Test fun `hidden apps are left out and nothing hidden changes nothing`() {
+        val apps = listOf(HomeApp("a", "Alpha"), HomeApp("b", "Beta"), HomeApp("c", "Gamma"))
+        org.junit.Assert.assertEquals(listOf("a", "c"), LauncherMath.visible(apps, setOf("b")).map { it.pkg })
+        org.junit.Assert.assertSame(apps, LauncherMath.visible(apps, emptySet()))
+        org.junit.Assert.assertEquals(listOf("a", "b", "c"), LauncherMath.visible(apps, setOf("zzz")).map { it.pkg })
+    }
+
+    @org.junit.Test fun `settings come back from saved text, forgiving of anything odd`() {
+        val s = SettingsCodec.decode("Sunset", "Black", "H24", false, false, 6, false, "x.y,,b.c")
+        org.junit.Assert.assertEquals(LauncherSettings(Accent.Sunset, Backdrop.Black, ClockStyle.H24, false, false, 6, false, setOf("x.y", "b.c")), s)
+        val odd = SettingsCodec.decode("Neon", null, "weird", true, true, 99, true, null)
+        org.junit.Assert.assertEquals(Accent.Aurora, odd.accent); org.junit.Assert.assertEquals(ClockStyle.System, odd.clock)
+        org.junit.Assert.assertEquals(LauncherSettings.MAX_FAVS, odd.favouritesShown); org.junit.Assert.assertEquals(emptySet<String>(), odd.hidden)
+        org.junit.Assert.assertEquals(LauncherSettings.MIN_FAVS, SettingsCodec.decode(null, null, null, true, true, -3, true, null).favouritesShown)
+        org.junit.Assert.assertEquals("a,b", SettingsCodec.encodeHidden(setOf("b", "a", "", "c,d")))   // blanks and anything with a comma in it are dropped
+    }
+
+    @org.junit.Test fun `the defaults are how the launcher looked before settings`() {
+        val d = LauncherSettings()
+        org.junit.Assert.assertEquals(Accent.Aurora, d.accent); org.junit.Assert.assertEquals(5, d.favouritesShown); org.junit.Assert.assertTrue(d.suggestions && d.railTicks && d.showDate)
+        org.junit.Assert.assertEquals(app.ultimate.core.Liquid.teal, Accent.Aurora.a); org.junit.Assert.assertEquals(app.ultimate.core.Liquid.violet, Accent.Aurora.b)
+    }
+}

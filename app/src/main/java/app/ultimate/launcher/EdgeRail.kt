@@ -198,9 +198,22 @@ internal fun EdgeRailContent(
     repo: LauncherRepo, dragFlow: MutableStateFlow<EdgeDrag>, expandedFlow: MutableStateFlow<Boolean>, hoverFlow: MutableStateFlow<String?>,
     onOpen: (String) -> Unit, onAction: (String) -> Unit, onClose: () -> Unit,
 ) {
+    // The same colours and hidden apps as the home screen.
+    val settings by repo.settings.collectAsState()
+    androidx.compose.runtime.CompositionLocalProvider(LocalLauncherTheme provides settings.accent) {
+        EdgeRailBody(repo, settings, dragFlow, expandedFlow, hoverFlow, onOpen, onAction, onClose)
+    }
+}
+
+@Composable
+private fun EdgeRailBody(
+    repo: LauncherRepo, settings: LauncherSettings, dragFlow: MutableStateFlow<EdgeDrag>, expandedFlow: MutableStateFlow<Boolean>, hoverFlow: MutableStateFlow<String?>,
+    onOpen: (String) -> Unit, onAction: (String) -> Unit, onClose: () -> Unit,
+) {
     val d by dragFlow.collectAsState()
     val open by expandedFlow.collectAsState()
-    val apps by repo.apps.collectAsState()
+    val allApps by repo.apps.collectAsState()
+    val apps = remember(allApps, settings.hidden) { LauncherMath.visible(allApps, settings.hidden) }
     val letters = remember(apps) { LauncherMath.letters(apps) }
     val motion = motionOn()
     val density = LocalDensity.current
@@ -225,7 +238,7 @@ internal fun EdgeRailContent(
     androidx.compose.runtime.SideEffect { held = if (d.down) index else null }
     val current = if (d.down) letters.getOrNull(index) else sticky
     LaunchedEffect(d.down) { if (!d.down) sticky = letters.getOrNull(index) }
-    LaunchedEffect(index, d.down) { if (d.down) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+    LaunchedEffect(index, d.down) { if (d.down && settings.railTicks) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
     val wave by animateFloatAsState(if (d.down) 1f else 0f, if (motion) spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow) else spring(1f, 10_000f), label = "wave")
     val follow by animateFloatAsState(fingerY, if (motion) spring(0.45f, Spring.StiffnessMediumLow) else spring(1f, 10_000f), label = "follow")
     val pop = remember { Animatable(1f) }
@@ -239,7 +252,7 @@ internal fun EdgeRailContent(
     val hovered by hoverFlow.collectAsState()
 
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = scrim)).clickable(remember { MutableInteractionSource() }, null) { onClose() }) {
-        if (nowItems.isNotEmpty()) Column(Modifier.padding(start = 24.dp, end = 120.dp, top = 64.dp)) { NowRow(repo, nowItems) { } }
+        if (settings.suggestions && nowItems.isNotEmpty()) Column(Modifier.padding(start = 24.dp, end = 120.dp, top = 64.dp)) { NowRow(repo, nowItems) { } }
         if (current != null && shown.isNotEmpty()) {
             val panelH = rowPx * shown.size
             val top = ((if (d.down) d.y else railTop + railHeight / 2) - panelH / 2).coerceIn(with(density) { 150.dp.toPx() }, (railTop + railHeight - panelH).coerceAtLeast(with(density) { 150.dp.toPx() }))
@@ -257,10 +270,11 @@ internal fun EdgeRailContent(
 /** The tab on the edge while the rail is put away: a sliver of liquid that breathes slowly so it can be found without being in the way. */
 @Composable
 private fun EdgeTab() {
+    val th = LocalLauncherTheme.current
     val breathe = if (motionOn()) rememberInfiniteTransition(label = "tab").animateFloat(0.55f, 0.9f, infiniteRepeatable(tween(2_600, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "b").value else 0.7f
     Canvas(Modifier.fillMaxSize().gooey(6f)) {
         val w = 5.dp.toPx(); val x = size.width - w - 3.dp.toPx()
-        val brush = Brush.verticalGradient(listOf(Liquid.teal.copy(alpha = breathe), Liquid.violet.copy(alpha = breathe)))
+        val brush = Brush.verticalGradient(listOf(th.a.copy(alpha = breathe), th.b.copy(alpha = breathe)))
         drawRoundRect(brush, Offset(x, size.height * 0.2f), Size(w, size.height * 0.6f), CornerRadius(w))
         drawCircle(brush, w * 1.1f, Offset(x + w / 2, size.height * 0.5f))
     }
