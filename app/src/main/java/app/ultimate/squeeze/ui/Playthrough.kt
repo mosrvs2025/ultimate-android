@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
@@ -163,7 +164,7 @@ fun FilmStrip(book: Flipbook, position: State<Float>, progress: Float, accent: C
             val w = img.width * scale
             val h = img.height * scale
             // Crop each thumbnail to its slot.
-            androidx.compose.ui.graphics.drawscope.clipRect(left, 0f, left + dst.width, size.height) {
+            clipRect(left, 0f, left + dst.width, size.height) {
                 drawImage(
                     img, srcOffset = IntOffset.Zero, srcSize = IntSize(img.width, img.height),
                     dstOffset = IntOffset((left + (dst.width - w) / 2).toInt(), ((size.height - h) / 2).toInt()), dstSize = IntSize(w.toInt(), h.toInt()),
