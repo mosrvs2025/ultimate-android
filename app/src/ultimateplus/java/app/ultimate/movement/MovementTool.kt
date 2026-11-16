@@ -382,6 +382,22 @@ class MovementTool(private val host: UltimateApp) : Tool {
         val shot by server.actions.screen.collectAsState()
         Card("Watch me with another camera") {
             Text("Prop up another phone, tablet or laptop where it can see you walk. Its picture appears here in a small window you can drag, so a screen recording of this page captures you and the numbers together. It is only shown, never saved.", color = WorldColors.dim, fontSize = 12.sp, lineHeight = 17.sp)
+            // Your own devices, through Octopus Mesh: tap one to watch its camera from here.
+            val mesh = remember { app.ultimate.mesh.MeshManager.get(ctx) }
+            val ms by mesh.state.collectAsState()
+            val sharing = ms.peers.filter { it.id in ms.alive && it.profile.camOn }
+            Text("Your devices", color = Color.White, fontSize = 14.sp)
+            if (!ms.running) Text("Octopus Mesh is off. Turn it on (the Octopus Mesh tool) and your other devices appear here, ready to tap.", color = WorldColors.dim, fontSize = 12.sp, lineHeight = 17.sp)
+            else if (sharing.isEmpty()) Text("None of your devices is sharing a camera. On the device that has the camera, open Octopus Mesh and turn on \"Let my other devices see through this camera\".", color = WorldColors.dim, fontSize = 12.sp, lineHeight = 17.sp)
+            sharing.forEach { p ->
+                val on = p.id in ms.viewing
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(p.name, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    Text(if (on) "Stop watching" else "Watch camera", color = if (on) WorldColors.amber else WorldColors.teal, fontSize = 14.sp,
+                        modifier = Modifier.clip(RoundedCornerShape(50)).clickable { if (on) mesh.stopViewingCamera(p.id) else mesh.viewCamera(p.id) }.padding(horizontal = 12.dp, vertical = 6.dp))
+                }
+            }
+            Text("Or use any other phone, tablet or laptop with a browser:", color = WorldColors.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
             if (!st.running) {
                 LiquidButton("Turn on Send to computer", { androidx.core.content.ContextCompat.startForegroundService(ctx, Intent(ctx, app.ultimate.send.SendService::class.java)) }, Modifier.fillMaxWidth())
             } else {

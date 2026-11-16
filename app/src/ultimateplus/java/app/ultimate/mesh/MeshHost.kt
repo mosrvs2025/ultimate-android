@@ -34,6 +34,11 @@ class MeshHost(context: Context, private val lends: () -> Boolean, private val o
     fun handle(from: MeshNode.Peer, cmd: String, args: Map<String, String>): Map<String, String> {
         if (cmd == Cmd.PING) { notifyPing(from.name); return mapOf("model" to Build.MODEL) }
         if (cmd in Cmd.FLING) return fling.handle(from, cmd, args)
+        if (cmd == Cmd.CAM_FRAME) {
+            if (!lends() || !CameraNode.armed.value) throw IllegalStateException("this device's camera is not shared: turn on \"Let my other devices see through this camera\" in Octopus Mesh there")
+            CameraNode.noteViewer(from.name)
+            return CamFrames.reply(CameraNode.latest.get(), args["have"]?.toIntOrNull() ?: -1, args["part"]?.toIntOrNull() ?: 0, args["seq"]?.toIntOrNull() ?: -1)
+        }
         if (!lends()) throw IllegalStateException("this phone is not lending its sensors: turn on \"Lend this phone\" in Octopus Mesh there")
         return when (cmd) {
             Cmd.REC_START -> {
