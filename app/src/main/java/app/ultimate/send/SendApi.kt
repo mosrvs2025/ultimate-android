@@ -95,10 +95,14 @@ class SendApi(private val context: Context, private val server: SendServer) {
                 val n = req.headers["content-length"]?.toIntOrNull()?.takeIf { it in 1..4_000_000 } ?: return deny("bad frame")
                 val buf = ByteArray(n); var read = 0
                 while (read < n) { val r = input.read(buf, read, n - read); if (r < 0) break; read += r }
-                server.actions.frame(buf, SendHttp.browserLabel(req.headers["user-agent"]))
+                val label = SendHttp.browserLabel(req.headers["user-agent"])
+                server.actions.frame(buf, label)
+                // Also kept under this device's own id, so a dashboard can show every device that is sharing, not just the newest.
+                val id = CamRegistry.cleanId(req.query["id"], label)
+                server.cams.put(id, label + when (req.query["kind"]) { "screen" -> " · screen"; "camera" -> " · camera"; else -> "" }, buf)
                 json(JSONObject().put("ok", true))
             }
-            req.method == "POST" && path == "/screen/stop" -> { server.actions.stopScreen(); json(JSONObject().put("ok", true)) }
+            req.method == "POST" && path == "/screen/stop" -> { server.actions.stopScreen(); req.query["id"]?.let { server.cams.stop(CamRegistry.cleanId(it)) }; json(JSONObject().put("ok", true)) }
             req.method == "POST" && path == "/open" -> { val url = body(req, input, 4000)?.trim().orEmpty(); if (url.isEmpty()) return deny("empty"); server.actions.openLink(url); app.insights.count("remote.open"); json(JSONObject().put("ok", true)) }
             req.method == "POST" && path == "/ring" -> { server.actions.ring(); app.insights.count("remote.ring"); json(JSONObject().put("ok", true)) }
             req.method == "POST" && path == "/ring/stop" -> { server.actions.stopRing(); json(JSONObject().put("ok", true)) }

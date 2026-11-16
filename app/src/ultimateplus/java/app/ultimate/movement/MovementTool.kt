@@ -394,6 +394,11 @@ class MovementTool(private val host: UltimateApp) : Tool {
                     Text("Share this link", color = WorldColors.teal, fontSize = 13.sp, modifier = Modifier.clickable {
                         ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link), "Share").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) })
                 } else if (link == null) Text("Starting the secure address…", color = WorldColors.dim, fontSize = 12.sp)
+                st.address?.let { addr ->
+                    Text("Every camera on one page (open on a computer, the Quest or another phone):", color = WorldColors.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                    Text("${addr.removePrefix("http://")}/cameras", color = Color.White, fontSize = 14.sp)
+                    Text("Open it", color = WorldColors.teal, fontSize = 13.sp, modifier = Modifier.clickable { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("$addr/cameras")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } })
+                }
             }
         }
     }

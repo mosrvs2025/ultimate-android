@@ -123,15 +123,15 @@ setInterval(async()=>{try{const st=await (await fetch(B+'/status',{cache:'no-sto
 const secure=window.isSecureContext;let secureAddr='';
 setInterval(async()=>{try{const st=await (await fetch(B+'/status',{cache:'no-store'})).json();secureAddr=st.secureAddress||'';const l=$('securelink');if(!secure&&secureAddr){l.style.display='';l.href=secureAddr+location.hash}else l.style.display='none'}catch(e){}},3000);
 const needSecure=what=>toast('🔒 '+what+' needs secure mode. Open it, choose Advanced → Proceed once.',secureAddr?[['Open secure mode',()=>{location.href=secureAddr+'#desk'}]]:[]);
-let shareStream=null,shareTimer=null;
+let shareStream=null,shareTimer=null;let camId='';try{camId=localStorage.getItem('camid')||'';if(!camId){camId=Math.random().toString(36).slice(2,8);localStorage.setItem('camid',camId)}}catch(e){camId=Math.random().toString(36).slice(2,8)}
 async function share(kind){if(!secure||!navigator.mediaDevices){needSecure(kind==='screen'?'Sharing your screen':'Sharing your camera');return}
 if(shareStream){stopShare();return}
 try{shareStream=kind==='screen'?await navigator.mediaDevices.getDisplayMedia({video:{frameRate:8},audio:false}):await navigator.mediaDevices.getUserMedia({video:{width:1280},audio:false})}catch(e){toast('Sharing was cancelled');return}
 const v=document.createElement('video');v.srcObject=shareStream;v.muted=true;await v.play();const c=document.createElement('canvas');let busy=false;
 const btn=$(kind==='screen'?'sharescreen':'sharecam');btn.textContent='Stop sharing';btn.classList.add('sharing');toast((kind==='screen'?'🖥 Your screen':'📷 Your camera')+' is showing on your phone');
 shareStream.getVideoTracks()[0].onended=stopShare;
-shareTimer=setInterval(()=>{if(busy||!v.videoWidth)return;const w=Math.min(1600,v.videoWidth),h=Math.round(v.videoHeight*w/v.videoWidth);c.width=w;c.height=h;c.getContext('2d').drawImage(v,0,0,w,h);busy=true;c.toBlob(b=>{fetch(B+'/api/screen',{method:'POST',body:b}).finally(()=>busy=false)},'image/jpeg',0.62)},140);
-window.ultStopShare=()=>{clearInterval(shareTimer);shareStream.getTracks().forEach(t=>t.stop());shareStream=null;btn.textContent=kind==='screen'?'Share my screen':'Share my camera';btn.classList.remove('sharing');api('/screen/stop',{method:'POST'})}}
+shareTimer=setInterval(()=>{if(busy||!v.videoWidth)return;const w=Math.min(1600,v.videoWidth),h=Math.round(v.videoHeight*w/v.videoWidth);c.width=w;c.height=h;c.getContext('2d').drawImage(v,0,0,w,h);busy=true;c.toBlob(b=>{fetch(B+'/api/screen?id='+camId+'&kind='+kind,{method:'POST',body:b}).finally(()=>busy=false)},'image/jpeg',0.62)},140);
+window.ultStopShare=()=>{clearInterval(shareTimer);shareStream.getTracks().forEach(t=>t.stop());shareStream=null;btn.textContent=kind==='screen'?'Share my screen':'Share my camera';btn.classList.remove('sharing');api('/screen/stop?id='+camId,{method:'POST'})}}
 function stopShare(){window.ultStopShare&&window.ultStopShare()}
 $('sharescreen').onclick=()=>share('screen');$('sharecam').onclick=()=>share('camera');
 $('ringbtn').onclick=async()=>{const on=$('ringbtn').dataset.on==='1';await api(on?'/ring/stop':'/ring',{method:'POST'});$('ringbtn').dataset.on=on?'0':'1';$('ringbtn').textContent=on?'🔔 Ring phone':'🔕 Stop ringing';if(!on)toast('🔔 Your phone is ringing, even on silent, for up to 30 seconds')};
