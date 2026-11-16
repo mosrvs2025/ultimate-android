@@ -285,7 +285,7 @@ android {
         resources.merges += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE", "META-INF/NOTICE", "META-INF/services/**")
         // MediaPipe's x86 builds (about 40 MB) serve only emulators; on a phone that lacks them, camera calibration
         // simply reports that hand tracking isn't available.
-        jniLibs.excludes += setOf("lib/x86/libmediapipe_tasks_vision_jni.so", "lib/x86_64/libmediapipe_tasks_vision_jni.so")
+        jniLibs.excludes += setOf("lib/x86/libmediapipe_tasks_vision_jni.so", "lib/x86_64/libmediapipe_tasks_vision_jni.so", "lib/x86/libjingle_peerconnection_so.so", "lib/x86_64/libjingle_peerconnection_so.so")
     }
 }
 
@@ -352,6 +352,8 @@ dependencies {
     val camerax = "1.4.1"
     implementation("androidx.camera:camera-camera2:$camerax")
     implementation("androidx.camera:camera-lifecycle:$camerax")
+    // Live video and sound between the owner's devices (see docs/LIVE_VIDEO.md): Google's WebRTC, packaged for Android.
+    implementation("io.getstream:stream-webrtc-android:1.3.10")
     implementation("androidx.camera:camera-video:$camerax")
     implementation("androidx.camera:camera-view:$camerax")
 

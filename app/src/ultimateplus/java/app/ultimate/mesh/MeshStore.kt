@@ -25,6 +25,11 @@ class MeshStore(context: Context) {
         set(v) { prefs.edit().putBoolean("lends", v).apply() }
 
     /** On unless the owner turns it off: whether apps, links and files flung from the owner's other devices are accepted. */
+    /** Whether to ask public STUN servers for this device's outside address, so live video can connect across different networks. They see the address and nothing else. */
+    var stun: Boolean
+        get() = prefs.getBoolean("stun", true)
+        set(v) { prefs.edit().putBoolean("stun", v).apply() }
+
     var accepts: Boolean
         get() = prefs.getBoolean("accepts", true)
         set(v) { prefs.edit().putBoolean("accepts", v).apply() }

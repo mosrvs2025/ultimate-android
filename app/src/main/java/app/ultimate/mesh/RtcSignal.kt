@@ -98,7 +98,8 @@ object RtcSignal {
         @Synchronized fun active(): Set<String> { prune(); return calls.keys.toSet() }
 
         /** Calls that have gone quiet, to be closed by the caller. */
-        @Synchronized fun expired(): List<String> { val now = clock(); return calls.filter { now - it.value.at > IDLE_MS }.keys.toList() }
-        private fun prune() { val now = clock(); calls.entries.removeAll { now - it.value.at > IDLE_MS * 2 } }
+        @Synchronized fun expired(): List<String> { val now = clock(); return calls.filter { it.value.call !is Call.Ready && now - it.value.at > IDLE_MS }.keys.toList() }
+        /** A call still being set up that has been quiet for twice the limit is forgotten; one that is connected stays until it ends. */
+        private fun prune() { val now = clock(); calls.entries.removeAll { it.value.call !is Call.Ready && now - it.value.at > IDLE_MS * 2 } }
     }
 }

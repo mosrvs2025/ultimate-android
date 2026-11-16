@@ -39,6 +39,18 @@ class MeshHost(context: Context, private val lends: () -> Boolean, private val o
             CameraNode.noteViewer(from.name)
             return CamFrames.reply(CameraNode.latest.get(), args["have"]?.toIntOrNull() ?: -1, args["part"]?.toIntOrNull() ?: 0, args["seq"]?.toIntOrNull() ?: -1)
         }
+        if (cmd == Cmd.RTC_OFFER || cmd == Cmd.RTC_ANSWER || cmd == Cmd.RTC_BYE) {
+            if (!lends() || !CameraNode.armed.value) throw IllegalStateException("this device's camera is not shared: turn on \"Let my other devices see through this camera\" in Octopus Mesh there")
+            return when (cmd) {
+                Cmd.RTC_OFFER -> {
+                    val whole = try { CameraRtc.calls.offerPiece(from.id, args) } catch (e: IllegalArgumentException) { throw IllegalStateException(e.message) }
+                    if (whole != null) CameraRtc.accept(app, from.id, from.name, whole, MeshStore(app).stun)
+                    if (whole != null) mapOf("ok" to "1", "complete" to "1") else mapOf("ok" to "1")
+                }
+                Cmd.RTC_ANSWER -> CameraRtc.calls.answerPiece(from.id, args["sid"].orEmpty(), args["part"]?.toIntOrNull() ?: 0)
+                else -> { CameraRtc.close(from.id); mapOf("ok" to "1") }
+            }
+        }
         if (!lends()) throw IllegalStateException("this phone is not lending its sensors: turn on \"Lend this phone\" in Octopus Mesh there")
         return when (cmd) {
             Cmd.REC_START -> {

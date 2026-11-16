@@ -365,6 +365,17 @@ class MeshManager private constructor(private val app: Context) : DeviceFling.Pr
         viewJobs[peerId] = scope.launch {
             val asm = CamFrames.Assembler(); var have = -1; var misses = 0
             try {
+                // Live video and sound first, if that device can do it; still pictures if it can't, or if the call won't connect.
+                if (_state.value.peers.firstOrNull { it.id == peerId }?.profile?.rtc == true) {
+                    val live = LiveViewer(app, n, peerId, store.stun) { server.camPut(id, "$name · live", it) }
+                    val connected = try { live.start(); true } catch (e: kotlinx.coroutines.CancellationException) { live.stop(); throw e
+                    } catch (e: Exception) { live.stop(); notice("Live video from $name did not connect (${e.message ?: "no reason given"}); showing still pictures instead."); false }
+                    if (connected) {
+                        try { while (isActive && live.alive()) delay(1_000) } finally { live.stop() }
+                        if (!isActive) return@launch
+                        notice("Live video from $name stopped; showing still pictures.")
+                    }
+                }
                 while (isActive) {
                     try {
                         var part = 0; var seq = -1; var pause = 80L
