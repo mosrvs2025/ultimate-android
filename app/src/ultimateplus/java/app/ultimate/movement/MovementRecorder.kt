@@ -9,6 +9,9 @@ import app.ultimate.health.LiveHeart
 import app.ultimate.watch.WatchActivity
 import app.ultimate.watch.WatchLink
 import app.ultimate.fusion.WatchBout
+import app.ultimate.MainActivity
+import app.ultimate.R
+import app.ultimate.fusion.Gait
 import app.ultimate.fusion.MovementReport
 import app.ultimate.fusion.MovementSignals
 import app.ultimate.fusion.TraceBuilder
@@ -109,6 +112,7 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
                         while (true) { val l = pending.poll() ?: break; builder.add(l) }
                         MovementAnalyzer.analyze(builder.build(), store.calibrator(), android.os.Build.MODEL)
                     }.getOrNull()
+                    if (rep != null) stillNudge(rep)
                     if (rep != null) for (sig in MovementSignals.between(_live.value.report, rep)) app.senses.publish(Signal("movement", sig.kind, sig.label, sig.data))
                     _live.value = _live.value.copy(report = rep ?: _live.value.report, busy = false)
                     WatchLink.sendToWatch(app, "movement:status:${"%.0f".format(java.util.Locale.US, rep?.distance?.value ?: 0.0)}:${_live.value.elapsedS.toInt()}")
@@ -123,6 +127,29 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
         }
     }
 
+    private var nudged = false
+
+    /**
+     * A recording left running while you stand or sit still fills the review with minutes of nothing (one walk ended with twelve).
+     * After five quiet minutes, once the recording is at least ten minutes long, a notification offers to stop it. It never stops by
+     * itself: you may be waiting at a crossing or resting between sets. Walking again re-arms it.
+     */
+    private fun stillNudge(rep: MovementReport) {
+        val last = rep.gait.lastOrNull() ?: return
+        if (last.gait == Gait.Walking || last.gait == Gait.Running) { nudged = false; return }
+        if (nudged || last.gait != Gait.Still || rep.durationS < 600 || rep.durationS - last.span.from < STILL_NUDGE_S) return
+        if (android.os.Build.VERSION.SDK_INT >= 33 && app.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        nudged = true
+        val nm = app.getSystemService(android.app.NotificationManager::class.java) ?: return
+        nm.createNotificationChannel(android.app.NotificationChannel("movement-still", "Movement: still for a while", android.app.NotificationManager.IMPORTANCE_DEFAULT))
+        val stop = android.app.PendingIntent.getService(app, 53, Intent(app, MovementService::class.java).setAction(MovementService.ACTION_STOP), android.app.PendingIntent.FLAG_IMMUTABLE)
+        val open = android.app.PendingIntent.getActivity(app, 54, Intent(app, MainActivity::class.java).putExtra(MainActivity.EXTRA_TOOL, "movement").addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), android.app.PendingIntent.FLAG_IMMUTABLE)
+        nm.notify(STILL_ID, androidx.core.app.NotificationCompat.Builder(app, "movement-still").setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle("Still for ${(STILL_NUDGE_S / 60).toInt()} minutes. Stop recording?")
+            .setContentText("The recording is still running. It keeps going if you're only resting.").setContentIntent(open).setAutoCancel(true)
+            .addAction(0, "Stop and review", stop).build())
+    }
+
     private fun cleanup(rid: String) { runCatching { java.io.File(java.io.File(app.filesDir, "movement"), rid).deleteRecursively() } }
 
     /** Stops, keeps the recording, and returns its id (null if it was too short to be worth keeping). */
@@ -132,6 +159,8 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
         heartJob?.cancel(); heartJob = null
         tickJob?.cancel(); tickJob = null
         recorder.tap = null
+        nudged = false
+        runCatching { app.getSystemService(android.app.NotificationManager::class.java)?.cancel(STILL_ID) }
         WatchLink.sendToWatch(app, "movement:stop")
         val summary = runCatching { recorder.stop() }.getOrNull()
         val rid = id; id = null
@@ -151,6 +180,8 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
 
     companion object {
         const val SESSION = "movement.record"
+        const val STILL_NUDGE_S = 300.0
+        const val STILL_ID = 75
         @Volatile private var instance: MovementRecorder? = null
         fun get(app: UltimateApp) = instance ?: synchronized(this) { instance ?: MovementRecorder(app).also { instance = it } }
     }
