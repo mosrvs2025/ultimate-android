@@ -50,10 +50,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ultimate.core.motionOn
+import app.ultimate.fusion.Buildings
 import app.ultimate.fusion.FusedPath
 import app.ultimate.fusion.MapCamera
 import app.ultimate.fusion.WebMercator
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -76,6 +78,11 @@ fun LiveMap(path: FusedPath?, fix: DoubleArray?, live: Boolean, modifier: Modifi
     val motion = motionOn()
     val anchor = path?.anchor
     var allowed by remember { mutableStateOf(tiles.allowed) }
+    val bstore = remember { BuildingStore.get(ctx) }
+    val barrived by bstore.arrived.collectAsState()
+    var bAllowed by remember { mutableStateOf(bstore.allowed) }
+    // The route with any points smeared into a building moved just outside it (drawing only), worked out again only when it grows.
+    val tidied = remember { arrayOfNulls<Any>(4) }
 
     // Camera: follows the newest point until you move the map yourself; double-tap to follow again.
     var follow by remember { mutableStateOf(true) }
@@ -113,6 +120,7 @@ fun LiveMap(path: FusedPath?, fix: DoubleArray?, live: Boolean, modifier: Modifi
             }
             .pointerInput(Unit) { detectTapGestures(onDoubleTap = { follow = true; bearing = 0.0 }) }) {
             @Suppress("UNUSED_EXPRESSION") arrived
+            @Suppress("UNUSED_EXPRESSION") barrived
             val p = path
             if (p == null || p.size < 1) {
                 drawGrid(MapCamera(0.0, 0.0, 4.0), this)
@@ -171,7 +179,13 @@ fun LiveMap(path: FusedPath?, fix: DoubleArray?, live: Boolean, modifier: Modifi
             val h = p.height
             val speeds = DoubleArray(p.size) { i -> val a = max(0, i - 3); val b = min(p.size - 1, i + 3); if (b > a) hypot(p.e[b] - p.e[a], p.n[b] - p.n[a]) / max(0.5, p.t[b] - p.t[a]) else 0.0 }
             fun paceColor(v: Double): Color { val x = ((v - 0.5) / 2.5).toFloat().coerceIn(0f, 1f); return if (x < 0.5f) lerp(Color(0xFF3DDCD0), Color(0xFF8E7CFF), x * 2) else lerp(Color(0xFF8E7CFF), Color(0xFFFFB454), (x - 0.5f) * 2) }
-            val pts = Array(p.size) { i -> pt(p.e[i], p.n[i], h?.get(i) ?: 0.0) }
+            // Buildings, when allowed and known: standing up in 3D, and used to keep the route out of walls.
+            val blds = if (anchor != null && bAllowed == true) Buildings.box(anchor[0], anchor[1], p.e.min(), p.e.max(), p.n.min(), p.n.max())?.let { bstore.get(it, anchor[0], anchor[1]) } else null
+            if (blds != null && (tidied[0] !== blds || tidied[1] != p.size)) { tidied[0] = blds; tidied[1] = p.size; Buildings.tidy(p.e, p.n, blds).let { tidied[2] = it.first; tidied[3] = it.second } }
+            @Suppress("UNCHECKED_CAST") val re = if (blds != null) (tidied[2] as? DoubleArray ?: p.e) else p.e
+            @Suppress("UNCHECKED_CAST") val rn = if (blds != null) (tidied[3] as? DoubleArray ?: p.n) else p.n
+            if (blds != null && tilt.value > 0.05f) drawBuildings(blds, ::pt, tilt.value, centre)
+            val pts = Array(p.size) { i -> pt(re[i], rn[i], h?.get(i) ?: 0.0) }
             // In 3D the route stands on curtains down to the ground, so its height reads at a glance.
             if (tilt.value > 0.05f && h != null) for (i in 0 until p.size step 3) { val a = pts[i] ?: continue; val g = pt(p.e[i], p.n[i]) ?: continue
                 drawLine(paceColor(speeds[i]).copy(alpha = 0.18f * tilt.value), Offset(a[0], a[1]), Offset(g[0], g[1]), 2f) }
@@ -214,6 +228,16 @@ fun LiveMap(path: FusedPath?, fix: DoubleArray?, live: Boolean, modifier: Modifi
             if (!follow) Chip("Follow") { follow = true; bearing = 0.0 }
         }
         if (anchor != null && allowed == true) Text("© OpenStreetMap contributors", color = Color(0x99B8C4D6), fontSize = 9.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp))
+        if (anchor != null && bAllowed == null && tilt.value > 0.3f && allowed != null) {
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(8.dp).background(Color(0xE0141B26), RoundedCornerShape(14.dp)).padding(12.dp)) {
+                Text("Show buildings in 3D?", color = Color.White, fontSize = 14.sp)
+                Text("Building outlines come from OpenStreetMap's Overpass service over the internet, so that server sees roughly which area you're viewing. Kept on the phone afterwards. It also keeps your route from being drawn through walls.", color = Color(0xFF93A1B5), fontSize = 11.sp)
+                Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip("Show buildings") { bstore.allowed = true; bAllowed = true }
+                    Chip("No thanks") { bstore.allowed = false; bAllowed = false }
+                }
+            }
+        }
         if (anchor != null && allowed == null) {
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(8.dp).background(Color(0xE0141B26), RoundedCornerShape(14.dp)).padding(12.dp)) {
                 Text("Show streets under your route?", color = Color.White, fontSize = 14.sp)
@@ -248,5 +272,33 @@ private fun drawGrid(cam: MapCamera, d: DrawScope, cx: Float = d.size.width / 2,
         val a = cam.project(cam.centreE - reach, n, 0.0, cx, cy, depth); val b = cam.project(cam.centreE + reach, n, 0.0, cx, cy, depth)
         if (a != null && b != null) d.drawLine(Color(0x14B8C4D6), Offset(a[0], a[1]), Offset(b[0], b[1]), 1f)
         n += step
+    }
+}
+
+/**
+ * Buildings standing on the map: far ones first so near ones cover them, each wall shaded by which way it faces (light from the
+ * north-west, as on a paper map) and a lighter roof on top. Heights are drawn at half again their true size so they read on a phone.
+ */
+private fun DrawScope.drawBuildings(buildings: List<Buildings.Building>, pt: (Double, Double, Double) -> FloatArray?, tilt: Float, centre: Pair<Double, Double>) {
+    val reach = 400.0
+    val near = buildings.filter { abs(it.minE - centre.first) < reach && abs(it.minN - centre.second) < reach }
+    val order = near.mapNotNull { b -> pt((b.minE + b.maxE) / 2, (b.minN + b.maxN) / 2, 0.0)?.let { b to it[1] } }.sortedBy { it.second }
+    for ((b, _) in order) {
+        val up = b.height * 0.5
+        val g = b.ring.map { pt(it[0], it[1], 0.0) }; val r = b.ring.map { pt(it[0], it[1], up) }
+        if (g.any { it == null } || r.any { it == null }) continue
+        val walls = b.ring.indices.map { i ->
+            val j = (i + 1) % b.ring.size; val a = b.ring[i]; val c = b.ring[j]
+            val nx = c[1] - a[1]; val ny = -(c[0] - a[0]); val l = hypot(nx, ny).coerceAtLeast(1e-6)
+            val light = ((-nx / l) * 0.6 + (ny / l) * 0.8).toFloat()                   // north-west is up-left on a north-up map
+            Triple(i, j, 0.5f + 0.5f * light.coerceIn(0f, 1f))
+        }.sortedBy { (i, j, _) -> ((g[i]!![1] + g[j]!![1]) / 2) }
+        for ((i, j, shade) in walls) {
+            val wall = Path().apply { moveTo(g[i]!![0], g[i]!![1]); lineTo(g[j]!![0], g[j]!![1]); lineTo(r[j]!![0], r[j]!![1]); lineTo(r[i]!![0], r[i]!![1]); close() }
+            drawPath(wall, Color(0xFF223046).copy(alpha = 0.96f * tilt.coerceIn(0f, 1f)).let { lerp(Color(0xFF141C29), Color(0xFF3A4D6B), shade).copy(alpha = it.alpha) })
+        }
+        val roof = Path().apply { r.forEachIndexed { k, p -> if (k == 0) moveTo(p!![0], p[1]) else lineTo(p!![0], p[1]) }; close() }
+        drawPath(roof, Color(0xFF4A5E7E).copy(alpha = 0.97f * tilt.coerceIn(0f, 1f)))
+        drawPath(roof, Color(0x66B8C4D6), style = Stroke(1.2f))
     }
 }

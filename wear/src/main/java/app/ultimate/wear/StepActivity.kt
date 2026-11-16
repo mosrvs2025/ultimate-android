@@ -17,7 +17,8 @@ class StepActivity(
 ) {
     enum class State(val key: String) { Still("still"), Walking("walking"), Running("running") }
 
-    data class Change(val state: State, val spm: Int, val steps: Long)
+    /** [since] is roughly when the steady movement began (epoch ms): when the watch first saw the pace, less the half minute it needs to measure one. */
+    data class Change(val state: State, val spm: Int, val steps: Long, val since: Long = 0L)
 
     var state = State.Still; private set
     /** Steps a minute over the last minute, or 0 until there is a minute of data. */
@@ -48,8 +49,9 @@ class StepActivity(
         if (candidate != target) { candidate = target; candidateSince = now; return null }
         val hold = if (target == State.Still) holdStopMs else holdStartMs
         if (now - candidateSince < hold) return null
+        val since = (candidateSince - 30_000L).coerceAtLeast(0L)
         state = target; candidate = null
-        return Change(target, spm.toInt(), stepsSinceStart)
+        return Change(target, spm.toInt(), stepsSinceStart, since)
     }
 
     companion object {

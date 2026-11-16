@@ -6,7 +6,9 @@ import app.ultimate.UltimateApp
 import app.ultimate.fusion.MovementAnalyzer
 import app.ultimate.core.Signal
 import app.ultimate.health.LiveHeart
+import app.ultimate.watch.WatchActivity
 import app.ultimate.watch.WatchLink
+import app.ultimate.fusion.WatchBout
 import app.ultimate.fusion.MovementReport
 import app.ultimate.fusion.MovementSignals
 import app.ultimate.fusion.TraceBuilder
@@ -39,6 +41,8 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
         val fix: DoubleArray? = null,
         /** When recording started, on the phone's uptime clock, so the screen's clock can count by itself. */
         val startedRealtime: Long = 0L,
+        /** Seconds of this walk that happened before the phone started recording, known from the watch (0 if none). */
+        val earlySeconds: Double = 0.0, val earlyWatchSteps: Long? = null,
     )
 
     private val store = MovementStore(app)
@@ -68,7 +72,14 @@ class MovementRecorder private constructor(private val app: UltimateApp) {
             recorder.start(file)
             builder = TraceBuilder(); consumed = 0
             id = rid; startedAt = System.currentTimeMillis(); startNs = android.os.SystemClock.elapsedRealtime()
-            _live.value = Live(recording = true, startedRealtime = startNs)
+            // If the watch has been walking with you for a while, the clock starts when it says the walk began, not at 0:00.
+            val w = WatchActivity.now.value
+            val adopted = w?.let { WatchBout.adoptedStart(startedAt, it.state, it.since, it.at) }
+            val early = adopted?.let { (startedAt - it) / 1000.0 } ?: 0.0
+            if (adopted != null) { startedAt = adopted; startNs -= (early * 1000).toLong() }
+            val earlySteps = if (adopted != null) WatchActivity.stepsSince(adopted) else null
+            _live.value = Live(recording = true, startedRealtime = startNs, earlySeconds = early, earlyWatchSteps = earlySteps)
+            if (adopted != null) recorder.extra("early", "{\"type\":\"early\",\"t\":${android.os.SystemClock.elapsedRealtimeNanos()},\"seconds\":${"%.0f".format(java.util.Locale.US, early)},\"wsteps\":${earlySteps ?: -1}}")
             runCatching { app.startForegroundService(Intent(app, MovementService::class.java)) }
             app.senses.begin(SESSION, "movement", "Recording movement", sensitive = true) { stop() }
             // The watch shows the recording and measures heart rate closely while it runs; its readings are written into the recording.

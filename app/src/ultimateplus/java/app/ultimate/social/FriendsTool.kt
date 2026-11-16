@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -39,7 +40,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.ultimate.UltimateApp
 import app.ultimate.core.GlassCard
+import app.ultimate.send.SendService
 import app.ultimate.core.GooeySwitch
 import app.ultimate.core.LibraryItem
 import app.ultimate.core.Liquid
@@ -59,6 +62,7 @@ import kotlinx.coroutines.withContext
  */
 class FriendsTool(context: Context) : Tool {
     private val app = context.applicationContext
+    init { FriendsBridge.port = PhoneFriendsPort(app) }
     override val id = "friends"
     override val title = "Walk with friends"
     override val tagline = "Tell your friends in Discord or Telegram when you start walking"
@@ -99,6 +103,8 @@ class FriendsTool(context: Context) : Tool {
                     note?.let { Text(it, color = Color(0xFFFFB4A9), fontSize = 13.sp) }
                 }
 
+                Dashboard(ctx)
+
                 GlassCard(title = "Your name in the message", accent = Liquid.violet) {
                     LiquidInput(name, { name = it }, "How friends know you", { store.name = name; name = store.name; note = null; tick++ }, sendLabel = "Save", sendEnabled = name.isNotBlank() && name != store.name)
                 }
@@ -115,7 +121,7 @@ class FriendsTool(context: Context) : Tool {
                             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                 Text("Send a test", color = Liquid.teal, fontSize = 13.sp, modifier = Modifier.clickable {
                                     note = "Sending…"
-                                    scope.launch { val r = withContext(Dispatchers.IO) { FriendsHub.send(c.target, "✅ Ultimate is connected" + (store.name.takeIf { it.isNotBlank() }?.let { " for ${Delivery.safe(it, 24)}" } ?: "") + ". Walk announcements will appear here.") }
+                                    scope.launch { val r = withContext(Dispatchers.IO) { FriendsHub.deliver(store, c, "✅ Ultimate is connected" + (store.name.takeIf { it.isNotBlank() }?.let { " for ${Delivery.safe(it, 24)}" } ?: "") + ". Walk announcements will appear here.", "test") }
                                         note = if (r.ok) "Sent. Check the chat." else r.error }
                                 })
                                 if (c.target is Target.Discord) Text("Share link with friends", color = Liquid.teal, fontSize = 13.sp, modifier = Modifier.clickable {
@@ -153,6 +159,29 @@ class FriendsTool(context: Context) : Tool {
                         else listOf(1 to "1 hour", 4 to "4 hours", 24 to "A day").forEach { (h, l) -> Pill(l, false) { save(settings.copy(privateUntil = System.currentTimeMillis() + h * 3_600_000L)) } }
                     }
                 }
+            }
+        }
+    }
+
+    /** The web dashboard: the same settings on a big screen, reached through the phone's "Send to computer" address. */
+    @Composable
+    private fun Dashboard(ctx: Context) {
+        val server = remember { (ctx.applicationContext as UltimateApp).sendServer }
+        val state by server.state.collectAsState()
+        val url = state.address?.let { "$it/friends" }
+        GlassCard(title = "Dashboard", live = url != null, accent = Liquid.teal) {
+            Text("A page with buttons for a computer or any other phone on the same Wi-Fi: your chats, rules, message wording with live previews, and a log of what was sent.", color = Liquid.dim, fontSize = 13.sp, lineHeight = 19.sp)
+            if (url == null) {
+                LiquidButton("Turn on the dashboard", { androidx.core.content.ContextCompat.startForegroundService(ctx, Intent(ctx, SendService::class.java)) }, Modifier.fillMaxWidth())
+                Text("This uses Send to computer. It only answers on your Wi-Fi, and every address contains a private code.", color = Liquid.dim, fontSize = 12.sp)
+            } else {
+                Text(url.removePrefix("http://"), color = Color.White, fontSize = 15.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("Open here", color = Liquid.teal, fontSize = 14.sp, modifier = Modifier.clickable { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } })
+                    Text("Share link", color = Liquid.teal, fontSize = 14.sp, modifier = Modifier.clickable {
+                        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url), "Share").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) })
+                }
+                Text("Keep this link to yourself: it opens the controls.", color = Liquid.dim, fontSize = 12.sp)
             }
         }
     }

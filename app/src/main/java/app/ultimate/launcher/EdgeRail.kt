@@ -219,7 +219,10 @@ internal fun EdgeRailContent(
     val fingerY = d.y - railTop
     val inset = with(density) { 22.dp.toPx() }
     val usable = (railHeight - 2 * inset).coerceAtLeast(1f)
-    val index = LauncherMath.index(LauncherMath.position(fingerY, inset, usable, letters.size), letters.size)
+    var held by remember { mutableStateOf<Int?>(null) }
+    val rawPos = LauncherMath.position(fingerY, inset, usable, letters.size)
+    val index = if (d.down) LauncherMath.indexSticky(rawPos, held, letters.size) else LauncherMath.index(rawPos, letters.size)
+    androidx.compose.runtime.SideEffect { held = if (d.down) index else null }
     val current = if (d.down) letters.getOrNull(index) else sticky
     LaunchedEffect(d.down) { if (!d.down) sticky = letters.getOrNull(index) }
     LaunchedEffect(index, d.down) { if (d.down) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }

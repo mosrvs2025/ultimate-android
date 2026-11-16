@@ -259,6 +259,9 @@ class SendServer(private val context: Context) {
             req.method == "GET" && rest == "/house" -> respond(out, 200, "text/html; charset=utf-8", context.assets.open("house_xr.html").use { it.readBytes() })
             req.method == "GET" && rest == "/house.json" -> app.ultimate.mesh.HouseFeed.source()?.let { respond(out, 200, "application/json", it.toByteArray()) }
                 ?: respond(out, 404, "application/json", "{\"error\":\"no map yet\"}".toByteArray())
+            // The "Walk with friends" dashboard (Ultimate+): a page for a computer or phone, and the small JSON interface it uses.
+            req.method == "GET" && (rest == "/friends" || rest == "/friends/") -> respond(out, 200, "text/html; charset=utf-8", context.assets.open("friends.html").use { it.readBytes() })
+            rest.startsWith("/friends/api/") -> friends(req, rest.removePrefix("/friends/api"), input, out)
             rest.startsWith("/api/") -> api.handle(req, rest.removePrefix("/api"), input, out)
             req.method == "GET" && rest == "/status" -> respond(out, 200, "application/json", status().toByteArray())
             req.method == "GET" && rest == "/mic" -> {
@@ -343,6 +346,22 @@ class SendServer(private val context: Context) {
             resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
             return uri
         } catch (e: Exception) { resolver.delete(uri, null, null); throw e }
+    }
+
+    /** One call from the friends dashboard. Changes need the page's own header, which another website can't add without the browser asking first. */
+    private fun friends(req: SendHttp.Request, path: String, input: InputStream, out: OutputStream) {
+        val json = "application/json; charset=utf-8"
+        fun err(status: Int, text: String) = respond(out, status, json, org.json.JSONObject().put("error", text).toString().toByteArray())
+        val api = app.ultimate.social.FriendsBridge.api() ?: run { (context.applicationContext as app.ultimate.UltimateApp).tools; app.ultimate.social.FriendsBridge.api() }
+            ?: return err(404, "Walk with friends is part of Ultimate+.")
+        if (req.method != "GET" && req.method != "POST") return err(405, "Not allowed.")
+        var body = ""
+        if (req.method == "POST") {
+            if (req.headers["x-ultimate"] != "1") return err(403, "Open this from the dashboard page.")
+            body = app.ultimate.social.FriendsBridge.readBody(input, req.headers["content-length"]?.toLongOrNull()) ?: return err(413, "That request was missing or too big.")
+        }
+        val r = api.handle(req.method, path, body)
+        respond(out, r.status, json, r.body.toByteArray())
     }
 
     private fun readHead(input: InputStream): List<String> {

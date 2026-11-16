@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0A0E14">
+<title>Walk with friends · Ultimate</title>
+<style>
+:root{--bg:#0A0E14;--card:rgba(255,255,255,.055);--card2:rgba(255,255,255,.085);--line:rgba(255,255,255,.11);--tx:#EAF2F8;--dim:#93A6B8;--teal:#3DDCD0;--violet:#A394FF;--bad:#FF8F80;--ok:#5FE3A1;--warn:#FFC857;--discord:#5865F2;--telegram:#27A7E7;--ntfy:#57A773}
+*{box-sizing:border-box}
+html{color-scheme:dark}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100dvh;-webkit-text-size-adjust:100%}
+body::before{content:"";position:fixed;inset:0;z-index:-1;background:radial-gradient(900px 520px at 88% -8%,rgba(61,220,208,.15),transparent 60%),radial-gradient(760px 520px at -8% 108%,rgba(163,148,255,.14),transparent 60%),var(--bg)}
+[hidden]{display:none!important}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--teal);outline-offset:2px;border-radius:8px}
+h1,h2,h3{margin:0;font-weight:650;letter-spacing:-.01em}
+h1{font-size:26px}h2{font-size:17px}h3{font-size:15px}
+p{margin:0}
+.dim{color:var(--dim)}.small{font-size:13px}
+.app{display:grid;grid-template-columns:244px minmax(0,1fr);min-height:100dvh}
+.side{position:sticky;top:0;height:100dvh;padding:22px 14px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px;background:rgba(10,14,20,.5);backdrop-filter:blur(14px)}
+.brand{display:flex;align-items:center;gap:12px;padding:4px 10px 18px}
+.logo{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,var(--teal),var(--violet));display:grid;place-items:center;color:#0A0E14;box-shadow:0 6px 24px rgba(61,220,208,.3)}
+.brand b{display:block;font-size:15px;line-height:1.2}.brand span{font-size:12px;color:var(--dim)}
+.nav{display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;border:0;border-radius:12px;background:none;color:var(--dim);text-align:left;font-size:15px;transition:background .15s,color .15s}
+.nav:hover{background:var(--card);color:var(--tx)}
+.nav[aria-current=page]{background:linear-gradient(90deg,rgba(61,220,208,.18),rgba(61,220,208,.04));color:var(--tx)}
+.nav[aria-current=page] svg{color:var(--teal)}
+.nav .n{margin-left:auto;font-size:12px;background:var(--card2);padding:1px 8px;border-radius:99px;color:var(--dim)}
+svg.i{width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.sidefoot{margin-top:auto;padding:12px;border-radius:14px;background:var(--card);font-size:13px}
+main{padding:30px clamp(16px,4vw,44px) 56px;max-width:1140px;width:100%}
+.top{display:flex;align-items:center;gap:14px;margin-bottom:22px;flex-wrap:wrap}
+.top h1{flex:1;min-width:0}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:99px;background:var(--card);border:1px solid var(--line);font-size:13px;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 10px var(--ok)}
+.dot.lost{background:var(--warn);box-shadow:0 0 10px var(--warn)}.dot.off{background:#6B7A89;box-shadow:none}.dot.bad{background:var(--bad);box-shadow:0 0 10px var(--bad)}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:20px;backdrop-filter:blur(10px);display:flex;flex-direction:column;gap:14px;min-width:0}
+.card>header{display:flex;align-items:center;gap:10px}.card>header h2{flex:1}
+.hero{background:linear-gradient(135deg,rgba(61,220,208,.16),rgba(163,148,255,.12));flex-direction:row;align-items:center;gap:20px;flex-wrap:wrap}
+.hero .txt{flex:1;min-width:230px}.hero h2{font-size:21px;margin-bottom:4px}
+.stat b{display:block;font-size:28px;line-height:1.1;letter-spacing:-.02em}.stat span{font-size:13px;color:var(--dim)}
+.sw{position:relative;width:58px;height:34px;border-radius:99px;border:1px solid var(--line);background:rgba(255,255,255,.12);padding:0;flex:none;transition:background .2s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:99px;background:#fff;transition:transform .25s cubic-bezier(.3,1.5,.5,1),width .15s;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.sw[aria-checked=true]{background:var(--teal)}.sw[aria-checked=true]::after{transform:translateX(24px)}
+.sw:active::after{width:34px}.sw[aria-checked=true]:active::after{transform:translateX(16px)}
+.btn{border:1px solid var(--line);background:var(--card2);padding:10px 16px;border-radius:12px;font-weight:550;transition:transform .12s,background .15s,opacity .15s}
+.btn:hover{background:rgba(255,255,255,.13)}.btn:active{transform:scale(.97)}
+.btn.pri{background:linear-gradient(135deg,var(--teal),#6FE8DE);color:#06241F;border-color:transparent}.btn.pri:hover{filter:brightness(1.07)}
+.btn.bad{color:var(--bad)}.btn.sm{padding:6px 12px;font-size:13px;border-radius:10px}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.big{width:100%;padding:16px;font-size:17px;border-radius:16px}
+.btn.armed{background:var(--warn);color:#2A1D00;border-color:transparent}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1px solid var(--line);background:var(--card);padding:7px 14px;border-radius:99px;font-size:14px;color:var(--tx)}
+.chip[aria-pressed=true],.chip[aria-checked=true]{background:var(--teal);color:#06241F;border-color:transparent;font-weight:600}
+.chip.code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;padding:5px 10px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-size:13px;color:var(--dim)}
+input[type=text],input[type=password],input[type=time],textarea{width:100%;background:rgba(0,0,0,.28);border:1px solid var(--line);border-radius:12px;padding:11px 13px;outline:none}
+input:focus,textarea:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(61,220,208,.16)}
+textarea{resize:vertical;min-height:92px;line-height:1.45}
+.row{display:flex;align-items:center;gap:12px}.row>.grow{flex:1;min-width:0}.wrap{flex-wrap:wrap}
+.list{display:flex;flex-direction:column;gap:10px}
+.item{display:flex;align-items:center;gap:14px;padding:14px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--line);flex-wrap:wrap}
+.badge{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;font-weight:700;color:#fff;flex:none}
+.badge.discord{background:var(--discord)}.badge.telegram{background:var(--telegram)}.badge.ntfy{background:var(--ntfy)}
+.mut{margin-left:auto}
+.steps{margin:0;padding-left:20px;color:var(--dim);font-size:14px;display:flex;flex-direction:column;gap:5px}
+.steps li::marker{color:var(--teal);font-weight:700}
+.err{color:var(--bad);font-size:13px;min-height:1.2em}
+.empty{text-align:center;padding:26px 10px;color:var(--dim)}.empty b{display:block;color:var(--tx);font-size:16px;margin-bottom:4px}
+.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--teal),var(--violet));border-radius:99px;transition:width .4s}
+.check{display:flex;gap:12px;align-items:center;font-size:14px}.check .mark{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;flex:none;font-size:13px;color:#06241F}
+.check.done .mark{background:var(--ok);border-color:var(--ok)}.check.done span{color:var(--dim);text-decoration:line-through}
+.seg{display:inline-flex;background:rgba(0,0,0,.28);border-radius:12px;padding:3px;border:1px solid var(--line)}
+.seg button{border:0;background:none;padding:7px 16px;border-radius:9px;color:var(--dim)}.seg button[aria-pressed=true]{background:var(--card2);color:var(--tx)}
+.log{display:flex;gap:12px;align-items:flex-start;padding:11px 4px;border-bottom:1px solid var(--line)}.log:last-child{border:0}
+.log .dot{margin-top:7px;flex:none}.log .t{margin-left:auto;font-size:12px;color:var(--dim);white-space:nowrap;padding-left:8px}
+.pv{border-radius:14px;padding:14px;font-size:14px;white-space:pre-wrap;word-break:break-word;min-height:56px}
+.pv small{display:block;color:var(--dim);font-size:11px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em}
+.pv.d{background:#313338;color:#DBDEE1;display:grid;grid-template-columns:40px 1fr;column-gap:12px}
+.pv.d .av{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--teal),var(--violet));display:grid;place-items:center;color:#06241F;font-weight:800}
+.pv.d .nm{font-weight:600;color:#fff}.pv.d .tag{font-size:10px;background:#5865F2;color:#fff;border-radius:4px;padding:1px 5px;margin:0 6px;vertical-align:2px}
+.pv.t{background:#0E1621;color:#fff}.pv.t .bub{background:#182533;border-radius:14px 14px 14px 4px;padding:9px 12px;max-width:92%;display:inline-block}.pv.t .nm{color:#6AB3F3;font-size:13px;font-weight:600;display:block;margin-bottom:2px}
+.pv.n{background:#1B1D22;color:#fff}.pv.n .ti{font-weight:650;margin-bottom:2px}
+.counter{font-size:12px;color:var(--dim);margin-left:auto}.counter.over{color:var(--bad)}
+.tabs{display:none}
+#toasts{position:fixed;left:0;right:0;bottom:calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;z-index:50;padding:0 16px}
+.toast{background:#18222E;border:1px solid var(--line);padding:10px 16px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.45);animation:up .25s ease both;max-width:520px}
+.toast.bad{border-color:var(--bad);color:#FFD4CE}.toast.ok{border-color:rgba(95,227,161,.5)}
+@keyframes up{from{opacity:0;transform:translateY(10px)}}
+.screen{display:none}.screen.on{display:block;animation:up .25s ease both}
+.lock{max-width:520px;margin:12vh auto;text-align:center}
+@media(max-width:1000px){.g3,.g4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:899px){
+  .app{grid-template-columns:1fr}.side{display:none}
+  main{padding:20px 16px calc(96px + env(safe-area-inset-bottom))}
+  h1{font-size:22px}.g2,.g3{grid-template-columns:1fr}
+  .tabs{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:40;background:rgba(12,17,24,.92);backdrop-filter:blur(16px);border-top:1px solid var(--line);padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
+  .tabs button{flex:1;border:0;background:none;color:var(--dim);display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;padding:6px 0;border-radius:12px}
+  .tabs button[aria-current=page]{color:var(--teal)}
+  #toasts{bottom:calc(84px + env(safe-area-inset-bottom))}
+}
+@media(max-width:420px){.g4{grid-template-columns:1fr 1fr}.stat b{font-size:24px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="Sections">
+    <div class="brand"><div class="logo"><svg class="i" viewBox="0 0 24 24"><circle cx="13" cy="4.5" r="1.8"/><path d="M9 21l2.2-6.2L8.5 12l1.8-4.5 3.6 1.4 2.6 2.6M11.2 14.8L14 17l1 4"/></svg></div><div><b>Walk with friends</b><span>Ultimate+ dashboard</span></div></div>
+    <div id="nav"></div>
+    <div class="sidefoot" id="sidefoot"></div>
+  </aside>
+  <main>
+    <div class="top"><h1 id="title">Overview</h1><span class="pill" id="conn"><i class="dot off"></i><span>Connecting…</span></span></div>
+    <div id="lock" class="lock card" hidden></div>
+    <div id="screens"></div>
+  </main>
+</div>
+<nav class="tabs" id="tabs" aria-label="Sections"></nav>
+<div id="toasts" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+// ---------- tiny helpers (everything dynamic goes in as text, never as markup) ----------
+const h=(tag,a,...kids)=>{const e=document.createElement(tag);for(const k in a||{}){const v=a[k];if(v==null||v===false)continue;if(k==="class")e.className=v;else if(k.startsWith("on"))e.addEventListener(k.slice(2),v);else e.setAttribute(k,v===true?"":v)}for(const c of kids.flat(9)){if(c==null||c===false)continue;e.append(c.nodeType?c:document.createTextNode(String(c)))}return e};
+const svg=(d)=>{const s=document.createElementNS("http://www.w3.org/2000/svg","svg");s.setAttribute("class","i");s.setAttribute("viewBox","0 0 24 24");s.innerHTML=d;return s};  // d is a fixed literal below, never data
+const ICON={home:'<path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',chat:'<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',rules:'<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',msg:'<path d="M4 20l1.2-4L16.5 4.7a2 2 0 0 1 2.8 0l0 0a2 2 0 0 1 0 2.8L8 18.8z"/><path d="M14 7l3 3"/>',log:'<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>'};
+const $=(s,r=document)=>r.querySelector(s);
+const toast=(text,kind="ok")=>{const t=h("div",{class:"toast "+kind},text);$("#toasts").append(t);setTimeout(()=>t.remove(),kind==="bad"?6500:3200)};
+const base=location.pathname.replace(/\/+$/,"")+"/api";
+
+async function call(path,body){
+  const opt=body===undefined?{}:{method:"POST",headers:{"Content-Type":"application/json","X-Ultimate":"1"},body:JSON.stringify(body)};
+  let r;try{r=await fetch(base+path,{...opt,cache:"no-store"})}catch(e){throw Object.assign(new Error("The phone isn't answering. Is it on the same Wi-Fi with Send to computer on?"),{lost:true})}
+  let j={};try{j=await r.json()}catch(e){}
+  if(!r.ok)throw Object.assign(new Error(j.error||("Something went wrong ("+r.status+")")),{status:r.status});
+  return j;
+}
+
+// ---------- state ----------
+let S=null,skew=0,page="overview",subs=[];
+const setState=(s)=>{S=s;skew=s.now-Date.now();subs.forEach(f=>f())};
+const phoneNow=()=>Date.now()+skew;
+const reg=(f)=>{subs.push(f);f()};
+async function act(path,body,okText){
+  try{const r=await call(path,body);const st=r.state||(r.chats?r:null);if(st)setState(st);if(okText)toast(okText);return r}
+  catch(e){toast(e.message,"bad");return null}
+}
+const ago=(t)=>{if(!t)return"never";const s=Math.max(0,(phoneNow()-t)/1000);if(s<60)return"just now";if(s<3600)return Math.floor(s/60)+" min ago";if(s<86400)return Math.floor(s/3600)+" h ago";const d=Math.floor(s/86400);return d===1?"yesterday":d+" days ago"};
+const clock=(t)=>new Date(t).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+const hhmm=(m)=>String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");
+const toMin=(v)=>{const m=/^(\d{1,2}):(\d{2})$/.exec(v||"");return m?Math.min(1439,(+m[1])*60+(+m[2])):null};
+const KIND={discord:"Discord",telegram:"Telegram",ntfy:"ntfy"};
+const listening=()=>S.chats.filter(c=>c.notify);
+const sentToday=()=>S.log.filter(e=>e.ok&&e.what!=="test"&&phoneNow()-e.at<864e5).length;
+const lastTold=()=>Math.max(0,...S.log.filter(e=>e.ok&&(e.what==="walk"||e.what==="manual")).map(e=>e.at));
+const isPrivate=()=>S.privateUntil>phoneNow();
+const setupSteps=()=>[
+  {t:"Add your name",d:!!S.name},
+  {t:"Add a chat (Discord, Telegram or ntfy)",d:S.chats.length>0},
+  {t:"Send a test and see it arrive",d:S.log.some(e=>e.ok&&e.what==="test")},
+  {t:"Switch walk announcements on",d:S.enabled},
+];
+const mount=(box,build)=>reg(()=>box.replaceChildren(...[].concat(build())));   // for parts with nothing to type into
+const keepValue=(el,v)=>{if(document.activeElement!==el&&!el.dataset.dirty)el.value=v};
+
+// ---------- reusable parts ----------
+function Switch(get,set,label){const b=h("button",{class:"sw",type:"button",role:"switch","aria-label":label,onclick:()=>set(!get())});reg(()=>b.setAttribute("aria-checked",String(!!get())));return b}
+function Chips(options,get,set){const box=h("div",{class:"chips",role:"group"});reg(()=>box.replaceChildren(...options.map(([v,l])=>h("button",{class:"chip",type:"button","aria-pressed":String(get()===v),onclick:()=>set(v)},l))));return box}
+function Card(title,sub,...body){return h("section",{class:"card"},title?h("header",null,h("h2",null,title)):null,sub?h("p",{class:"dim small"},sub):null,...body)}
+function Preview(kind,text,who){
+  if(kind==="d")return h("div",{class:"pv d"},h("div",{class:"av"},"U"),h("div",null,h("div",null,h("span",{class:"nm"},"Ultimate"),h("span",{class:"tag"},"BOT"),h("span",{class:"dim small"},"Today at "+clock(phoneNow()))),h("div",null,text||"…")));
+  if(kind==="t")return h("div",{class:"pv t"},h("div",{class:"bub"},h("span",{class:"nm"},"Your bot"),text||"…"));
+  return h("div",{class:"pv n"},h("div",{class:"ti"},"Ultimate"),h("div",null,text||"…"),h("div",{class:"dim small"},"🏷 walking"));
+}
+
+// ---------- pages ----------
+const PAGES={};
+
+PAGES.overview=()=>{
+  const root=h("div",{class:"grid"});
+  // master switch
+  const hero=h("section",{class:"card hero"});
+  mount(hero,()=>{
+    const n=listening().length;
+    return[h("div",{class:"txt"},h("h2",null,S.enabled?"Announcing your walks":"Walk announcements are off"),
+      h("p",{class:"dim"},S.enabled?(isPrivate()?"Paused: private until "+clock(S.privateUntil)+".":(n?"When your watch says you've started walking, "+n+" chat"+(n>1?"s":"")+" will hear about it"+(S.askFirst?" after you say yes on your phone.":"."):"No chat is switched on yet. Choose one under Chats.")):"Nothing is sent until you turn this on."),
+      ),Switch(()=>S.enabled,(on)=>act("/settings",{enabled:on},on?"Announcements on":"Announcements off"),"Announce my walks")];
+  });
+  // stats
+  const stats=h("div",{class:"grid g4"});
+  mount(stats,()=>[["Chats",S.chats.length+"",listening().length+" listening"],["Sent today",sentToday()+"","walk messages"],["Last announced",lastTold()?ago(lastTold()):"never","by watch or by hand"],["Quiet hours",S.quietOn?hhmm(S.quietFromMin)+"–"+hhmm(S.quietToMin):"Off",isPrivate()?"private now":"nothing sent in these hours"]]
+    .map(([a,b,c])=>h("div",{class:"card stat"},h("span",null,a),h("b",null,b),h("span",null,c))));
+  // checklist
+  const setup=h("section",{class:"card"});
+  mount(setup,()=>{const st=setupSteps(),done=st.filter(x=>x.d).length;setup.hidden=done===st.length;
+    return[h("header",null,h("h2",null,"Get set up"),h("span",{class:"dim small"},done+" of "+st.length)),h("div",{class:"bar"},h("i",{style:"width:"+(done*100/st.length)+"%"})),...st.map(x=>h("div",{class:"check"+(x.d?" done":"")},h("div",{class:"mark"},x.d?"✓":""),h("span",null,x.t)))]});
+  // name
+  const nameIn=h("input",{type:"text",maxlength:"24",placeholder:"How friends know you",autocomplete:"off","aria-label":"Your name in messages",oninput:()=>nameIn.dataset.dirty="1"});
+  const nameBtn=h("button",{class:"btn",type:"button",onclick:async()=>{if(await act("/name",{name:nameIn.value},"Name saved"))delete nameIn.dataset.dirty}},"Save");
+  nameIn.addEventListener("keydown",e=>{if(e.key==="Enter")nameBtn.click()});
+  reg(()=>keepValue(nameIn,S.name));
+  const you=Card("Your name","This is the only thing about you that friends see, plus \"walk\" or \"run\". Never where you are, how far, or your heart.",h("div",{class:"row"},h("div",{class:"grow"},nameIn),nameBtn));
+  // announce now
+  const ann={kind:"walk",sel:null,armed:null};
+  const chipBox=h("div",{class:"chips"}),res=h("div",{class:"list"});
+  const go=h("button",{class:"btn pri big",type:"button"});
+  const picked=()=>S.chats.filter(c=>ann.sel.has(c.id));
+  const label=()=>{const n=picked().length;go.disabled=!n||!S.name;go.className="btn big "+(ann.armed?"armed":"pri");go.textContent=!S.name?"Add your name first":!n?"Pick a chat to tell":ann.armed?"Tap again to send to "+n+" chat"+(n>1?"s":""):(ann.kind==="run"?"🏃 Tell friends I'm running":"🚶 Tell friends I'm walking")};
+  go.onclick=async()=>{
+    if(!ann.armed){ann.armed=setTimeout(()=>{ann.armed=null;label()},4000);label();return}
+    clearTimeout(ann.armed);ann.armed=null;go.disabled=true;go.textContent="Sending…";
+    const r=await act("/announce",{state:ann.kind,chats:picked().map(c=>c.id)});label();
+    if(r)res.replaceChildren(...r.results.map(x=>h("div",{class:"check done"},h("div",{class:"mark",style:x.ok?"":"background:var(--bad);border-color:var(--bad)"},x.ok?"✓":"!"),h("span",{style:"text-decoration:none;color:var(--tx)"},x.label+(x.ok?" · sent":" · "+x.error)))),h("p",{class:"dim small"},"Sent: "+r.text));
+  };
+  reg(()=>{if(!ann.sel)ann.sel=new Set(S.chats.filter(c=>c.notify).map(c=>c.id));ann.sel=new Set([...ann.sel].filter(id=>S.chats.some(c=>c.id===id)));
+    chipBox.replaceChildren(...S.chats.map(c=>h("button",{class:"chip",type:"button",role:"checkbox","aria-checked":String(ann.sel.has(c.id)),onclick:()=>{ann.sel.has(c.id)?ann.sel.delete(c.id):ann.sel.add(c.id);ann.armed&&(clearTimeout(ann.armed),ann.armed=null);reg2()}},c.label)));label()});
+  const reg2=()=>{chipBox.replaceChildren(...S.chats.map(c=>h("button",{class:"chip",type:"button",role:"checkbox","aria-checked":String(ann.sel.has(c.id)),onclick:()=>{ann.sel.has(c.id)?ann.sel.delete(c.id):ann.sel.add(c.id);ann.armed&&(clearTimeout(ann.armed),ann.armed=null);reg2()}},c.label)));label()};
+  const kindSeg=h("div",{class:"seg",role:"group"},["walk","run"].map(k=>h("button",{type:"button","aria-pressed":String(k===ann.kind),onclick:(e)=>{ann.kind=k;[...kindSeg.children].forEach(b=>b.setAttribute("aria-pressed",String(b===e.currentTarget)));label()}},k==="walk"?"🚶 Walk":"🏃 Run")));
+  const now=Card("Announce now","Going out and your watch hasn't noticed? Tell the chats yourself. It sends your normal message right away, whatever the quiet hours say.",kindSeg,chipBox,go,res);
+  // private
+  const priv=h("section",{class:"card"});
+  mount(priv,()=>[h("header",null,h("h2",null,"Go private")),h("p",{class:"dim small"},isPrivate()?"Nothing is announced until "+clock(S.privateUntil)+".":"Pause announcements for a while without changing any settings."),
+    h("div",{class:"chips"},isPrivate()?h("button",{class:"chip",type:"button",onclick:()=>act("/settings",{privateHours:0},"Back on")},"Back on"):[[1,"1 hour"],[4,"4 hours"],[24,"A day"]].map(([n,l])=>h("button",{class:"chip",type:"button",onclick:()=>act("/settings",{privateHours:n},"Private for "+l)},l)))]);
+  // recent
+  const recent=h("section",{class:"card"});
+  mount(recent,()=>[h("header",null,h("h2",null,"Recent"),h("button",{class:"btn sm",type:"button",onclick:()=>go_("activity")},"See all")),...(S.log.length?S.log.slice(0,5).map(logRow):[h("div",{class:"empty"},h("b",null,"Nothing yet"),"Messages the phone sends will show up here.")])]);
+  // next
+  const next=Card("Coming next: an always-on bot","This dashboard drives what your phone sends. A bot that lives in your Discord or Telegram all day (so friends can type /walking or /leaderboard) is the next step, and it will be set up from here too.",h("div",{class:"chips"},["/walking","/leaderboard","/join","/streak"].map(c=>h("span",{class:"chip code"},c))));
+  root.append(hero,stats,setup,h("div",{class:"grid g2"},h("div",{class:"grid"},now,you),h("div",{class:"grid"},recent,priv)),next);
+  return root;
+};
+
+const WHAT={walk:"Walk announced",finish:"Finish message",test:"Test message",manual:"Sent by hand"};
+function logRow(e){return h("div",{class:"log"},h("i",{class:"dot "+(e.ok?"":"bad")}),h("div",{class:"grow"},h("div",null,(WHAT[e.what]||e.what)+" · "+e.chat),e.note?h("div",{class:"small",style:"color:var(--bad)"},e.note):null),h("span",{class:"t",title:new Date(e.at).toLocaleString()},ago(e.at)))}
+
+PAGES.chats=()=>{
+  const root=h("div",{class:"grid g2"});
+  const list=h("div",{class:"list"});
+  const confirm={};
+  mount(list,()=>S.chats.length?S.chats.map(c=>h("div",{class:"item"},
+    h("div",{class:"badge "+c.kind},KIND[c.kind][0]),
+    h("div",{class:"grow",style:"min-width:150px"},h("b",null,c.label),h("div",{class:"dim small"},KIND[c.kind]+" · "+c.hint),h("div",{class:"dim small"},"Last told: "+ago(c.toldAt))),
+    h("label",{class:"row small dim"},"Tell when I walk",Switch(()=>S.chats.find(x=>x.id===c.id).notify,(on)=>act("/chats/"+c.id+"/notify",{on}),"Tell "+c.label+" when I walk")),
+    h("div",{class:"row mut"},
+      h("button",{class:"btn sm",type:"button",onclick:async(e)=>{const b=e.currentTarget;b.disabled=true;b.textContent="Sending…";const r=await act("/chats/"+c.id+"/test",{});if(r)toast(r.ok?"Sent. Check "+c.label+".":r.error,r.ok?"ok":"bad");b.disabled=false;b.textContent="Send a test"}},"Send a test"),
+      h("button",{class:"btn sm bad"+(confirm[c.id]?" armed":""),type:"button",onclick:()=>{if(confirm[c.id]){act("/chats/"+c.id+"/remove",{},"Removed")}else{confirm[c.id]=1;setTimeout(()=>{delete confirm[c.id];S&&setState(S)},3500);setState(S)}}},confirm[c.id]?"Tap to confirm":"Remove"))))
+    :[h("div",{class:"empty"},h("b",null,"No chats yet"),"Add one on the right. Friends already in it will see your walks.")]);
+  const left=Card("Chats to tell","Switch a chat on to tell it when you walk. Links and tokens are kept sealed on the phone and never shown here.",list);
+
+  // add form (built once, so polling never wipes what you're typing)
+  let kind="discord";
+  const f={url:h("input",{type:"password",autocomplete:"off",spellcheck:"false"}),tok:h("input",{type:"password",autocomplete:"off",spellcheck:"false"}),chat:h("input",{type:"text",autocomplete:"off",spellcheck:"false",placeholder:"-1001234567890"}),label:h("input",{type:"text",maxlength:"20",placeholder:"For example: Walking club"})};
+  const err=h("div",{class:"err",role:"alert"}),steps=h("ol",{class:"steps"}),fUrl=h("div",{class:"field"}),fTok=h("div",{class:"field"}),fChat=h("div",{class:"field"});
+  const HELP={
+    discord:["Open your Discord server, then the channel's settings (the gear).","Integrations → Webhooks → New Webhook.","Copy Webhook URL and paste it here. It can only post to that one channel."],
+    telegram:["In Telegram, message @BotFather, send /newbot and copy the token it gives you.","Add your new bot to your group and send a message in it.","Open https://api.telegram.org/bot<token>/getUpdates in a browser and copy the number after \"chat\":{\"id\":. Groups start with a minus."],
+    ntfy:["Choose a private topic name that nobody would guess, like ultimate-walks-4f9c.","Paste its link, https://ntfy.sh/ followed by the topic.","Friends install the ntfy app and subscribe to the same topic."]};
+  const draw=()=>{steps.replaceChildren(...HELP[kind].map(t=>h("li",null,t)));
+    fUrl.replaceChildren(h("label",null,kind==="discord"?"Webhook URL":"Topic link"),f.url);fUrl.hidden=kind==="telegram";
+    fTok.replaceChildren(h("label",null,"Bot token"),f.tok);fTok.hidden=kind!=="telegram";fChat.replaceChildren(h("label",null,"Chat id"),f.chat);fChat.hidden=kind!=="telegram";
+    f.url.placeholder=kind==="discord"?"https://discord.com/api/webhooks/…":"https://ntfy.sh/your-private-topic";err.textContent="";seg.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.k===kind)))};
+  const seg=h("div",{class:"seg",role:"group"},Object.entries(KIND).map(([k,l])=>h("button",{type:"button","data-k":k,onclick:()=>{kind=k;draw()}},l)));
+  const add=h("button",{class:"btn pri",type:"button",onclick:async()=>{err.textContent="";const body={kind,label:f.label.value,url:f.url.value,token:f.tok.value,chat:f.chat.value};
+    add.disabled=true;try{const r=await call("/chats",body);setState(r);Object.values(f).forEach(i=>i.value="");toast("Added. Send a test to check it works.")}catch(e){err.textContent=e.message}add.disabled=false}},"Add chat");
+  const fLabel=h("div",{class:"field"},h("label",null,"Name for this chat (optional)"),f.label);
+  const right=Card("Add a chat",null,seg,steps,fUrl,fTok,fChat,fLabel,err,h("div",null,add));
+  draw();
+  root.append(left,right);return root;
+};
+
+PAGES.rules=()=>{
+  const root=h("div",{class:"grid g2"});
+  const set=(patch,msg)=>act("/settings",patch,msg||"Saved");
+  const ask=h("div",{class:"row"},h("div",{class:"grow"},h("b",null,"Ask me first"),h("div",{class:"dim small"},"A notification on your phone with Tell them / Not this time, instead of sending by itself.")),Switch(()=>S.askFirst,(v)=>set({askFirst:v}),"Ask me first"));
+  const steady=h("div",{class:"field"},h("label",null,"Only after I've walked steadily for"),Chips([[2,"2 min"],[4,"4 min"],[8,"8 min"],[15,"15 min"]],()=>S.steadyMinutes,(v)=>set({steadyMinutes:v})),h("p",{class:"dim small"},"A trip to the kitchen should tell nobody."));
+  const cool=h("div",{class:"field"},h("label",null,"Tell friends at most once every"),Chips([[60,"1 hour"],[180,"3 hours"],[720,"12 hours"]],()=>S.cooldownMinutes,(v)=>set({cooldownMinutes:v})));
+  const from=h("input",{type:"time","aria-label":"Quiet from",onchange:()=>{const m=toMin(from.value);m!=null&&set({quietFromMin:m})}}),to=h("input",{type:"time","aria-label":"Quiet until",onchange:()=>{const m=toMin(to.value);m!=null&&set({quietToMin:m})}});
+  const times=h("div",{class:"row wrap"},h("div",{class:"field grow"},h("label",null,"From"),from),h("div",{class:"field grow"},h("label",null,"Until"),to));
+  reg(()=>{keepValue(from,hhmm(S.quietFromMin));keepValue(to,hhmm(S.quietToMin));times.hidden=!S.quietOn});
+  const quiet=h("div",{class:"field"},h("div",{class:"row"},h("div",{class:"grow"},h("b",null,"Quiet hours"),h("div",{class:"dim small"},"Nothing is sent between these times.")),Switch(()=>S.quietOn,(v)=>set({quietOn:v}),"Quiet hours")),times);
+  const fin=h("div",{class:"row"},h("div",{class:"grow"},h("b",null,"Say when I finish"),h("div",{class:"dim small"},"A short note after a walk of a few minutes. Wording is under Messages.")),Switch(()=>S.summary,(v)=>set({summary:v}),"Say when I finish"));
+  root.append(Card("When to tell",null,ask,steady,cool),Card("Quiet and finish",null,quiet,fin));
+  return root;
+};
+
+PAGES.messages=()=>{
+  const root=h("div",{class:"grid"});
+  let sample="walk";
+  const kinds=[{k:"start",title:"When I start",sub:"Sent when a walk or run begins."},{k:"finish",title:"When I finish",sub:"Sent after a walk, if \"Say when I finish\" is on."}];
+  const sampleSeg=h("div",{class:"seg",role:"group"},["walk","run"].map(k=>h("button",{type:"button","aria-pressed":String(k===sample),onclick:(e)=>{sample=k;[...sampleSeg.children].forEach(b=>b.setAttribute("aria-pressed",String(b===e.currentTarget)));editors.forEach(x=>x.preview())}},k==="walk"?"Preview as a walk":"Preview as a run")));
+  const editors=kinds.map(({k,title,sub})=>{
+    const ta=h("textarea",{maxlength:"300",spellcheck:"false","aria-label":title+" message",oninput:()=>{ta.dataset.dirty="1";check();preview()}});
+    const count=h("span",{class:"counter"}),err=h("div",{class:"err",role:"alert"});
+    const pv={d:h("div"),t:h("div"),n:h("div")};
+    let timer=0,seq=0,text="";
+    const chips=h("div",{class:"chips"});
+    reg(()=>chips.replaceChildren(...S.pieces.map(p=>h("button",{class:"chip code",type:"button",title:p.about,onclick:()=>{const a=ta.selectionStart??ta.value.length,b=ta.selectionEnd??a;ta.setRangeText("{"+p.key+"}",a,b,"end");ta.dataset.dirty="1";ta.focus();check();preview()}},"{"+p.key+"}"))));
+    const saved=()=>S.templates[k]||"";
+    const save=h("button",{class:"btn pri",type:"button",onclick:async()=>{if(await act("/templates",{[k]:ta.value},"Message saved")){delete ta.dataset.dirty;check()}}},"Save");
+    const reset=h("button",{class:"btn",type:"button",onclick:()=>{ta.value="";ta.dataset.dirty="1";check();preview()}},"Use the usual wording");
+    function check(){count.textContent=ta.value.length+" / 300";count.className="counter"+(ta.value.length>300?" over":"");save.disabled=ta.value.trim()===saved().trim()}
+    function preview(){clearTimeout(timer);timer=setTimeout(async()=>{const me=++seq;
+      try{const r=await call("/preview",{template:ta.value,which:k,state:sample,minutes:31,km:2.3});if(me!==seq)return;err.textContent=r.error||"";text=r.error?text:r.text;draw()}catch(e){err.textContent=e.message}},200)}
+    function draw(){pv.d.replaceChildren(h("small",{class:"dim small"},"Discord"),Preview("d",text));pv.t.replaceChildren(h("small",{class:"dim small"},"Telegram"),Preview("t",text));pv.n.replaceChildren(h("small",{class:"dim small"},"ntfy"),Preview("n",text))}
+    reg(()=>{keepValue(ta,saved());ta.placeholder=S.defaults[k];check();if(!text)preview()});
+    draw();
+    const card=h("section",{class:"card"},h("header",null,h("h2",null,title),count),h("p",{class:"dim small"},sub),ta,chips,err,h("div",{class:"row wrap"},save,reset),h("div",{class:"grid g3"},pv.d,pv.t,pv.n));
+    return{card,preview};
+  });
+  root.append(h("div",{class:"grid"},h("div",null,sampleSeg),h("p",{class:"dim small"},"Click a piece to put it in your message. Previews are the real thing the phone would send, with your name filled in.")),...editors.map(e=>e.card));
+  return root;
+};
+
+PAGES.activity=()=>{
+  let f="all";
+  const box=h("div");
+  const seg=h("div",{class:"seg",role:"group"},[["all","All"],["ok","Sent"],["bad","Failed"]].map(([k,l])=>h("button",{type:"button","aria-pressed":String(k===f),onclick:(e)=>{f=k;[...seg.children].forEach(b=>b.setAttribute("aria-pressed",String(b===e.currentTarget)));S&&setState(S)}},l)));
+  mount(box,()=>{const rows=S.log.filter(e=>f==="all"||(f==="ok")===e.ok);return rows.length?rows.map(logRow):[h("div",{class:"empty"},h("b",null,S.log.length?"Nothing matches":"Nothing yet"),S.log.length?"Try another filter.":"Every message the phone sends, and whether it arrived, will be listed here.")]});
+  return Card("Activity","The last "+60+" messages this phone sent to your chats. Errors say what went wrong.",seg,box);
+};
+
+// ---------- shell ----------
+const NAV=[["overview","Overview","home"],["chats","Chats","chat"],["rules","Rules","rules"],["messages","Messages","msg"],["activity","Activity","log"]];
+function buildNav(){
+  const side=$("#nav"),tabs=$("#tabs");side.replaceChildren();tabs.replaceChildren();
+  for(const [id,label,ic] of NAV){
+    const a=h("button",{class:"nav",type:"button","data-p":id,onclick:()=>go_(id)},svg(ICON[ic]),label,id==="chats"?h("span",{class:"n",id:"chatn"},"0"):null);
+    side.append(a);
+    tabs.append(h("button",{type:"button","data-p":id,onclick:()=>go_(id)},svg(ICON[ic]),label));
+  }
+}
+function go_(p){if(!PAGES[p])p="overview";location.hash=p;show(p)}
+function show(p){
+  page=p;subs=[];const sc=$("#screens");sc.replaceChildren();
+  document.querySelectorAll("[data-p]").forEach(b=>b.getAttribute("data-p")===p?b.setAttribute("aria-current","page"):b.removeAttribute("aria-current"));
+  const label=NAV.find(n=>n[0]===p)[1];$("#title").textContent=label;document.title=label+" · Walk with friends";
+  const el=h("div",{class:"screen on"});sc.append(el);
+  subs.push(()=>{const n=$("#chatn");if(n)n.textContent=S.chats.length});
+  el.append(PAGES[p]());subs.forEach(f=>f());window.scrollTo(0,0);
+}
+function setConn(kind,text){const c=$("#conn");c.replaceChildren(h("i",{class:"dot "+kind}),h("span",null,text))}
+function foot(){$("#sidefoot").replaceChildren(h("div",{class:"dim small"},"Connected to"),h("b",null,S?S.device:"…"),h("div",{class:"dim small"},S?(S.enabled?"Announcing walks":"Announcements off"):""))}
+async function poll(first){
+  try{const s=await call("/state");const wasLost=$("#conn .dot").classList.contains("lost");setConn("", "Connected · "+s.device);
+    if(first){$("#lock").hidden=true;buildNav();setState(s);show(location.hash.slice(1)||"overview")}else if(wasLost||changed(s)){setState(s)}else{S=s;skew=s.now-Date.now()}foot()}
+  catch(e){if(e.status===404){$("#lock").hidden=false;$("#screens").hidden=true;$("#lock").replaceChildren(h("h2",null,"This is part of Ultimate+"),h("p",{class:"dim"},"Install the Ultimate+ edition on the phone to use Walk with friends. "+e.message));setConn("off","Not available");return}
+    setConn("lost",first?"Can't reach the phone":"Reconnecting…");if(first)$("#lock").hidden=false,$("#lock").replaceChildren(h("h2",null,"Can't reach the phone"),h("p",{class:"dim"},e.message),h("div",null,h("button",{class:"btn pri",type:"button",onclick:()=>poll(true)},"Try again")))}
+}
+let lastKey="";
+function changed(s){const k=JSON.stringify([s.name,s.enabled,s.chats,s.log,s.templates,s.askFirst,s.steadyMinutes,s.cooldownMinutes,s.quietOn,s.quietFromMin,s.quietToMin,s.summary,s.privateUntil]);const c=k!==lastKey;lastKey=k;return c}
+window.addEventListener("hashchange",()=>{const p=location.hash.slice(1);if(S&&PAGES[p]&&p!==page)show(p)});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)poll(false)});
+poll(true);
+setInterval(()=>{if(!document.hidden)poll(false)},5000);
+// a short-lived re-render keeps "ago" text fresh without hitting the phone
+setInterval(()=>{if(S&&!document.hidden)subs.forEach(f=>f())},30000);
+</script>
+</body>
+</html>

@@ -12,9 +12,6 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** A chat the owner announces walks to. [target] holds the secret link or token; it is only ever stored sealed. */
-data class Circle(val id: String, val target: Target)
-
 /**
  * What the friends feature remembers: the owner's circles (their links and tokens sealed with a key that lives in the phone's
  * hardware-backed Keystore and never leaves it), the display name, and the choices. Everything is off until switched on.
@@ -33,6 +30,17 @@ class FriendsStore(context: Context) {
     var summaryDistance: Boolean
         get() = prefs.getBoolean("summaryDistance", false)
         set(v) { prefs.edit().putBoolean("summaryDistance", v).apply() }
+
+    /** The owner's own wording for the two messages; blank means the usual wording (see [Templates]). */
+    var templateStart: String
+        get() = prefs.getString("tplStart", "") ?: ""
+        set(v) { prefs.edit().putString("tplStart", v.take(Templates.MAX)).apply() }
+    var templateFinish: String
+        get() = prefs.getString("tplFinish", "") ?: ""
+        set(v) { prefs.edit().putString("tplFinish", v.take(Templates.MAX)).apply() }
+
+    fun log(): List<LogEntry> = ActivityLog.decode(prefs.getString("log", null))
+    fun record(e: LogEntry) = synchronized(LOCK) { prefs.edit().putString("log", ActivityLog.encode(ActivityLog.add(log(), e))).apply() }
 
     var settings: AnnounceSettings
         get() = AnnounceSettings(
@@ -97,5 +105,5 @@ class FriendsStore(context: Context) {
         }.generateKey()
     }
 
-    private companion object { const val ALIAS = "ultimate-friends-circles"; const val TRANSFORM = "AES/GCM/NoPadding" }
+    private companion object { val LOCK = Any(); const val ALIAS = "ultimate-friends-circles"; const val TRANSFORM = "AES/GCM/NoPadding" }
 }

@@ -8,8 +8,8 @@
 
 | | |
 | --- | --- |
-| Version | **2.22.0**, build (versionCode) **144** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
-| Watch app | **1.8.0**, versionCode **9** (`wear/build.gradle.kts`); it also ships inside the phone app, which installs it on the watch |
+| Version | **2.23.0**, build (versionCode) **145** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
+| Watch app | **1.9.0**, versionCode **10** (`wear/build.gradle.kts`); it also ships inside the phone app, which installs it on the watch |
 | Source commit of this version | `76b5f27e68cb7c079f86087862b3ea84013e3dd2` (branch `claude/spatial`, pull request #24); the code is unchanged since. This file and the release tooling were added on top, and `main` contains all of it after the merge of #24. `git log -1 --format=%H -- app/build.gradle.kts` on `main` shows the exact commit |
 | Package | `app.ultimate.plus` (Ultimate+), `app.ultimate` (Ultimate, offline); other editions below |
 | SDK | minSdk 29 (Android 10), targetSdk 35, compileSdk 35 |

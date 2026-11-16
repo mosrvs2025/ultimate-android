@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -213,41 +214,64 @@ class MovementTool(private val host: UltimateApp) : Tool {
 
     @Composable private fun RecordScreen(live: MovementRecorder.Live, onSaved: (String?) -> Unit) {
         val r = live.report
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // The clock counts by itself from the moment recording started, on the exact second, whatever the analysis is doing.
-            var nowS by remember { mutableStateOf(live.elapsedS) }
-            LaunchedEffect(live.startedRealtime) {
-                if (live.startedRealtime == 0L) return@LaunchedEffect
-                while (true) {
-                    val ms = android.os.SystemClock.elapsedRealtime() - live.startedRealtime
-                    nowS = ms / 1000.0
-                    kotlinx.coroutines.delay(1_000 - ms % 1_000 + 5)
+        val scroll = rememberScrollState()
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        // The clock counts by itself from the moment recording started, on the exact second, whatever the analysis is doing.
+        var nowS by remember { mutableStateOf(live.elapsedS) }
+        LaunchedEffect(live.startedRealtime) {
+            if (live.startedRealtime == 0L) return@LaunchedEffect
+            while (true) {
+                val ms = android.os.SystemClock.elapsedRealtime() - live.startedRealtime
+                nowS = ms / 1000.0
+                kotlinx.coroutines.delay(1_000 - ms % 1_000 + 5)
+            }
+        }
+        val clock = fmtTime(if (live.startedRealtime != 0L) nowS else live.elapsedS)
+        val d = r?.distance
+        val bpm by app.ultimate.health.LiveHeart.bpm.collectAsState()
+        val heart = bpm?.takeIf { System.currentTimeMillis() - it.second < 45_000 }?.first
+        // Once the big clock has scrolled away, a slim copy stays at the top, so looking at the sensors never loses the time.
+        val bigClockGone = scroll.value > with(density) { 96.dp.toPx() }
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(clock, color = Color.White, fontSize = 52.sp, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Metric("Distance", d?.let { fmtDist(it.value) } ?: "—", d?.let { "± ${fmtDist(2 * it.sigma)}" } ?: "waiting", Modifier.weight(1f))
+                    Metric("Speed", r?.speeds?.lastOrNull()?.let { "%.1f km/h".format(it.metresPerSecond * 3.6) } ?: "—", r?.gait?.lastOrNull()?.gait?.label ?: "", Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Metric("Steps", r?.steps?.let { "%.0f".format(it.value) } ?: "—", r?.cadence?.let { "%.0f a minute".format(it.value) } ?: "", Modifier.weight(1f))
+                    Metric("Laps", "${r?.laps?.size ?: 0}", "${r?.turns?.size ?: 0} turns", Modifier.weight(1f))
+                }
+                WatchSyncLive(live)
+                app.ultimate.fusion.WatchBout.note(live.earlySeconds, live.earlyWatchSteps)?.let { Text(it, color = WorldColors.dim, fontSize = 12.sp, lineHeight = 16.sp) }
+                Card("Where you are") {
+                    LiveMap(r?.path, live.fix, live = true, modifier = Modifier.fillMaxWidth().height(if (Liquid.compact()) 300.dp else 360.dp))
+                    Text("Glows by pace: teal easy, violet steady, amber fast. Pinch, drag and twist; double-tap to follow you again; 3D lifts the route by height.",
+                        color = WorldColors.dim, fontSize = 11.sp, lineHeight = 15.sp)
+                }
+                Card("Sensors") {
+                    val g = live.gps
+                    Text("GPS: " + if (!g.enabled) "off or no signal" else g.accuracyM?.let { "±${"%.0f".format(it)} m, ${g.fixes} fixes" } ?: "searching…", color = Color.White, fontSize = 13.sp)
+                    Text("Recorded ${"%.1f".format(live.bytes / 1_000_000.0)} MB so far" + if (live.busy) " · analysing…" else "", color = WorldColors.dim, fontSize = 12.sp)
+                    r?.fusion?.contradictions?.firstOrNull()?.let { Text(it.text, color = WorldColors.amber, fontSize = 12.sp) }
+                    Text("Numbers here are live and rough; the review after you stop uses everything recorded.", color = WorldColors.dim, fontSize = 12.sp)
                 }
             }
-            Text(fmtTime(if (live.startedRealtime != 0L) nowS else live.elapsedS), color = Color.White, fontSize = 52.sp, fontWeight = FontWeight.Bold)
-            val d = r?.distance
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Metric("Distance", d?.let { fmtDist(it.value) } ?: "—", d?.let { "± ${fmtDist(2 * it.sigma)}" } ?: "waiting", Modifier.weight(1f))
-                Metric("Speed", r?.speeds?.lastOrNull()?.let { "%.1f km/h".format(it.metresPerSecond * 3.6) } ?: "—", r?.gait?.lastOrNull()?.gait?.label ?: "", Modifier.weight(1f))
+            androidx.compose.animation.AnimatedVisibility(bigClockGone, Modifier.align(Alignment.TopCenter), enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { -it }, exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically { -it }) {
+                Row(Modifier.fillMaxWidth().background(Liquid.bg.copy(alpha = 0.94f)).padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(clock, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text(d?.let { fmtDist(it.value) } ?: "—", color = WorldColors.dim, fontSize = 15.sp)
+                    r?.speeds?.lastOrNull()?.let { Text("%.1f km/h".format(it.metresPerSecond * 3.6), color = WorldColors.dim, fontSize = 15.sp) }
+                    heart?.let { Text("♥ $it", color = WorldColors.amber, fontSize = 15.sp) }
+                }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Metric("Steps", r?.steps?.let { "%.0f".format(it.value) } ?: "—", r?.cadence?.let { "%.0f a minute".format(it.value) } ?: "", Modifier.weight(1f))
-                Metric("Laps", "${r?.laps?.size ?: 0}", "${r?.turns?.size ?: 0} turns", Modifier.weight(1f))
+            // Stop never scrolls away: it is right here however far down the sensors you have looked.
+            Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Liquid.bg))).padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (!bigClockGone) Column { Text(clock, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold); heart?.let { Text("♥ $it", color = WorldColors.amber, fontSize = 12.sp) } }
+                LiquidButton("Stop and review", { onSaved(recorder.stop()) }, Modifier.weight(1f), danger = true)
             }
-            WatchSyncLive(live)
-            Card("Where you are") {
-                LiveMap(r?.path, live.fix, live = true, modifier = Modifier.fillMaxWidth().height(if (Liquid.compact()) 300.dp else 360.dp))
-                Text("Glows by pace: teal easy, violet steady, amber fast. Pinch, drag and twist; double-tap to follow you again; 3D lifts the route by height.",
-                    color = WorldColors.dim, fontSize = 11.sp, lineHeight = 15.sp)
-            }
-            Card("Sensors") {
-                val g = live.gps
-                Text("GPS: " + if (!g.enabled) "off or no signal" else g.accuracyM?.let { "±${"%.0f".format(it)} m, ${g.fixes} fixes" } ?: "searching…", color = Color.White, fontSize = 13.sp)
-                Text("Recorded ${"%.1f".format(live.bytes / 1_000_000.0)} MB so far" + if (live.busy) " · analysing…" else "", color = WorldColors.dim, fontSize = 12.sp)
-                r?.fusion?.contradictions?.firstOrNull()?.let { Text(it.text, color = WorldColors.amber, fontSize = 12.sp) }
-                Text("Numbers here are live and rough; the review after you stop uses everything recorded.", color = WorldColors.dim, fontSize = 12.sp)
-            }
-            LiquidButton("Stop and review", { onSaved(recorder.stop()) }, Modifier.fillMaxWidth(), danger = true)
         }
     }
 
@@ -298,6 +322,8 @@ class MovementTool(private val host: UltimateApp) : Tool {
         val pad = Liquid.gutter()
         Column(Modifier.fillMaxSize().background(Liquid.bg).verticalScroll(rememberScrollState()).padding(pad), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Headline(entry, r)
+            PlaceCard(entry, r)
+            ConditionsCard(entry, r)
             r.path?.let { p -> Card("Where you went") {
                 LiveMap(p, null, live = false, modifier = Modifier.fillMaxWidth().height(if (Liquid.compact()) 280.dp else 340.dp), scrub = scrub)
                 Legend()
@@ -320,6 +346,62 @@ class MovementTool(private val host: UltimateApp) : Tool {
     private fun motionOf(t: Trace): String {
         val g = runCatching { Pdr.run(t.imu).windows.groupBy { it.gait }.mapValues { (_, v) -> v.size } }.getOrDefault(emptyMap())
         return if ((g[Gait.Running] ?: 0) > (g[Gait.Walking] ?: 0)) "run" else "walk"
+    }
+
+    /** "Backyard loop · 3rd visit · pace 8% faster than usual", or, the second time you walk the same ground, an offer to name it. */
+    @Composable private fun PlaceCard(entry: MovementStore.Entry?, r: MovementReport) {
+        val id = entry?.id ?: return
+        val ctx = LocalContext.current
+        val store = remember { BlueprintStore(ctx) }
+        var outcome by remember(id) { mutableStateOf<app.ultimate.fusion.Blueprints.Outcome?>(null) }
+        LaunchedEffect(id) { outcome = withContext(Dispatchers.IO) { store.see(id, r) } }
+        when (val o = outcome) {
+            is app.ultimate.fusion.Blueprints.Outcome.Visit -> Card(o.place.name, WorldColors.violet) {
+                Text("${app.ultimate.fusion.Blueprints.ordinal(o.visit)} time here." + (app.ultimate.fusion.Blueprints.paceWords(o.pace)?.let { " $it" } ?: ""), color = Color.White, fontSize = 14.sp)
+            }
+            is app.ultimate.fusion.Blueprints.Outcome.Offer -> {
+                var name by remember { mutableStateOf("") }
+                Card("You've been here before", WorldColors.violet) {
+                    Text("This walk covered the same ground as an earlier one. Name the place and Ultimate will recognise it from now on and compare your pace each time. Only squares of ground and a few totals are kept, on this phone.", color = WorldColors.dim, fontSize = 13.sp, lineHeight = 18.sp)
+                    app.ultimate.core.LiquidInput(name, { name = it }, "For example: Backyard loop", { if (name.isNotBlank()) outcome = store.name(o.place.id, name, id) }, sendLabel = "Name it", sendEnabled = name.isNotBlank())
+                    Text("Not this time", color = WorldColors.dim, fontSize = 13.sp, modifier = Modifier.clickable { store.decline(o.place.id); outcome = app.ultimate.fusion.Blueprints.Outcome.Nothing })
+                }
+            }
+            else -> Unit
+        }
+    }
+
+    /** The weather and air quality for the hour of the walk, added only if the owner has allowed asking for it. */
+    @Composable private fun ConditionsCard(entry: MovementStore.Entry?, r: MovementReport) {
+        val e = entry ?: return
+        val anchor = r.path?.anchor ?: return
+        val ctx = LocalContext.current
+        val store = remember { ConditionsStore(ctx) }
+        var allowed by remember { mutableStateOf(store.allowed) }
+        var snap by remember(e.id) { mutableStateOf(store.saved(e.id)) }
+        var state by remember(e.id) { mutableStateOf(if (snap != null) "done" else "idle") }
+        LaunchedEffect(e.id, allowed) {
+            if (allowed == true && snap == null) {
+                state = "loading"
+                snap = withContext(Dispatchers.IO) { store.fetch(e.id, anchor[0], anchor[1], e.startedAt) }
+                state = if (snap != null) "done" else "none"
+            }
+        }
+        val s = snap
+        when {
+            s != null -> Card("In the air", WorldColors.teal) { Text(app.ultimate.fusion.Conditions.words(s), color = Color.White, fontSize = 14.sp, lineHeight = 20.sp)
+                Text("From Open-Meteo for roughly where and when you walked. Your phone and watch can't measure this themselves.", color = WorldColors.dim, fontSize = 11.sp) }
+            allowed == null -> Card("Weather and air quality", WorldColors.teal) {
+                Text("Add the temperature, humidity, wind and air quality at the time of this walk? Your phone has no sensor for most of this, so it is looked up from the free Open-Meteo service. Your location is rounded to about a kilometre and sent to them; nothing else is.", color = WorldColors.dim, fontSize = 13.sp, lineHeight = 18.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("Add it", color = WorldColors.teal, fontSize = 14.sp, modifier = Modifier.clickable { store.allowed = true; allowed = true })
+                    Text("No thanks", color = WorldColors.dim, fontSize = 14.sp, modifier = Modifier.clickable { store.allowed = false; allowed = false })
+                }
+            }
+            allowed == true && state == "loading" -> Card("In the air", WorldColors.teal) { Text("Looking up the conditions…", color = WorldColors.dim, fontSize = 13.sp) }
+            allowed == true && state == "none" -> Card("In the air", WorldColors.teal) { Text("No weather data was available for this walk (no connection, or it is older than two weeks).", color = WorldColors.dim, fontSize = 13.sp) }
+            else -> Unit
+        }
     }
 
     @Composable private fun Headline(e: MovementStore.Entry?, r: MovementReport) {
