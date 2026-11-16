@@ -66,5 +66,9 @@ object Cmd {
     const val FLING_END = "fling.end"
     /** Asks a device whose owner has shared its camera for its newest picture, a piece at a time (see [CamFrames]). */
     const val CAM_FRAME = "cam.frame"
+    /** Live video and sound: a viewer's offer in pieces, then the answer fetched in pieces, then goodbye (see [RtcSignal]). */
+    const val RTC_OFFER = "rtc.offer"
+    const val RTC_ANSWER = "rtc.answer"
+    const val RTC_BYE = "rtc.bye"
     val FLING = setOf(FLING_APP, FLING_TEXT, FLING_BEGIN, FLING_CHUNK, FLING_END)
 }
