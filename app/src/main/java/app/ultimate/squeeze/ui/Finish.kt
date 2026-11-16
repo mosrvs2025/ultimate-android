@@ -99,11 +99,17 @@ fun ProgressHero(queue: QueueState) {
     val saved = percentSaved(before, sizeNow)
     val dark = Color.Black.copy(alpha = 0.62f)
 
+    val flipbook = rememberFlipbook(running?.uri, running?.source?.durationMs ?: 0)
+    val flipPosition = rememberFlipPosition(flipbook?.size ?: 0)
+    val videoShown by animateFloatAsState(live?.progress ?: 0f, tween(450, easing = LinearEasing), label = "videoProgress")
+
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), shape = RoundedCornerShape(28.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // The frame being squeezed, with a light sweeping down it as it encodes.
             Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(20.dp)).background(Color.Black)) {
-                running?.let { VideoThumb(it.uri, Modifier.fillMaxSize(), it.source.durationMs) }
+                // Frames from across the whole clip flip past like a fast-forward; if they can't be read, the single still stays.
+                if (flipbook != null) FlipbookFrames(flipbook, flipPosition, squeeze = eased)
+                else running?.let { VideoThumb(it.uri, Modifier.fillMaxSize(), it.source.durationMs) }
                 Canvas(Modifier.fillMaxSize()) {
                     val y = size.height * shimmer.value; val band = size.height * 0.28f
                     drawRect(Brush.verticalGradient(listOf(Color.Transparent, primary.copy(alpha = 0.55f), Color.Transparent), startY = y - band, endY = y + band), topLeft = Offset(0f, y - band), size = Size(size.width, band * 2))
@@ -115,6 +121,7 @@ fun ProgressHero(queue: QueueState) {
                     transitionSpec = { (slideInVertically { it / 2 } + fadeIn()) togetherWith (slideOutVertically { -it / 2 } + fadeOut()) }, label = "message",
                 ) { Text(it, Modifier.clip(RoundedCornerShape(50)).background(dark).padding(horizontal = 12.dp, vertical = 5.dp), color = Color.White, style = MaterialTheme.typography.labelMedium) }
             }
+            if (flipbook != null && flipbook.size > 1) FilmStrip(flipbook, flipPosition, videoShown, primary, Modifier.fillMaxWidth().height(34.dp).clip(RoundedCornerShape(10.dp)))
             // The number that matters, falling as it goes.
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(formatBytes(before), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough)
