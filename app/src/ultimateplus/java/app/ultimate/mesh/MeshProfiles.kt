@@ -21,7 +21,7 @@ object MeshProfiles {
     @Volatile private var hardware: DeviceProfile? = null
 
     /** The hardware part is read once; only the owner's lend choice changes afterwards. */
-    fun local(c: Context, lends: Boolean): DeviceProfile = (hardware ?: read(c).also { hardware = it }).copy(lends = lends, camOn = lends && CameraNode.armed.value)
+    fun local(c: Context, lends: Boolean): DeviceProfile = (hardware ?: read(c).also { hardware = it }).copy(lends = lends, camOn = lends && CameraNode.armed.value, rtc = lends && CameraNode.armed.value)
 
     private fun read(c: Context): DeviceProfile {
         val lends = false

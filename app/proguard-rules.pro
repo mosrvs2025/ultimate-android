@@ -52,3 +52,7 @@
 
 # The Health screen's camera workout counter registers itself by name.
 -keep class app.ultimate.vision.WorkoutCameraInstall { *; }
+
+# WebRTC is reached from native code, so its classes must not be renamed or removed.
+-keep class org.webrtc.** { *; }
+-dontwarn org.webrtc.**

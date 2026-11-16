@@ -123,7 +123,7 @@
         </activity>
         <service android:name="app.ultimate.spatial.SpatialService" android:exported="false" android:foregroundServiceType="connectedDevice|location" />
         <!-- Air mode: the camera watches your hand while you use other apps (started only from Air control, with Stop in its notification). -->
-        <service android:name="app.ultimate.vision.AirModeService" android:exported="false" android:foregroundServiceType="camera" />
+        <service android:name="app.ultimate.vision.AirModeService" android:exported="false" android:foregroundServiceType="camera|microphone" />
         <!-- Air mode's cursor and taps, in any app; turned on by you in Settings → Accessibility. -->
         <service android:name="app.ultimate.vision.AirCursorService" android:exported="true" android:label="Ultimate Air mode"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
@@ -302,7 +302,7 @@
         <!-- Movement recording: keeps the sensors and GPS running with the screen off; shown with Stop the whole time. -->
         <service android:name=".movement.MovementService" android:exported="false" android:foregroundServiceType="location" />
         <service android:name=".mesh.MeshService" android:exported="false" android:foregroundServiceType="connectedDevice|microphone" />
-        <service android:name=".mesh.CameraNodeService" android:exported="false" android:foregroundServiceType="camera" />
+        <service android:name=".mesh.CameraNodeService" android:exported="false" android:foregroundServiceType="camera|microphone" />
         <service
             android:name=".echo.EchoService"
             android:exported="false"

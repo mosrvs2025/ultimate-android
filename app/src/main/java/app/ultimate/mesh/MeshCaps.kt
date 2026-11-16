@@ -21,7 +21,7 @@ enum class Kind(val key: String, val label: String) {
  * use this one's sensors and speaker; it is off until they switch it on, and a device that is not lending is
  * never asked to record or play a sound however capable it is.
  */
-data class DeviceProfile(val model: String, val kind: Kind, val caps: Set<Cap>, val lends: Boolean, val app: String = "", val camOn: Boolean = false) {
+data class DeviceProfile(val model: String, val kind: Kind, val caps: Set<Cap>, val lends: Boolean, val app: String = "", val camOn: Boolean = false, val rtc: Boolean = false) {
     val canRecordMotion get() = lends && Cap.Motion in caps
     /** Distance by sound needs a speaker, a microphone, and both able to reach near-ultrasound (the phone's own report). */
     val canRange get() = lends && Cap.Mic in caps && Cap.Speaker in caps && Cap.NearUltrasound in caps
@@ -30,6 +30,7 @@ data class DeviceProfile(val model: String, val kind: Kind, val caps: Set<Cap>, 
         put("model", model); put("kind", kind.key); put("caps", caps.joinToString(",") { it.key }); put("lends", if (lends) "1" else "0")
         if (app.isNotEmpty()) put("app", app)
         if (camOn) put("camon", "1")
+        if (rtc) put("rtc", "1")
     }
 
     /** One line for people: "foldable · motion sensors, microphone, speaker". */
@@ -40,7 +41,7 @@ data class DeviceProfile(val model: String, val kind: Kind, val caps: Set<Cap>, 
         fun fromPayload(p: Map<String, String>) = DeviceProfile(
             model = p["model"] ?: "?", kind = Kind.of(p["kind"]),
             caps = (p["caps"] ?: "").split(',').mapNotNull { k -> Cap.entries.firstOrNull { it.key == k } }.toSet(),
-            lends = p["lends"] == "1", app = p["app"] ?: "", camOn = p["camon"] == "1",
+            lends = p["lends"] == "1", app = p["app"] ?: "", camOn = p["camon"] == "1", rtc = p["rtc"] == "1",
         )
     }
 }
@@ -66,5 +67,9 @@ object Cmd {
     const val FLING_END = "fling.end"
     /** Asks a device whose owner has shared its camera for its newest picture, a piece at a time (see [CamFrames]). */
     const val CAM_FRAME = "cam.frame"
+    /** Live video and sound: a viewer's offer in pieces, then the answer fetched in pieces, then goodbye (see [RtcSignal]). */
+    const val RTC_OFFER = "rtc.offer"
+    const val RTC_ANSWER = "rtc.answer"
+    const val RTC_BYE = "rtc.bye"
     val FLING = setOf(FLING_APP, FLING_TEXT, FLING_BEGIN, FLING_CHUNK, FLING_END)
 }

@@ -83,6 +83,7 @@ class MeshTool(context: Context) : Tool {
         }
         val askAudioForLend = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { manager.setLends(true) }
         val camShared by CameraNode.armed.collectAsState()
+        var stunOn by remember { mutableStateOf(manager.store.stun) }
         val askCameraForShare = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) CameraNode.arm(context) }
         val askBluetooth = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { manager.startBluetooth() }
         val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { manager.start(code) }
@@ -121,7 +122,7 @@ class MeshTool(context: Context) : Tool {
                 } else {
                     item { ThisPhone(s, showCode, { showCode = !showCode },
                         onLend = { on -> if (on && !hasAudio()) askAudioForLend.launch(Manifest.permission.RECORD_AUDIO) else manager.setLends(on) },
-                        camShared = camShared,
+                        camShared = camShared, stun = stunOn, onStun = { on -> manager.store.stun = on; stunOn = on },
                         onCam = { on -> if (!on) CameraNode.disarm(context) else if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) CameraNode.arm(context) else askCameraForShare.launch(Manifest.permission.CAMERA) },
                         onStopRecording = { manager.stopLocalRecording() },
                         onAccept = { manager.setAccepts(it) },
@@ -184,7 +185,7 @@ class MeshTool(context: Context) : Tool {
         }
     }
 
-    @Composable private fun ThisPhone(s: MeshManager.State, showCode: Boolean, onToggleCode: () -> Unit, onLend: (Boolean) -> Unit, onStopRecording: () -> Unit, onBluetooth: () -> Unit, onAccept: (Boolean) -> Unit = {}, camShared: Boolean = false, onCam: (Boolean) -> Unit = {}) {
+    @Composable private fun ThisPhone(s: MeshManager.State, showCode: Boolean, onToggleCode: () -> Unit, onLend: (Boolean) -> Unit, onStopRecording: () -> Unit, onBluetooth: () -> Unit, onAccept: (Boolean) -> Unit = {}, camShared: Boolean = false, onCam: (Boolean) -> Unit = {}, stun: Boolean = true, onStun: (Boolean) -> Unit = {}) {
         Column(Modifier.fillMaxWidth().padding(16.dp, 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("This phone: ${s.selfName}", style = MaterialTheme.typography.titleSmall)
             Text(s.profile.describe(), style = MaterialTheme.typography.bodySmall)
@@ -203,6 +204,14 @@ class MeshTool(context: Context) : Tool {
                         else "On: your paired devices can look through the back camera now. Switch off, or tap Stop in the notification, to end it.", style = MaterialTheme.typography.labelSmall)
                 }
                 Switch(camShared, onCam, enabled = s.lends)
+            }
+            if (Cap.Camera in s.profile.caps) Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Live video across different networks", style = MaterialTheme.typography.bodyMedium)
+                    Text("Asks free public servers (Google's STUN) for this device's outside address so live video and sound can connect when your devices are on different networks. Those servers see the address and nothing else, never the picture or sound. Off, live video works only on one network, and otherwise you get still pictures.",
+                        style = MaterialTheme.typography.labelSmall)
+                }
+                Switch(stun, onStun)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
