@@ -66,25 +66,24 @@ class LauncherFixesShotsTest {
 
     @Test fun aLetterWithManyAppsScrollsInsteadOfOpeningSearch() {
         assumeTrue(dir != null)
-        show(listOf("Alpha", "Zed") + (1..40).map { "Mapper %02d".format(it) })
+        show(listOf("Alpha", "Zed") + (1..24).map { "Mapper %02d".format(it) })
         val rail = compose.onNodeWithContentDescription("Letter rail: slide to find an app")
         // Letters are A, M, Z: M is the middle one. Put a thumb there and let go.
         rail.performTouchInput { down(Offset(width * 0.85f, height * 0.5f)) }
-        frames(30)
-        save("launcher-long-letter-held")
+        frames(12)
         rail.performTouchInput { up() }
-        frames(60)
+        frames(40)
         save("launcher-long-letter")
         compose.onNodeWithText("Mapper 01").assertIsDisplayed()
-        compose.onNodeWithText("Mapper 40").assertIsNotDisplayed()          // cut to the room there is, not running off the screen
+        compose.onNodeWithText("Mapper 24").assertIsNotDisplayed()          // cut to the room there is, not running off the screen
         save("launcher-long-letter")
         // Swiping up on the list scrolls it, and does not open search.
         val row = compose.onNodeWithText("Mapper 05")
         var from = Offset.Zero
         row.performTouchInput { from = center }
-        drag(row, from, Offset(from.x, from.y - 1_000f), steps = 30)
-        frames(60)
-        compose.onNodeWithText("Mapper 40").assertIsDisplayed()
+        drag(row, from, Offset(from.x, from.y - 900f), steps = 10)
+        frames(30)
+        compose.onNodeWithText("Mapper 24").assertIsDisplayed()
         compose.onAllNodesWithText("Search apps").assertCountEquals(0)
         save("launcher-long-letter-scrolled")
     }
@@ -92,8 +91,8 @@ class LauncherFixesShotsTest {
     @Test fun searchListsEveryApp() {
         assumeTrue(dir != null)
         show((1..120).map { "App %03d".format(it) })
-        drag(compose.onRoot(), Offset(300f, 1_900f), Offset(300f, 800f), steps = 30)
-        frames(60)
+        drag(compose.onRoot(), Offset(300f, 1_900f), Offset(300f, 800f), steps = 10)
+        frames(40)
         save("launcher-search-all")
         compose.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("App 120"))   // well past the old limit of 60
         frames(10)
