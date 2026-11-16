@@ -17,7 +17,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,8 +52,10 @@ fun CameraPip(server: SendServer, modifier: Modifier = Modifier) {
     LaunchedEffect(s == null) { if (s == null) hidden = false }
     if (s == null || hidden) return
     // Pictures arrive several times a second; they are shrunk as they are read, which is plenty for a window this size.
-    val bmp: ImageBitmap? by produceState<ImageBitmap?>(null, s.at) {
-        value = withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(s.frame, 0, s.frame.size, BitmapFactory.Options().apply { inSampleSize = 2 })?.asImageBitmap() } ?: value
+    var bmp by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(s.at) {
+        val decoded = withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(s.frame, 0, s.frame.size, BitmapFactory.Options().apply { inSampleSize = 2 })?.asImageBitmap() }
+        if (decoded != null) bmp = decoded          // a picture that fails to read leaves the last good one showing
     }
     val b = bmp ?: return
     Box(modifier.offset { IntOffset(drag.x.roundToInt(), drag.y.roundToInt()) }.width(if (big) 230.dp else 128.dp)
