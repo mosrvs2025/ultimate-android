@@ -81,7 +81,7 @@
         <activity android:name="app.ultimate.launcher.HomeActivity" android:exported="true" android:launchMode="singleTask" android:stateNotNeeded="true"
             android:excludeFromRecents="true" android:clearTaskOnLaunch="true" android:resumeWhilePausing="true" android:taskAffinity="app.ultimate.home"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation" android:windowSoftInputMode="adjustResize"
-            android:theme="@style/Theme.Ultimate" android:label="Ultimate Home">
+            android:theme="@style/Theme.Ultimate.Home" android:label="Ultimate Home">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
