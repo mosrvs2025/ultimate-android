@@ -62,6 +62,11 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("2.26.1", listOf(
+            "Squeeze, new look while it works: the picture on the progress card used to be one still frame. Now it plays through the whole video like a fast-forward flipbook, with a faint trail behind each frame, light scanlines, and a slight pinch inwards as the squeezing advances. A strip of small frames sits under it and lights up as each part of the video is done.",
+            "How it works: 12 small frames are taken evenly across the video when a squeeze starts (not just the opening), shrunk to at most 320 pixels so they use about 3 MB, and thrown away when the squeeze ends or you leave the screen. If the frames can't be read, you get the single picture as before. The squeeze itself is unchanged.",
+            "Tested with unit tests (which moments of a video are picked, frame size and rotation, the blending between frames). Not yet tried on a real phone: how smooth it looks while a real squeeze is running, and a video that can't be read.",
+        ), tries = listOf("squeeze")),
         Entry("2.26.0", listOf(
             "New: live video and sound between your devices. Watch camera in Octopus Mesh now makes a real live call (WebRTC) to the device that shares its camera, with its sound, instead of still pictures. The picture shows in the camera window on the recording screen and on the Cameras page (a computer's browser or the Quest sees it as smooth live pictures, about twelve a second). If the live call can't connect, or the other device is on the older version, you get the still pictures as before, and a notice says why.",
             "Same rules as before, because they matter more now: the camera and microphone are shared only after you switch that on, on that device's own screen; a notification stays up while it is shared, says who is watching and has Stop on it; only devices paired with your mesh code can connect, and the video and sound are encrypted. The microphone is used only if that device has allowed it. There is no hidden mode.",
