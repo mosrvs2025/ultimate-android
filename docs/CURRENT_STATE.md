@@ -8,7 +8,7 @@
 
 | | |
 | --- | --- |
-| Version | **2.26.1**, build (versionCode) **149** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
+| Version | **2.27.0**, build (versionCode) **150** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
 | Watch app | **1.9.0**, versionCode **10** (`wear/build.gradle.kts`); it also ships inside the phone app, which installs it on the watch |
 | Source commit of this version | `76b5f27e68cb7c079f86087862b3ea84013e3dd2` (branch `claude/spatial`, pull request #24); the code is unchanged since. This file and the release tooling were added on top, and `main` contains all of it after the merge of #24. `git log -1 --format=%H -- app/build.gradle.kts` on `main` shows the exact commit |
 | Package | `app.ultimate.plus` (Ultimate+), `app.ultimate` (Ultimate, offline); other editions below |
@@ -207,6 +207,7 @@ map, places, capabilities). Output is zones and similarities, never metres.
   patterns), Days (search every record), Patterns and Privacy (`footprint/`), "About me" for any AI.
 - **Health** (`health/`): Health Connect reader, `HealthInsights` (correlations between health data and phone use),
   `HeartWatch` (high/calm heart-rate moments published as `body:*` signals), `LiveHeart`.
+  Daily activity (2.27.0): `ActivityMath` (pure: active minutes, walks, usual day, pace, week), `ActivityData` (Health Connect reads and an on-phone cache of finished days), `ActivityScreen` (You → Activity and the Home card); design notes in `docs/ACTIVITY.md`.
 - **Home** (`home/`): Body pulse strip, time-of-day tool ranking (`HomeLayout`), insight cards.
 - **Notifications and clipboard**: logs with fate and sender analysis (`inbox/`, `insights/`), `Focus`, `Screen time`.
 - **Search** (`search/`): command palette across apps, people, messages, files and tools; verbs like "play" and "open"
