@@ -5,7 +5,10 @@ import app.ultimate.context.MotionSampler
 import app.ultimate.context.UiMorph
 import androidx.compose.foundation.layout.fillMaxHeight
 import app.ultimate.R
+import app.ultimate.health.ActivityHomeCard
+import app.ultimate.health.ActivityLoaded
 import app.ultimate.health.BodyPulse
+import app.ultimate.health.rememberActivityFeed
 import app.ultimate.BuildConfig
 import app.ultimate.insights.InsightsSheet
 import app.ultimate.core.appear
@@ -147,6 +150,8 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
     // Four columns: favorites take two each, every other tool one, and headers, search and results the full row.
     // Tablets get more columns, so tools sit four or more to a row instead of stretching.
     val cols = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.let { if (it >= 1000) 10 else if (it >= 840) 8 else if (it >= 600) 6 else 4 }
+    // Today's rings, kept fresh while Home is up. The card appears only once there is real data to show.
+    val activity = rememberActivityFeed().data
     LazyVerticalGrid(
         GridCells.Fixed(cols), Modifier.padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -160,6 +165,9 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
         }
         item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
         item(key = "body-pulse", span = { GridItemSpan(maxLineSpan) }) { BodyPulse(app) }
+        if (activity?.status == ActivityLoaded.Status.Ready && activity.day != null) item(key = "activity-card", span = { GridItemSpan(maxLineSpan) }) {
+            ActivityHomeCard(activity) { app.insights.count("home.activity"); app.tools.firstOrNull { it.id == "timeline" }?.let { app.shell.open(it, ToolLaunch(source = "activity")) } }
+        }
         if (fresh.isNotEmpty()) item(key = "new-for-you", span = { GridItemSpan(maxLineSpan) }) {
             NewForYou(fresh, onTry = { shell.open(it) }, onHide = { NewFeatures.hide(app, fresh.map { it.id }); fresh = emptyList() })
         }

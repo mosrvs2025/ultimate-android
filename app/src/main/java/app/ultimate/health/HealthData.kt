@@ -15,6 +15,7 @@ import androidx.health.connect.client.records.RespiratoryRateRecord
 import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
+import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
@@ -41,6 +42,7 @@ enum class HealthKind(val title: String, val what: String, val records: List<KCl
     Activity("Activity", "Steps, distance, active calories and floors", listOf(StepsRecord::class, DistanceRecord::class, ActiveCaloriesBurnedRecord::class, FloorsClimbedRecord::class)),
     Heart("Heart", "Heart rate, resting heart rate and heart rate variability", listOf(HeartRateRecord::class, RestingHeartRateRecord::class, HeartRateVariabilityRmssdRecord::class)),
     Sleep("Sleep", "Sleep sessions and their stages", listOf(SleepSessionRecord::class)),
+    Energy("Calories", "Total calories burned, resting and active", listOf(TotalCaloriesBurnedRecord::class)),
     Workouts("Workouts", "Exercise sessions", listOf(ExerciseSessionRecord::class)),
     Vitals("Vitals", "Blood oxygen and breathing rate", listOf(OxygenSaturationRecord::class, RespiratoryRateRecord::class)),
     Body("Body", "Weight and body fat", listOf(WeightRecord::class, BodyFatRecord::class));
