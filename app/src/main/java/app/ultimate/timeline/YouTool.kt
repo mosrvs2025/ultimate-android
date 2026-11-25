@@ -1,5 +1,6 @@
 package app.ultimate.timeline
 
+import app.ultimate.health.ActivityScreen
 import app.ultimate.health.YouToday
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
@@ -80,9 +81,15 @@ class YouTool(private val app: UltimateApp) : Tool {
 @Composable
 internal fun YouScreen(app: UltimateApp, query: String?, onExit: () -> Unit, source: String? = null, lateNight: Boolean = false) {
     // Today first: body, mind and phone life together.
-    val tabs = if (BuildConfig.HAS_FOOTPRINT) listOf("Today", "Days", "Patterns", "Privacy") else listOf("Today", "Days")
-    // A search lands on Days; otherwise open on Today.
-    var tab by remember { mutableIntStateOf(if (query.isNullOrBlank() && source == null && !lateNight) 0 else 1) }
+    val tabs = if (BuildConfig.HAS_FOOTPRINT) listOf("Today", "Activity", "Days", "Patterns", "Privacy") else listOf("Today", "Activity", "Days")
+    // The Home activity card lands on Activity, a search lands on Days, and otherwise it opens on Today.
+    var tab by remember {
+        mutableIntStateOf(when {
+            source == "activity" -> tabs.indexOf("Activity")
+            query.isNullOrBlank() && source == null && !lateNight -> 0
+            else -> tabs.indexOf("Days")
+        })
+    }
     var aboutMe by remember { mutableStateOf(false) }
     Scaffold(topBar = {
         TopAppBar(title = { Text("You") }, navigationIcon = { ToolBackButton(onExit) }, actions = {
@@ -94,6 +101,7 @@ internal fun YouScreen(app: UltimateApp, query: String?, onExit: () -> Unit, sou
             if (tabs.size > 1) GooeyTabs(tabs, tab, { tab = it }, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             when (tabs[tab]) {
                 "Today" -> YouToday(app)
+                "Activity" -> ActivityScreen(onOpenHealth = { app.tools.firstOrNull { it.id == "health" }?.let { h -> app.shell.open(h) } })
                 "Days" -> TimelineScreen(app, query.orEmpty(), onExit, embedded = true, initialSource = source?.let { s -> Source.entries.firstOrNull { it.name == s } }, initialLate = lateNight)
                 "Patterns" -> FootprintScreen(app, onExit, part = FootprintPart.Patterns)
                 else -> FootprintScreen(app, onExit, part = FootprintPart.Privacy)
