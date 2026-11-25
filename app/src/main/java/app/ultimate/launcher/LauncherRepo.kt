@@ -28,15 +28,16 @@ class LauncherRepo(context: Context) {
 
     private val _apps = MutableStateFlow<List<HomeApp>>(emptyList())
     val apps: StateFlow<List<HomeApp>> = _apps
-    private fun readSettings() = SettingsCodec.decode(prefs.getString("accent", null), prefs.getString("backdrop", null), prefs.getString("clock", null),
-        prefs.getBoolean("showDate", true), prefs.getBoolean("railTicks", true), prefs.getInt("favsShown", 5), prefs.getBoolean("suggestions", true), prefs.getString("hidden", null))
+    private fun readSettings() = SettingsCodec.withExtras(SettingsCodec.decode(prefs.getString("accent", null), prefs.getString("backdrop", null), prefs.getString("clock", null),
+        prefs.getBoolean("showDate", true), prefs.getBoolean("railTicks", true), prefs.getInt("favsShown", 5), prefs.getBoolean("suggestions", true), prefs.getString("hidden", null))) { key -> prefs.getString("x.$key", null) }
     private val _settings = MutableStateFlow(readSettings())
     /** The owner's choices about how the launcher looks and behaves. */
     val settings: StateFlow<LauncherSettings> = _settings
     fun update(change: (LauncherSettings) -> LauncherSettings) {
         val s = change(_settings.value).clamped(); _settings.value = s
         prefs.edit().putString("accent", s.accent.name).putString("backdrop", s.backdrop.name).putString("clock", s.clock.name).putBoolean("showDate", s.showDate)
-            .putBoolean("railTicks", s.railTicks).putInt("favsShown", s.favouritesShown).putBoolean("suggestions", s.suggestions).putString("hidden", SettingsCodec.encodeHidden(s.hidden)).apply()
+            .putBoolean("railTicks", s.railTicks).putInt("favsShown", s.favouritesShown).putBoolean("suggestions", s.suggestions).putString("hidden", SettingsCodec.encodeHidden(s.hidden))
+            .also { e -> SettingsCodec.extras(s).forEach { (k, v) -> e.putString("x.$k", v) } }.apply()
     }
     /** Starts the favourites over from what the phone would suggest. */
     suspend fun resetFavourites() { prefs.edit().remove("favs").apply(); load() }
@@ -47,7 +48,7 @@ class LauncherRepo(context: Context) {
     suspend fun load() = withContext(Dispatchers.IO) {
         val pm = app.packageManager
         val list = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
-            .map { HomeApp(it.activityInfo.packageName, it.loadLabel(pm).toString()) }
+            .map { HomeApp(it.activityInfo.packageName, it.loadLabel(pm).toString(), runCatching { pm.getPackageInfo(it.activityInfo.packageName, 0).firstInstallTime }.getOrDefault(0L)) }
             .distinctBy { it.pkg }.sortedBy { it.label.lowercase() }
         _apps.value = list
         val saved = prefs.getString("favs", null)
@@ -83,6 +84,27 @@ class LauncherRepo(context: Context) {
         if (ok) runCatching { habits.record(pkg) }
         return ok
     }
+
+    private fun start(i: Intent): Boolean = runCatching { app.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true }.getOrDefault(false)
+
+    /** The system's own picker for a new wallpaper (photos, live wallpapers, the phone's gallery). */
+    fun changeWallpaper(): Boolean = start(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Change wallpaper"))
+
+    /** Android's own settings app. */
+    fun openSystemSettings(): Boolean = start(Intent(android.provider.Settings.ACTION_SETTINGS))
+
+    /** Hands [query] to the phone's browser or search app. */
+    fun webSearch(query: String): Boolean = start(Intent(Intent.ACTION_WEB_SEARCH).putExtra(android.app.SearchManager.QUERY, query))
+
+    /**
+     * Pulls down the notification shade or quick settings, the way other launchers do: there is no public call for it, so this asks the
+     * status bar service directly and does nothing if the phone's version doesn't allow it. Returns whether it worked.
+     */
+    fun pullShade(quickSettings: Boolean): Boolean = runCatching {
+        val bar = app.getSystemService("statusbar")
+        Class.forName("android.app.StatusBarManager").getMethod(if (quickSettings) "expandSettingsPanel" else "expandNotificationsPanel").invoke(bar)
+        true
+    }.getOrDefault(false)
 
     fun appInfo(pkg: String) { runCatching { app.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$pkg")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
 

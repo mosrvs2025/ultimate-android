@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.assertCountEquals
 import androidx.test.core.app.ApplicationProvider
@@ -130,17 +132,74 @@ class LauncherFixesShotsTest {
         compose.onNodeWithContentDescription("Launcher settings").performClick()
         frames(30)
         compose.onNodeWithText("Launcher settings").assertIsDisplayed()
+        compose.onNodeWithText("System settings").assertIsDisplayed()
         save("launcher-settings")
+        compose.onNodeWithText("Themes").performClick(); frames(10)
         compose.onNodeWithContentDescription("Sunset").performClick()
         frames(10)
         assertEquals(Accent.Sunset, repo.settings.value.accent)
+        compose.onNodeWithContentDescription("Back to launcher settings").performClick(); frames(10)
+        compose.onNodeWithText("Wallpaper").performClick(); frames(10)
         compose.onNodeWithText("Black").performClick(); frames(5)
-        compose.onNodeWithText("12-hour").performClick(); frames(5)
         assertEquals(app.ultimate.launcher.Backdrop.Black, repo.settings.value.backdrop)
+        save("launcher-settings-wallpaper")
+        compose.onNodeWithContentDescription("Back to launcher settings").performClick(); frames(10)
+        compose.onNodeWithText("Home screen").performClick(); frames(10)
+        compose.onNodeWithText("12-hour").performClick(); frames(5)
         assertEquals(app.ultimate.launcher.ClockStyle.H12, repo.settings.value.clock)
         save("launcher-settings-changed")
+        compose.onNodeWithContentDescription("Back to launcher settings").performClick(); frames(10)
         compose.onNodeWithContentDescription("Close settings").performClick()
         frames(30)
         save("launcher-sunset-black")
+    }
+
+    @Test fun theHubFindsASettingByTyping() {
+        val repo = show(listOf("Gmail", "Photos"), favs = listOf("Gmail"))
+        compose.onNodeWithContentDescription("Launcher settings").performClick(); frames(30)
+        compose.onNode(hasSetTextAction()).performTextInput("swipe"); frames(10)
+        compose.onNodeWithText("Gestures").assertIsDisplayed()
+        compose.onAllNodesWithText("Wallpaper").assertCountEquals(0)
+        if (dir != null) save("launcher-settings-search")
+        compose.onNodeWithText("Gestures").performClick(); frames(10)
+        compose.onNodeWithText("Swipe down").assertIsDisplayed()
+        if (dir != null) save("launcher-settings-gestures")
+        assertEquals(app.ultimate.launcher.GestureAction.Search, repo.settings.value.swipeUp)
+    }
+
+    @Test fun holdingEmptySpaceOpensTheEditPanel() {
+        val repo = show(listOf("Gmail", "Photos", "Phone", "Maps", "Chrome"), favs = listOf("Gmail", "Photos"))
+        compose.onNodeWithContentDescription("Letter rail: slide to find an app").assertExists()
+        // The bare background, left of the rail and below the favourites.
+        compose.onRoot().performTouchInput { down(Offset(width * 0.5f, height * 0.85f)) }
+        compose.mainClock.advanceTimeBy(900)
+        compose.onRoot().performTouchInput { up() }
+        frames(30)
+        compose.onNodeWithText("Edit home screen").assertIsDisplayed()
+        compose.onNodeWithText("Change wallpaper").assertIsDisplayed()
+        if (dir != null) save("launcher-edit-panel")
+        compose.onNodeWithText("Colours").performClick(); frames(20)
+        compose.onNodeWithContentDescription("Sunset").assertIsDisplayed()   // opened straight onto the colours page
+        assertEquals(Accent.Aurora, repo.settings.value.accent)
+    }
+
+    @Test fun anAppsOwnHoldStillOpensItsMenuNotThePanel() {
+        show(listOf("Gmail", "Photos"), favs = listOf("Gmail", "Photos"))
+        compose.onNodeWithText("Gmail").performTouchInput { down(center) }
+        compose.mainClock.advanceTimeBy(900)
+        compose.onNodeWithText("Gmail").performTouchInput { up() }
+        frames(20)
+        compose.onNodeWithText("App info").assertExists()
+        compose.onAllNodesWithText("Edit home screen").assertCountEquals(0)
+    }
+
+    @Test fun favouritesCanBeIconsOnly() {
+        assumeTrue(dir != null)
+        val repo = show(listOf("Gmail", "Photos", "Phone", "Maps", "Chrome"), favs = listOf("Gmail", "Photos", "Phone", "Maps"))
+        repo.update { it.copy(dockLabels = false, dockIcons = app.ultimate.launcher.IconSize.Large) }
+        frames(20)
+        compose.onAllNodesWithText("Gmail").assertCountEquals(0)   // names are gone; the icons carry their name for screen readers
+        compose.onNodeWithContentDescription("Gmail").assertExists()
+        save("launcher-icons-only")
     }
 }

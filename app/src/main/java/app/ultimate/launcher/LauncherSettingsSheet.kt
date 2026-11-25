@@ -22,7 +22,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.Dock
+import androidx.compose.material.icons.rounded.Gesture
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import app.ultimate.core.LiquidInput
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -48,70 +60,201 @@ import app.ultimate.core.LiquidButton
 import kotlinx.coroutines.launch
 
 /**
- * The launcher's settings, opened from the gear in the top right: colours and background, the clock, how many favourites show, the
- * "Now" suggestions, the tick under the thumb, which apps are hidden, and starting the favourites over. Each choice takes effect
- * at once and is kept on the phone.
+ * The launcher's settings, opened from the gear in the top right or from the edit-home panel. A short list of pages, like a phone's own
+ * settings (themes, wallpaper, home screen, favourites, app list, gestures, search), with a box on top to find one by typing and a shortcut
+ * to the phone's settings. Each choice takes effect at once and is kept on the phone. [startPage] opens straight onto a page.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun LauncherSettingsSheet(repo: LauncherRepo, allApps: List<HomeApp>, s: LauncherSettings, onClose: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    var hiding by remember { mutableStateOf(false) }
-    var reset by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().background(Color(0xF4080B10)).statusBarsPadding().navigationBarsPadding()) {
+internal fun LauncherSettingsSheet(repo: LauncherRepo, allApps: List<HomeApp>, s: LauncherSettings, startPage: SettingsPage? = null, onClose: () -> Unit) {
+    var page by remember { mutableStateOf(startPage) }
+    // Back goes from a page to the list first, and only then closes settings.
+    BackHandler(enabled = page != null) { page = null }
+    Column(Modifier.fillMaxSize().background(Color(0xFF080B10)).statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close settings", tint = Color.White) }
-            Text("Launcher settings", color = Color.White, fontSize = 20.sp)
+            IconButton({ if (page != null) page = null else onClose() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (page != null) "Back to launcher settings" else "Close settings", tint = Color.White) }
+            Text(page?.title ?: "Launcher settings", color = Color.White, fontSize = 20.sp)
         }
-        LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
-            item {
-                GlassCard(title = "Look", accent = s.accent.a) {
-                    Text("Colours", color = Liquid.dim, fontSize = 13.sp)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Accent.values().forEach { ac -> Swatch(ac, ac == s.accent) { repo.update { it.copy(accent = ac) } } }
-                    }
-                    Text("Background", color = Liquid.dim, fontSize = 13.sp)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Backdrop.values().forEach { b -> Chip(b.label, b == s.backdrop, s.accent.a) { repo.update { it.copy(backdrop = b) } } }
-                    }
-                    Text("Black saves battery on OLED screens.", color = Liquid.dim, fontSize = 12.sp)
+        val current = page
+        if (current == null) SettingsHub(repo, s) { page = it }
+        else LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
+            when (current) {
+                SettingsPage.Colours -> colourItems(repo, s)
+                SettingsPage.Wallpaper -> wallpaperItems(repo, s)
+                SettingsPage.Home -> homeItems(repo, s)
+                SettingsPage.Dock -> dockItems(repo, s)
+                SettingsPage.Drawer -> drawerItems(repo, allApps, s)
+                SettingsPage.Gestures -> gestureItems(repo, s)
+                SettingsPage.Search -> searchItems(repo, s)
+            }
+            item { Text("These settings are kept on this phone.", color = Liquid.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
+        }
+    }
+}
+
+private fun pageIcon(p: SettingsPage) = when (p) {
+    SettingsPage.Colours -> Icons.Rounded.Palette
+    SettingsPage.Wallpaper -> Icons.Rounded.Image
+    SettingsPage.Home -> Icons.Rounded.PhoneAndroid
+    SettingsPage.Dock -> Icons.Rounded.Dock
+    SettingsPage.Drawer -> Icons.Rounded.Apps
+    SettingsPage.Gestures -> Icons.Rounded.Gesture
+    SettingsPage.Search -> Icons.Rounded.Search
+}
+
+/** The first screen: find a setting by typing, open the phone's own settings, or pick a page. */
+@Composable
+private fun androidx.compose.foundation.layout.ColumnScope.SettingsHub(repo: LauncherRepo, s: LauncherSettings, open: (SettingsPage) -> Unit) {
+    var q by remember { mutableStateOf("") }
+    val found = remember(q) { SettingsPage.matching(q) }
+    Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { LiquidInput(q, { q = it }, "Search launcher settings", { found.firstOrNull()?.let(open) }, Modifier.fillMaxWidth(), sendLabel = "Open") }
+    LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 28.dp)) {
+        if (q.isBlank()) item { HubRow(Icons.Rounded.Settings, "System settings", "Tap to open your device settings", s.accent.a) { repo.openSystemSettings() } }
+        items(found, key = { it.name }) { p -> HubRow(pageIcon(p), p.title, p.subtitle, if (p.ordinal % 2 == 0) s.accent.a else s.accent.b) { open(p) } }
+        if (found.isEmpty()) item { Text("Nothing matches \"$q\".", color = Liquid.dim, fontSize = 14.sp, modifier = Modifier.padding(20.dp)) }
+    }
+}
+
+@Composable
+private fun HubRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, sub: String, tint: Color, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(44.dp).clip(CircleShape).background(tint.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) { Icon(icon, null, tint = tint, modifier = Modifier.size(22.dp)) }
+        Column(Modifier.weight(1f).padding(start = 18.dp)) {
+            Text(title, color = Color.White, fontSize = 17.sp)
+            Text(sub, color = Liquid.dim, fontSize = 13.sp)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: LauncherRepo, s: LauncherSettings) {
+    item {
+        GlassCard(title = "Colours", accent = s.accent.a) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Accent.values().forEach { ac -> Swatch(ac, ac == s.accent) { repo.update { it.copy(accent = ac) } } }
+            }
+            Text("Used for the glow, the letter rail, the suggestion pods and highlights.", color = Liquid.dim, fontSize = 12.sp)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+private fun androidx.compose.foundation.lazy.LazyListScope.wallpaperItems(repo: LauncherRepo, s: LauncherSettings) {
+    item {
+        GlassCard(title = "Background", accent = s.accent.b) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Backdrop.values().forEach { b -> Chip(b.label, b == s.backdrop, s.accent.a) { repo.update { it.copy(backdrop = b) } } }
+            }
+            Text(if (s.backdrop == Backdrop.Wallpaper) "Your phone's wallpaper shows through, under a dark veil so the text stays easy to read." else "Black saves battery on OLED screens. Pick Phone's wallpaper to see your own picture.", color = Liquid.dim, fontSize = 12.sp)
+            LiquidButton("Change wallpaper", { repo.changeWallpaper() }, Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+private fun androidx.compose.foundation.lazy.LazyListScope.homeItems(repo: LauncherRepo, s: LauncherSettings) {
+    item {
+        GlassCard(title = "Clock", accent = s.accent.b) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ClockStyle.values().forEach { c -> Chip(c.label, c == s.clock, s.accent.a) { repo.update { it.copy(clock = c) } } }
+            }
+            Toggle("Show the date", null, s.showDate) { v -> repo.update { it.copy(showDate = v) } }
+        }
+    }
+    item {
+        var reset by remember { mutableStateOf(false) }
+        val scope = rememberCoroutineScope()
+        GlassCard(title = "Home screen", accent = s.accent.a) {
+            Toggle("Suggestions", "Apps and actions offered for this moment, above your favourites.", s.suggestions) { v -> repo.update { it.copy(suggestions = v) } }
+            Toggle("Tick on each letter", "A light tick under your thumb while you slide the letters.", s.railTicks) { v -> repo.update { it.copy(railTicks = v) } }
+            Text("Press and hold any app to add it to your favourites or remove it.", color = Liquid.dim, fontSize = 12.sp)
+            LiquidButton(if (reset) "Start over? Tap again" else "Start favourites over", {
+                if (!reset) reset = true else { reset = false; scope.launch { repo.resetFavourites() } }
+            }, Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+private fun androidx.compose.foundation.lazy.LazyListScope.dockItems(repo: LauncherRepo, s: LauncherSettings) {
+    item {
+        GlassCard(title = "Favourites", accent = s.accent.a) {
+            Text("How many show", color = Color.White, fontSize = 15.sp)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(3, 4, 5, 6, 8).forEach { n -> Chip("$n", n == s.favouritesShown, s.accent.a) { repo.update { it.copy(favouritesShown = n) } } }
+            }
+            Text("Icon size", color = Color.White, fontSize = 15.sp)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IconSize.values().forEach { z -> Chip(z.label, z == s.dockIcons, s.accent.a) { repo.update { it.copy(dockIcons = z) } } }
+            }
+            Toggle("Show names", "Off gives a row of icons only.", s.dockLabels) { v -> repo.update { it.copy(dockLabels = v) } }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+private fun androidx.compose.foundation.lazy.LazyListScope.drawerItems(repo: LauncherRepo, allApps: List<HomeApp>, s: LauncherSettings) {
+    item {
+        GlassCard(title = "App list", accent = s.accent.b) {
+            Text("Order inside each letter", color = Color.White, fontSize = 15.sp)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppSort.values().forEach { o -> Chip(o.label, o == s.drawerSort, s.accent.a) { repo.update { it.copy(drawerSort = o) } } }
+            }
+            Toggle("Show icons", null, s.drawerShowIcons) { v -> repo.update { it.copy(drawerShowIcons = v) } }
+            if (s.drawerShowIcons) {
+                Text("Icon size", color = Color.White, fontSize = 15.sp)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IconSize.values().forEach { z -> Chip(z.label, z == s.drawerIcons, s.accent.a) { repo.update { it.copy(drawerIcons = z) } } }
                 }
             }
-            item {
-                GlassCard(title = "Clock", accent = s.accent.b) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ClockStyle.values().forEach { c -> Chip(c.label, c == s.clock, s.accent.a) { repo.update { it.copy(clock = c) } } }
-                    }
-                    Toggle("Show the date", null, s.showDate) { v -> repo.update { it.copy(showDate = v) } }
-                }
-            }
-            item {
-                GlassCard(title = "Home screen", accent = s.accent.a) {
-                    Text("Favourites shown", color = Color.White, fontSize = 15.sp)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(3, 4, 5, 6, 8).forEach { n -> Chip("$n", n == s.favouritesShown, s.accent.a) { repo.update { it.copy(favouritesShown = n) } } }
-                    }
-                    Text("Press and hold any app to add it to your favourites or remove it.", color = Liquid.dim, fontSize = 12.sp)
-                    Toggle("Suggestions", "Apps and actions offered for this moment, above your favourites.", s.suggestions) { v -> repo.update { it.copy(suggestions = v) } }
-                    Toggle("Tick on each letter", "A light tick under your thumb while you slide the letters.", s.railTicks) { v -> repo.update { it.copy(railTicks = v) } }
-                    LiquidButton(if (reset) "Start over? Tap again" else "Start favourites over", {
-                        if (!reset) reset = true else { reset = false; scope.launch { repo.resetFavourites() } }
-                    }, Modifier.fillMaxWidth())
-                }
-            }
-            item {
-                GlassCard(title = "Hidden apps", accent = s.accent.b) {
-                    Text(if (s.hidden.isEmpty()) "Nothing hidden." else "${s.hidden.size} hidden from the letters, lists and search. They stay installed.", color = Liquid.dim, fontSize = 13.sp)
-                    LiquidButton(if (hiding) "Done" else "Choose apps to hide", { hiding = !hiding }, Modifier.fillMaxWidth())
-                }
-            }
-            if (hiding) items(allApps, key = { "hide-" + it.pkg }) { a ->
+        }
+    }
+    item {
+        var hiding by remember { mutableStateOf(false) }
+        GlassCard(title = "Hidden apps", accent = s.accent.a) {
+            Text(if (s.hidden.isEmpty()) "Nothing hidden." else "${s.hidden.size} hidden from the letters, lists and search. They stay installed.", color = Liquid.dim, fontSize = 13.sp)
+            LiquidButton(if (hiding) "Done" else "Choose apps to hide", { hiding = !hiding }, Modifier.fillMaxWidth())
+            if (hiding) allApps.forEach { a ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(a.label, color = Color.White, fontSize = 16.sp, maxLines = 1, modifier = Modifier.weight(1f))
                     GooeySwitch(a.pkg in s.hidden, { v -> repo.update { it.copy(hidden = if (v) it.hidden + a.pkg else it.hidden - a.pkg) } })
                 }
             }
-            item { Text("These settings are kept on this phone.", color = Liquid.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
+        }
+    }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.gestureItems(repo: LauncherRepo, s: LauncherSettings) {
+    item {
+        GlassCard(title = "On an empty part of the home screen", accent = s.accent.a) {
+            GesturePicker("Swipe up", s.swipeUp, s.accent.a) { g -> repo.update { it.copy(swipeUp = g) } }
+            GesturePicker("Swipe down", s.swipeDown, s.accent.a) { g -> repo.update { it.copy(swipeDown = g) } }
+            GesturePicker("Double tap", s.doubleTap, s.accent.a) { g -> repo.update { it.copy(doubleTap = g) } }
+            GesturePicker("Press and hold", s.longPress, s.accent.a) { g -> repo.update { it.copy(longPress = g) } }
+            Text("The letter rail, the apps and the buttons keep their own touches.", color = Liquid.dim, fontSize = 12.sp)
+        }
+    }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.searchItems(repo: LauncherRepo, s: LauncherSettings) {
+    item {
+        GlassCard(title = "Search", accent = s.accent.b) {
+            Toggle("List every app first", "Off shows an empty list until you start typing.", s.searchShowsAll) { v -> repo.update { it.copy(searchShowsAll = v) } }
+            Toggle("Offer a web search", "When you type something no app matches, a row sends it to your browser.", s.searchWeb) { v -> repo.update { it.copy(searchWeb = v) } }
+        }
+    }
+}
+
+/** A gesture's name with a small menu of what it can do. */
+@Composable
+private fun GesturePicker(title: String, value: GestureAction, accent: Color, onPick: (GestureAction) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        Box {
+            Text(value.label, color = accent, fontSize = 14.sp, modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0x22FFFFFF)).clickable { open = true }.padding(horizontal = 14.dp, vertical = 8.dp))
+            DropdownMenu(open, { open = false }) {
+                GestureAction.values().forEach { g -> DropdownMenuItem({ Text(g.label) }, { onPick(g); open = false }) }
+            }
         }
     }
 }

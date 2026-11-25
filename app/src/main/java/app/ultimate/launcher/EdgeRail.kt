@@ -244,7 +244,7 @@ private fun EdgeRailBody(
     val pop = remember { Animatable(1f) }
     LaunchedEffect(current) { if (current != null && motion) { pop.snapTo(0.6f); pop.animateTo(1f, spring(Spring.DampingRatioHighBouncy, Spring.StiffnessMedium)) } }
     val scrim by animateFloatAsState(if (open) 0.62f else 0f, spring(stiffness = Spring.StiffnessMediumLow), label = "scrim")
-    val shown = current?.let { LauncherMath.appsFor(apps, it) }.orEmpty()
+    val shown = current?.let { LauncherMath.appsFor(apps, it, settings.drawerSort) }.orEmpty()
     val rowPx = with(density) { 56.dp.toPx() }
     // The app under the finger once it has slid left off the rail onto the list.
     val under = if (d.down && d.x < railLeft + with(density) { 16.dp.toPx() }) shown.getOrNull(((d.y - panelTop) / rowPx).toInt().takeIf { d.y >= panelTop } ?: -1)?.pkg else null

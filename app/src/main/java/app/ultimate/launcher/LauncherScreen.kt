@@ -15,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -94,6 +95,7 @@ import kotlin.math.roundToInt
  * let go on the rail and tap. Swipe up anywhere for search. Nothing else on the screen: no grid, no pages.
  */
 @Composable
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Unit, autoLoad: Boolean = true) {
     val allApps by repo.apps.collectAsState()
     val settings by repo.settings.collectAsState()
@@ -101,6 +103,8 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     // Apps the owner hid stay out of the rail, the lists and search.
     val apps = remember(allApps, settings.hidden) { LauncherMath.visible(allApps, settings.hidden) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
+    var editing by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { if (autoLoad) repo.load() }
     val letters = remember(apps) { LauncherMath.letters(apps) }
     val haptic = LocalHapticFeedback.current
@@ -110,9 +114,22 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     var searching by remember { mutableStateOf(false) }
     var sticky by remember { mutableStateOf<Char?>(null) }
     // Pressing Home while already home closes whatever is open, like every launcher.
-    LaunchedEffect(homePresses) { searching = false; sticky = null; settingsOpen = false }
-    BackHandler(enabled = settingsOpen) { settingsOpen = false }
+    LaunchedEffect(homePresses) { searching = false; sticky = null; settingsOpen = false; editing = false }
+    BackHandler(enabled = settingsOpen) { settingsOpen = false; settingsPage = null }
     BackHandler(enabled = !settingsOpen && (searching || sticky != null)) { searching = false; sticky = null }
+    fun openSettings(page: SettingsPage? = null) { editing = false; settingsPage = page; settingsOpen = true }
+    // What a swipe, double tap or hold on an empty part of the screen does is the owner's choice (settings, Gestures).
+    val settingsNow by androidx.compose.runtime.rememberUpdatedState(settings)
+    fun perform(g: GestureAction) { when (g) {
+        GestureAction.None -> Unit
+        GestureAction.Search -> { sticky = null; searching = true }
+        GestureAction.Notifications -> repo.pullShade(false)
+        GestureAction.QuickSettings -> repo.pullShade(true)
+        GestureAction.Ultimate -> onOpenUltimate()
+        GestureAction.SystemSettings -> repo.openSystemSettings()
+        GestureAction.EditPanel -> { sticky = null; editing = true }
+    } }
+    val performNow by androidx.compose.runtime.rememberUpdatedState<(GestureAction) -> Unit>(::perform)
 
     // The rail's drag: where the finger is (in the rail's own coordinates) and whether it is down.
     var dragging by remember { mutableStateOf(false) }
@@ -144,7 +161,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     val pop = remember { Animatable(1f) }
     LaunchedEffect(current) { if (current != null && motion) { pop.snapTo(0.6f); pop.animateTo(1f, spring(Spring.DampingRatioHighBouncy, Spring.StiffnessMedium)) } }
 
-    val shown = current?.let { LauncherMath.appsFor(apps, it) }.orEmpty()
+    val shown = current?.let { LauncherMath.appsFor(apps, it, settings.drawerSort) }.orEmpty()
     // The rail's touch handler runs for the whole drag, so it reads the newest values through these instead of restarting
     // (a restart in the middle of a drag would drop the finger).
     val lettersNow by androidx.compose.runtime.rememberUpdatedState(letters)
@@ -160,9 +177,22 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
         .pointerInput(Unit) {
             var total = 0f
             detectVerticalDragGestures(onDragStart = { total = 0f }, onDragEnd = { total = 0f }, onDragCancel = { total = 0f }) { _, dy ->
-                if (!dragging && stickyNow == null) { total += dy; if (total < -72.dp.toPx()) { searching = true; total = 0f } }
+                if (!dragging && stickyNow == null) {
+                    total += dy
+                    if (total < -72.dp.toPx()) { performNow(settingsNow.swipeUp); total = 0f }
+                    else if (total > 72.dp.toPx()) { performNow(settingsNow.swipeDown); total = 0f }
+                }
             }
-        }) {
+        }
+        ) {
+        // Double tap and press-and-hold on empty space: a layer behind everything, so an app row's own hold (its menu), the rail and the
+        // buttons keep their touches and only the bare background reaches this.
+        Box(Modifier.fillMaxSize().pointerInput(Unit) {
+            detectTapGestures(
+                onDoubleTap = { performNow(settingsNow.doubleTap) },
+                onLongPress = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); performNow(settingsNow.longPress) },
+            )
+        })
 
         // ---- left: clock, favourites, or the letter's apps
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(start = 28.dp, end = 96.dp, top = 48.dp)) {
@@ -174,10 +204,15 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
             if (settings.suggestions && nowItems.isNotEmpty() && current == null) { NowRow(repo, nowItems); Spacer(Modifier.height(20.dp)) }
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 val favAlpha = (1f - (if (current != null) 1f else 0f)).coerceIn(0f, 1f)
-                Column(Modifier.alpha(favAlpha), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    favs.mapNotNull { pkg -> apps.firstOrNull { it.pkg == pkg } }.take(settings.favouritesShown).forEachIndexed { i, a ->
-                        AppRow(repo, a, highlighted = false, delayIndex = i, onOpen = { repo.launch(a.pkg) }, big = true)
+                val dock = favs.mapNotNull { pkg -> apps.firstOrNull { it.pkg == pkg } }.take(settings.favouritesShown)
+                if (settings.dockLabels) Column(Modifier.alpha(favAlpha), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    dock.forEachIndexed { i, a ->
+                        AppRow(repo, a, highlighted = false, delayIndex = i, onOpen = { repo.launch(a.pkg) }, big = true, iconScale = settings.dockIcons.scale)
                     }
+                    if (favs.isEmpty() && apps.isNotEmpty()) Text("Long-press any app to make it a favourite.", color = Liquid.dim, fontSize = 14.sp)
+                } else androidx.compose.foundation.layout.FlowRow(Modifier.alpha(favAlpha), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Icons only: a wrapping row, each icon still opens on tap and gives the menu on hold.
+                    dock.forEachIndexed { i, a -> AppRow(repo, a, highlighted = false, delayIndex = i, onOpen = { repo.launch(a.pkg) }, big = true, iconScale = settings.dockIcons.scale, compact = true) }
                     if (favs.isEmpty() && apps.isNotEmpty()) Text("Long-press any app to make it a favourite.", color = Liquid.dim, fontSize = 14.sp)
                 }
             }
@@ -196,7 +231,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
                 .verticalScroll(scroll)
                 .onGloballyPositioned { panelTop = it.positionInRoot().y; panelRows = (it.size.height / rowPx).toInt().coerceAtLeast(1) }) {
                 shown.forEachIndexed { i, a ->
-                    AppRow(repo, a, highlighted = hovered == a.pkg, delayIndex = i, onOpen = { repo.launch(a.pkg); sticky = null }, big = false)
+                    AppRow(repo, a, highlighted = hovered == a.pkg, delayIndex = i, onOpen = { repo.launch(a.pkg); sticky = null }, big = false, iconScale = settings.drawerIcons.scale, showIcon = settings.drawerShowIcons)
                 }
             }
         }
@@ -220,7 +255,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
                         // Slid left onto the apps: the row under the finger is the one that opens on release.
                         hovered = if (fingerX < size.width * 0.15f) {
                             val l = lettersNow.getOrNull(indexNow)
-                            val list = l?.let { LauncherMath.appsFor(appsNow, it) }.orEmpty()
+                            val list = l?.let { LauncherMath.appsFor(appsNow, it, settingsNow.drawerSort) }.orEmpty()
                             val row = ((railTop + fingerY - panelTop) / rowPx).toInt()
                             if (row in 0 until panelRows) list.getOrNull(row)?.pkg else null
                         } else null
@@ -239,13 +274,15 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
 
         // ---- settings: a small gear in the top right
         if (!searching && !settingsOpen) Box(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 6.dp, end = 8.dp).size(48.dp).clip(CircleShape)
-            .clickable { settingsOpen = true }.semantics { contentDescription = "Launcher settings" }, contentAlignment = Alignment.Center) {
+            .clickable { openSettings() }.semantics { contentDescription = "Launcher settings" }, contentAlignment = Alignment.Center) {
             androidx.compose.material3.Icon(Icons.Rounded.Settings, null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(24.dp))
         }
 
         // ---- search
-        if (searching) SearchSheet(repo, apps, onClose = { searching = false })
-        if (settingsOpen) LauncherSettingsSheet(repo, allApps, settings, onClose = { settingsOpen = false })
+        if (searching) SearchSheet(repo, apps, settings, onClose = { searching = false })
+        if (editing && !settingsOpen) EditHomePanel(settings.accent, onWallpaper = { editing = false; repo.changeWallpaper() }, onColours = { openSettings(SettingsPage.Colours) },
+            onSettings = { openSettings() }, onClose = { editing = false })
+        if (settingsOpen) LauncherSettingsSheet(repo, allApps, settings, settingsPage, onClose = { settingsOpen = false; settingsPage = null })
     }
     }
 }
@@ -355,7 +392,14 @@ private fun Clock(onOpenUltimate: () -> Unit, settings: LauncherSettings) {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-internal fun AppRow(repo: LauncherRepo, a: HomeApp, highlighted: Boolean, delayIndex: Int, onOpen: () -> Unit, big: Boolean) {
+internal fun AppRow(
+    repo: LauncherRepo, a: HomeApp, highlighted: Boolean, delayIndex: Int, onOpen: () -> Unit, big: Boolean,
+    /** Multiplies the icon's usual size (see [IconSize]). */
+    iconScale: Float = 1f,
+    showIcon: Boolean = true,
+    /** Just the icon, no name, as wide as the icon: for a row of favourites. */
+    compact: Boolean = false,
+) {
     val th = LocalLauncherTheme.current
     var icon by remember(a.pkg) { mutableStateOf(repo.icon(a.pkg)) }
     LaunchedEffect(a.pkg) { if (icon == null) icon = repo.loadIcon(a.pkg) }
@@ -401,15 +445,22 @@ internal fun AppRow(repo: LauncherRepo, a: HomeApp, highlighted: Boolean, delayI
             }
         }
     Box {
-        Row(Modifier.fillMaxWidth().height(if (big) 52.dp else 56.dp)
+        Row((if (compact) Modifier else Modifier.fillMaxWidth()).height(((if (big) 52.dp else 56.dp) * iconScale.coerceAtLeast(1f)))
             .offset { IntOffset(((1f - enter.value) * 120).roundToInt(), 0) }.alpha(enter.value.coerceIn(0f, 1f)).scale(lift)
             .clip(RoundedCornerShape(16.dp))
             .background(if (highlighted) Brush.horizontalGradient(listOf(th.a.copy(alpha = 0.35f), th.b.copy(alpha = 0.18f))) else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent)))
             .then(gesture).padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(if (big) 30.dp else 34.dp)) { icon?.let { Image(it, null, Modifier.fillMaxSize()) } }
-            Spacer(Modifier.width(14.dp))
-            Text(a.label, color = Color.White, fontSize = if (big) 20.sp else 17.sp, fontWeight = if (big) FontWeight.Light else FontWeight.Normal, maxLines = 1)
+            if (showIcon || compact) Box(Modifier.size((if (big) 30.dp else 34.dp) * iconScale).semantics { if (compact) contentDescription = a.label }, contentAlignment = Alignment.Center) {
+                val ic = icon
+                if (ic != null) Image(ic, null, Modifier.fillMaxSize())
+                // Icons-only favourites would be invisible without their icon, so until it loads (or if it can't) show the app's first letter.
+                else if (compact) Box(Modifier.fillMaxSize().clip(CircleShape).background(Brush.linearGradient(listOf(th.a.copy(alpha = 0.5f), th.b.copy(alpha = 0.4f)))), contentAlignment = Alignment.Center) { Text(a.label.take(1), color = Color.White, fontSize = 15.sp) }
+            }
+            if (!compact) {
+                if (showIcon) Spacer(Modifier.width(14.dp))
+                Text(a.label, color = Color.White, fontSize = if (big) 20.sp else 17.sp, fontWeight = if (big) FontWeight.Light else FontWeight.Normal, maxLines = 1)
+            }
         }
         DropdownMenu(menu, { menu = false }) {
             DropdownMenuItem({ Text(if (a.pkg in favs) "Remove from favourites" else "Add to favourites") }, { repo.toggleFavourite(a.pkg); menu = false })
@@ -424,16 +475,23 @@ internal fun AppRow(repo: LauncherRepo, a: HomeApp, highlighted: Boolean, delayI
 }
 
 @Composable
-private fun SearchSheet(repo: LauncherRepo, apps: List<HomeApp>, onClose: () -> Unit) {
+private fun SearchSheet(repo: LauncherRepo, apps: List<HomeApp>, settings: LauncherSettings, onClose: () -> Unit) {
     var q by remember { mutableStateOf("") }
-    val results = remember(q, apps) { if (q.isBlank()) apps else LauncherMath.search(apps, q) }
+    val results = remember(q, apps, settings.drawerSort, settings.searchShowsAll) {
+        if (q.isBlank()) (if (settings.searchShowsAll) LauncherMath.sorted(apps, settings.drawerSort) else emptyList()) else LauncherMath.search(apps, q)
+    }
     val enter = remember { Animatable(0f) }
     LaunchedEffect(Unit) { enter.animateTo(1f, spring(Spring.DampingRatioLowBouncy, Spring.StiffnessLow)) }
     Column(Modifier.fillMaxSize().background(Color(0xF00A0E14)).statusBarsPadding().navigationBarsPadding().imePadding()
         .offset { IntOffset(0, ((1f - enter.value) * 400).roundToInt()) }.padding(horizontal = 20.dp)) {
         // Results above, the box at the bottom where the thumb already is; the closest match sits right above the box.
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), reverseLayout = true) {
-            items(results, key = { it.pkg }) { a -> AppRow(repo, a, highlighted = a == results.firstOrNull() && q.isNotBlank(), delayIndex = 0, onOpen = { repo.launch(a.pkg); onClose() }, big = false) }
+            // With reverseLayout the first item sits at the bottom, nearest the box: a web search for what is typed goes there when asked for.
+            if (settings.searchWeb && q.isNotBlank()) item(key = "web") {
+                Text("Search the web for \"${q.trim()}\"", color = LocalLauncherTheme.current.a, fontSize = 16.sp, maxLines = 1,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { if (repo.webSearch(q.trim())) onClose() }.padding(horizontal = 6.dp, vertical = 14.dp))
+            }
+            items(results, key = { it.pkg }) { a -> AppRow(repo, a, highlighted = a == results.firstOrNull() && q.isNotBlank(), delayIndex = 0, onOpen = { repo.launch(a.pkg); onClose() }, big = false, iconScale = settings.drawerIcons.scale, showIcon = settings.drawerShowIcons) }
         }
         LiquidInput(q, { q = it }, "Search apps", { results.firstOrNull()?.let { repo.launch(it.pkg); onClose() } }, Modifier.padding(vertical = 12.dp), sendLabel = "Open")
     }

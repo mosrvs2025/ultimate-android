@@ -5,7 +5,7 @@ import kotlin.math.exp
 import kotlin.math.roundToInt
 
 /** An app on the home screen: what to call it and how to open it. */
-data class HomeApp(val pkg: String, val label: String) {
+data class HomeApp(val pkg: String, val label: String, val installedAt: Long = 0L) {
     val letter: Char get() = LauncherMath.letterOf(label)
 }
 
@@ -30,7 +30,17 @@ object LauncherMath {
         return ORDER.filter { it in used }.toList()
     }
 
-    fun appsFor(apps: List<HomeApp>, letter: Char): List<HomeApp> = apps.filter { it.letter == letter }.sortedBy { it.label.lowercase() }
+    fun appsFor(apps: List<HomeApp>, letter: Char, sort: AppSort = AppSort.AZ): List<HomeApp> = sorted(apps.filter { it.letter == letter }, sort)
+
+    /** [apps] in the chosen order; ties (and apps with no known install time) fall back to A to Z so the order is always steady. */
+    fun sorted(apps: List<HomeApp>, sort: AppSort): List<HomeApp> {
+        val byName = compareBy<HomeApp> { it.label.lowercase() }
+        return when (sort) {
+            AppSort.AZ -> apps.sortedWith(byName)
+            AppSort.ZA -> apps.sortedWith(byName.reversed())
+            AppSort.Newest -> apps.sortedWith(compareByDescending<HomeApp> { it.installedAt }.then(byName))
+        }
+    }
 
     /** The letter (as a fractional index, for smooth waves) under a finger at [y] on a rail spanning [top]..[top]+[height]. */
     fun position(y: Float, top: Float, height: Float, count: Int): Float {

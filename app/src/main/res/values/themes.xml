@@ -2,4 +2,9 @@
     <style name="Theme.Ultimate" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/ic_launcher_background</item>
     </style>
+    <!-- The home screen: the phone's wallpaper can show through when the launcher's background is set to it; every other background covers it. -->
+    <style name="Theme.Ultimate.Home" parent="Theme.Ultimate">
+        <item name="android:windowShowWallpaper">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
 </resources>
