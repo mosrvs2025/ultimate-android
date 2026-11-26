@@ -65,9 +65,28 @@ Limits: Normalize and fades are applied to each part on its own (the screen says
 The calculations are unit-tested, the header against real decoders, but **none of this has run on a phone**: the encoder's
 speed on an 8-hour file, the quiet-moment search on real recordings, and how the Tiny/Small levels actually sound (use the preview).
 
+## Opus (2.29.0)
+
+`.opus` (Opus in an Ogg file) for speech. The phone's own encoder and Ogg writer do the work: `MediaCodec` `audio/opus` into a
+`MediaMuxer` with `MUXER_OUTPUT_OGG`, both from Android 10 (our minimum). `CodecSink` is the old AAC writer made general, so AAC
+and Opus share one code path. Opus takes only 8, 12, 16, 24 and 48 kHz, so other rates are resampled to 48 kHz (plain linear
+interpolation, fine for speech; upsampling needs no anti-alias filter).
+
+Size, from the same synthetic-speech measurement as above: 24 kbps mono ≈ 1.1 MB for six minutes, about a fifth of 128 kbps MP3.
+Steps: 16 (Tiny voice), 24, 32, 48, 64, 96, 128 kbps. For voice, mono at 16 to 32 is plenty.
+
+**Availability.** `OpusSupport.available` asks `MediaCodecList` for an Opus encoder. Where there is none the Opus tab is not
+shown, a template that asks for Opus (and anything submitted that way) becomes MP3 at VBR level 6 with the rest of the settings
+kept (`AudioPlanner.withoutOpus`), and the job log says so. `.opus` plays on Android 10 and later and in most modern players but
+not everywhere MP3 does.
+
+**Verified how.** `OpusRoundTripTest` is an instrumented test that CI runs on an API 35 emulator (the `terminal` job, class list in
+`terminal-smoke.yml`): it writes a speech-like WAV, runs the app's converter to Opus, and checks the file is Ogg with an OpusHead
+packet, that a `MediaExtractor` sees one `audio/opus` track of the right length, that it decodes back with the speech present and
+the pause quiet, and that the preview path produces one too. Robolectric can't do any of this (no media codecs). It says nothing
+about a particular phone's encoder; that still needs a real device.
+
 ## Next
 
-Opus (`audio/opus`, in an Ogg `.opus` file) is the next big step for speech: about a fifth of the size of a fixed 128 kbps MP3 in
-the measurement above. Android's encoder and Ogg muxer exist from Android 10, but it needs checking on a real device (and a
-fallback to MP3 where a phone lacks the encoder), and `.opus` plays in fewer apps than MP3. Also possible: shortening long silences,
-and a lower sample rate for voice (needs a proper anti-alias filter first: the resampler is plain linear interpolation).
+Shortening long silences, and a lower sample rate for voice (needs a proper anti-alias filter first: the resampler is plain linear
+interpolation). The speech-model route to far smaller still (a neural codec) is out of scope.

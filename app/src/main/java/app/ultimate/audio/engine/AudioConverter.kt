@@ -68,6 +68,7 @@ class AudioConverter(private val context: Context) {
         onProgress: (fraction: Float, peaks: List<Float>) -> Unit,
     ): Converted = withContext(Dispatchers.IO) {
         require(inputs.isNotEmpty())
+        if (settings.format == OutFormat.Opus && !OpusSupport.available) throw IOException("This phone can't make Opus files. Pick MP3 instead.")
         this@AudioConverter.log = log
         // Trim points belong to one file; a join always uses whole files.
         val s = (if (inputs.size == 1) settings else settings.copy(trimStartMs = 0, trimEndMs = -1)).copy(join = inputs.size > 1)
@@ -113,7 +114,7 @@ class AudioConverter(private val context: Context) {
         onProgress: (Float, List<Float>) -> Unit,
     ): Facts {
         val first = inputs[0].source
-        val rate = if (s.format == OutFormat.Wav) first.sampleRate else AudioPlanner.encoderRate(first.sampleRate)
+        val rate = AudioPlanner.encoderRate(first.sampleRate, s.format)
         val channels = AudioPlanner.outputChannels(inputs.map { it.source }, s)
         if (inputs.size > 1) log.detail("  join    ${inputs.size} files, in order, as one")
         if (s.speed != 1f) log.detail("  speed   ${s.speed}× (pitch kept)")
@@ -155,7 +156,8 @@ class AudioConverter(private val context: Context) {
         val sink: PcmSink = when (s.format) {
             OutFormat.Mp3 -> Mp3Sink(ParcelFileDescriptor.AutoCloseOutputStream(fd), rate, channels, s.kbps, s.vbr)
             OutFormat.Wav -> WavSink(ParcelFileDescriptor.AutoCloseOutputStream(fd), rate, channels)
-            OutFormat.M4a -> AacSink(fd, rate, channels, AudioPlanner.aacKbps(s.kbps))
+            OutFormat.M4a -> CodecSink(fd, AudioSource.AAC, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4, rate, channels, AudioPlanner.aacKbps(s.kbps))
+            OutFormat.Opus -> CodecSink(fd, AudioSource.OPUS, MediaMuxer.OutputFormat.MUXER_OUTPUT_OGG, rate, channels, AudioPlanner.opusKbps(s.kbps))
         }
         log.detail("  encoder ${sink.describe()}")
         try {
@@ -338,18 +340,21 @@ class AudioConverter(private val context: Context) {
         }
     }
 
-    /** AAC-LC in an MP4 (.m4a) container, encoded by the phone. */
-    private class AacSink(fd: ParcelFileDescriptor, private val rate: Int, private val channels: Int, private val kbps: Int) : PcmSink {
-        private val codec = MediaCodec.createEncoderByType(AudioSource.AAC)
-        private val muxer = MediaMuxer(fd.fileDescriptor, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+    /**
+     * A file made by one of the phone's own encoders and its file writer: AAC-LC in an MP4 (.m4a), or Opus in an Ogg (.opus).
+     * [mime] picks the codec and [container] the [MediaMuxer] output.
+     */
+    private class CodecSink(fd: ParcelFileDescriptor, private val mime: String, container: Int, private val rate: Int, private val channels: Int, private val kbps: Int) : PcmSink {
+        private val codec = MediaCodec.createEncoderByType(mime)
+        private val muxer = MediaMuxer(fd.fileDescriptor, container)
         private val info = MediaCodec.BufferInfo()
         private var track = -1
         private var muxing = false
         private var frames = 0L
 
         init {
-            val format = MediaFormat.createAudioFormat(AudioSource.AAC, rate, channels).apply {
-                setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+            val format = MediaFormat.createAudioFormat(mime, rate, channels).apply {
+                if (mime == AudioSource.AAC) setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
                 setInteger(MediaFormat.KEY_BIT_RATE, kbps * 1000)
                 setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16 * 1024)
             }
@@ -357,7 +362,7 @@ class AudioConverter(private val context: Context) {
             codec.start()
         }
 
-        override fun describe() = "${codec.name} · AAC-LC $kbps kbps · ${if (channels == 1) "mono" else "stereo"} · $rate Hz"
+        override fun describe() = "${codec.name} · ${if (mime == AudioSource.AAC) "AAC-LC" else "Opus"} $kbps kbps · ${if (channels == 1) "mono" else "stereo"} · $rate Hz"
 
         override fun write(samples: ShortArray, count: Int) {
             var i = 0

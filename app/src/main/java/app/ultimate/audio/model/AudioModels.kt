@@ -7,6 +7,7 @@ import kotlin.math.roundToInt
 enum class OutFormat(val label: String, val ext: String, val mime: String, val blurb: String) {
     Mp3("MP3", "mp3", "audio/mpeg", "Plays everywhere."),
     M4a("M4A", "m4a", "audio/mp4", "AAC. Copied untouched and instantly when the source is already AAC and nothing else changes."),
+    Opus("Opus", "opus", "audio/ogg", "Built for speech: far smaller than MP3 at the same clarity. Plays on Android 10 and later and in most players, but not everywhere MP3 does."),
     Wav("WAV", "wav", "audio/x-wav", "Uncompressed. Large, but ideal for editing."),
 }
 
@@ -55,11 +56,35 @@ data class AudioSource(
 
     companion object {
         const val AAC = "audio/mp4a-latm"
+        const val OPUS = "audio/opus"
     }
 }
 
 object AudioPlanner {
     val MP3_BITRATES = listOf(64, 96, 128, 192, 256, 320)
+
+    /** Opus bit rates offered, in kbps. For voice, mono at 16 to 32 is plenty; the higher ones are for music. */
+    val OPUS_BITRATES = listOf(16, 24, 32, 48, 64, 96, 128)
+
+    fun opusLabel(kbps: Int) = when (kbps) {
+        16 -> "Tiny voice"; 24 -> "Voice"; 32 -> "Clear voice"; 48 -> "Good"; 64 -> "Great"; 96 -> "Music"; 128 -> "Best"; else -> ""
+    }
+
+    /** The nearest Opus step at or below [kbps], so a number from another format still means something. */
+    fun opusKbps(kbps: Int): Int = OPUS_BITRATES.lastOrNull { it <= kbps } ?: OPUS_BITRATES.first()
+
+    /** Opus takes only these sample rates; anything else is resampled to 48 kHz. */
+    val OPUS_RATES = setOf(8000, 12000, 16000, 24000, 48000)
+
+    /** The sample rate a file of [format] is encoded at, from the source's [sourceRate]. */
+    fun encoderRate(sourceRate: Int, format: OutFormat): Int = when (format) {
+        OutFormat.Wav -> sourceRate
+        OutFormat.Opus -> if (sourceRate in OPUS_RATES) sourceRate else 48_000
+        else -> encoderRate(sourceRate)
+    }
+
+    /** [s] as it can be made on a phone with no Opus encoder: MP3 at a small variable rate, which keeps the point (small voice files). */
+    fun withoutOpus(s: AudioSettings): AudioSettings = if (s.format == OutFormat.Opus) s.copy(format = OutFormat.Mp3, vbr = 6) else s
 
     /** A variable-bit-rate choice: the encoder spends only what each moment needs, so quiet and simple stretches cost almost nothing. */
     data class SmartLevel(val vbr: Int, val label: String, val blurb: String)
@@ -119,6 +144,7 @@ object AudioPlanner {
             s.format == OutFormat.Mp3 && s.vbr >= 0 -> (vbrKbps(s.vbr, outputChannels(src, s) == 1) * 1000 / 8.0 * seconds).toLong()
             s.format == OutFormat.Mp3 -> (s.kbps * 1000 / 8.0 * seconds).toLong()
             s.format == OutFormat.M4a -> (aacKbps(s.kbps) * 1000 / 8.0 * seconds).toLong()
+            s.format == OutFormat.Opus -> (opusKbps(s.kbps) * 1000 / 8.0 * seconds).toLong()
             else -> (encoderRate(src.sampleRate) * outputChannels(src, s) * 2.0 * seconds).toLong() + 44
         }
     }
@@ -242,5 +268,6 @@ object AudioTemplates {
         },
         AudioTemplate("Long recording, tiny", "Meetings, lectures and calls: mono and as small as it can be", audioFiles = false) { AudioSettings(format = OutFormat.Mp3, vbr = 8, mono = true) },
         AudioTemplate("Long recording in 1-hour parts", "Mono, small, cut every hour at a quiet moment", audioFiles = false) { AudioSettings(format = OutFormat.Mp3, vbr = 6, mono = true, splitMin = 60) },
+        AudioTemplate("Long recording, smallest (Opus)", "Speech as Opus, mono: a fifth of the size of MP3 at 128 kbps. Where this phone can make it", audioFiles = false) { AudioSettings(format = OutFormat.Opus, kbps = 24, mono = true) },
     )
 }
