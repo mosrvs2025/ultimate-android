@@ -82,6 +82,7 @@ import app.ultimate.audio.engine.AudioJob
 import app.ultimate.audio.engine.AudioQueue
 import app.ultimate.audio.engine.AudioStatus
 import app.ultimate.audio.engine.PickedVideo
+import app.ultimate.audio.engine.OpusSupport
 import app.ultimate.audio.model.AudioPlanner
 import app.ultimate.audio.model.AudioSettings
 import app.ultimate.audio.model.AudioSource
@@ -316,7 +317,14 @@ private fun EstimateCard(bytes: Long, count: Int, variable: Boolean = false) {
 @Composable
 private fun FormatSection(settings: AudioSettings, anyCopyable: Boolean, onChange: ((AudioSettings) -> AudioSettings) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        GooeyTabs(OutFormat.entries.map { it.label }, OutFormat.entries.indexOf(settings.format), { i -> onChange { it.copy(format = OutFormat.entries[i]) } })
+        val formats = remember { OutFormat.entries.filter { it != OutFormat.Opus || OpusSupport.available } }
+        GooeyTabs(formats.map { it.label }, formats.indexOf(settings.format).coerceAtLeast(0), { i ->
+            onChange { s ->
+                val f = formats[i]
+                // Each format has its own steps: a number from another one is moved to one that exists here.
+                s.copy(format = f, kbps = if (f == OutFormat.Opus) AudioPlanner.opusKbps(if (s.format == OutFormat.Opus) s.kbps else 32) else if (s.kbps in AudioPlanner.MP3_BITRATES) s.kbps else 128)
+            }
+        })
         Text(settings.format.blurb, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (settings.format == OutFormat.M4a && anyCopyable) {
             Text(
@@ -341,21 +349,25 @@ private fun FormatSection(settings: AudioSettings, anyCopyable: Boolean, onChang
         if (settings.format != OutFormat.Wav) {
             Text(if (settings.format == OutFormat.Mp3) "Or a fixed rate" else "Quality", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AudioPlanner.MP3_BITRATES.forEach { k ->
+                (if (settings.format == OutFormat.Opus) AudioPlanner.OPUS_BITRATES else AudioPlanner.MP3_BITRATES).forEach { k ->
                     FilterChip(selected = settings.kbps == k && (settings.format != OutFormat.Mp3 || settings.vbr < 0), onClick = { onChange { it.copy(kbps = k, vbr = -1) } }, label = { Text("$k kbps") })
                 }
             }
             if (settings.format != OutFormat.Mp3 || settings.vbr < 0) Text(
-                AudioPlanner.bitrateLabel(settings.kbps).let { if (it.isEmpty()) "" else "$it quality" },
+                (if (settings.format == OutFormat.Opus) AudioPlanner.opusLabel(settings.kbps) else AudioPlanner.bitrateLabel(settings.kbps)).let { if (it.isEmpty()) "" else "$it quality" },
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        if (settings.format == OutFormat.Opus) Text(
+            "For speech, 16 to 32 kbps in mono is plenty. Music wants 64 or more.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         run {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Mono", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        if (settings.format == OutFormat.Mp3 && settings.vbr >= 0) "Voice and calls sound the same and take about half the space."
+                        if ((settings.format == OutFormat.Mp3 && settings.vbr >= 0) || settings.format == OutFormat.Opus) "Voice and calls sound the same and take about half the space."
                         else "A fixed rate takes the same space in mono, so lower the kbps as well, or pick a Smart size.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

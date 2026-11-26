@@ -6,6 +6,7 @@ import app.ultimate.UltimateApp
 import app.ultimate.audio.engine.AudioConverter
 import app.ultimate.audio.engine.AudioProbe
 import app.ultimate.audio.engine.ConvertInput
+import app.ultimate.audio.engine.OpusSupport
 import app.ultimate.audio.engine.PickedVideo
 import app.ultimate.audio.model.AudioPlanner
 import app.ultimate.audio.model.AudioSettings
@@ -62,7 +63,11 @@ class AudioController(private val app: UltimateApp) {
     }
 
     /** Starts from a template: its options, then the matching picker. */
-    fun applyTemplate(t: app.ultimate.audio.model.AudioTemplate) { app.insights.count("audio.template.${t.title}"); settings.update { t.apply(it) } }
+    fun applyTemplate(t: app.ultimate.audio.model.AudioTemplate) {
+        app.insights.count("audio.template.${t.title}")
+        // A template that asks for Opus is made as a small MP3 on a phone that can't make Opus.
+        settings.update { t.apply(it).let { s -> if (OpusSupport.available) s else AudioPlanner.withoutOpus(s) } }
+    }
 
     fun add(uris: List<Uri>) {
         val fresh = uris.distinct().filter { u -> picked.value.none { it.uri == u } }

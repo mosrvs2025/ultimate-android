@@ -95,8 +95,11 @@ class AudioManager(private val app: Context, private val store: AudioStore, priv
         )
     }
 
-    fun submit(videos: List<PickedVideo>, settings: AudioSettings) {
+    fun submit(videos: List<PickedVideo>, requested: AudioSettings) {
         if (_state.value.active) return
+        // Only phones with an Opus encoder can make Opus; the rest get a small MP3 (and the log says so).
+        val noOpus = requested.format == OutFormat.Opus && !OpusSupport.available
+        val settings = if (noOpus) AudioPlanner.withoutOpus(requested) else requested
         val inputs = videos.mapNotNull { v -> v.audio?.let { ConvertInput(v.uri, v.name, it) } }
         if (inputs.isEmpty()) return
         val join = settings.join && inputs.size > 1
@@ -126,6 +129,7 @@ class AudioManager(private val app: Context, private val store: AudioStore, priv
                 (if (settings.mono) " · mono" else "") + (if (settings.speed != 1f) " · ${settings.speed}×" else "") +
                 (if (jobs.size > inputs.size && !join) " · ${jobs.size} parts of about ${SplitPlan.minutesLabel(settings.splitMin)}" else ""),
         )
+        if (noOpus) log.warn("This phone has no Opus encoder, so these are small MP3 files instead")
         videos.filter { it.audio == null }.forEach { log.warn("skip ${it.name}: no audio track") }
         hub.start()
         runner = scope.launch { runAll(effective) }
