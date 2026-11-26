@@ -8,7 +8,7 @@
 
 | | |
 | --- | --- |
-| Version | **2.27.0**, build (versionCode) **150** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
+| Version | **2.28.0**, build (versionCode) **151** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
 | Watch app | **1.9.0**, versionCode **10** (`wear/build.gradle.kts`); it also ships inside the phone app, which installs it on the watch |
 | Source commit of this version | `76b5f27e68cb7c079f86087862b3ea84013e3dd2` (branch `claude/spatial`, pull request #24); the code is unchanged since. This file and the release tooling were added on top, and `main` contains all of it after the merge of #24. `git log -1 --format=%H -- app/build.gradle.kts` on `main` shows the exact commit |
 | Package | `app.ultimate.plus` (Ultimate+), `app.ultimate` (Ultimate, offline); other editions below |
@@ -67,7 +67,7 @@ Descriptions are each tool's own tagline.
 | 9 | `prompter` | Teleprompter | both | Read your script while you film |
 | 10 | `recipes` | Recipes | both | Chain tools together and automate them |
 | 11 | `squeeze` | Squeeze | both | Shrink videos to a fraction of the size |
-| 12 | `audio` | Video to audio | both | Video to MP3, plus audio cutting, converting, speed and joining |
+| 12 | `audio` | Video to audio | both | Video to MP3, plus audio cutting, converting, speed, joining, Smart (variable-rate) sizes and splitting into parts (2.28.0, `docs/AUDIO.md`) |
 | 13 | `pluck` | Pluck | both | Extract any app's APK and see what's inside |
 | 14 | `sound-meter` | Sound meter | both | See your sound. Save and compare your space. |
 | 15 | `echo` | Echo | both | Feel movement near the phone, with sound you can't hear |

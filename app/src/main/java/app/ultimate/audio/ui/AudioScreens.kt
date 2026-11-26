@@ -86,6 +86,7 @@ import app.ultimate.audio.model.AudioPlanner
 import app.ultimate.audio.model.AudioSettings
 import app.ultimate.audio.model.AudioSource
 import app.ultimate.audio.model.OutFormat
+import app.ultimate.audio.model.SplitPlan
 import app.ultimate.core.AudioPlayerBar
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.foundation.clickable
@@ -223,7 +224,7 @@ private fun ConfigureScreen(
     BackHandler(onBack = onBack)
     val usable = picked.filter { it.audio != null }
     // The preview follows every change by itself, a moment after the last one, so the waveform always shows the sound as set.
-    val soundKey = listOf(settings.pitch, settings.bassDb, settings.trebleDb, settings.highCutHz, settings.fadeInMs, settings.fadeOutMs, settings.normalize, settings.speed, settings.trimStartMs, settings.trimEndMs, settings.mono)
+    val soundKey = listOf(settings.pitch, settings.bassDb, settings.trebleDb, settings.highCutHz, settings.fadeInMs, settings.fadeOutMs, settings.normalize, settings.speed, settings.trimStartMs, settings.trimEndMs, settings.mono, settings.format, settings.kbps, settings.vbr)
     LaunchedEffect(soundKey, usable.size == 1, usable.firstOrNull()?.uri) {
         if (usable.size != 1) return@LaunchedEffect
         kotlinx.coroutines.delay(if (preview.edited == null) 0 else 700)
@@ -234,6 +235,9 @@ private fun ConfigureScreen(
     val effective = (if (single) settings else settings.copy(trimStartMs = 0, trimEndMs = -1)).copy(join = joining)
     val total = usable.sumOf { AudioPlanner.estimateBytes(it.audio!!, effective) }
     val anyCopyable = usable.any { AudioPlanner.copies(it.audio!!, effective) }
+    // Splitting turns each file into several; joining makes one.
+    val fileCount = if (joining) 1 else usable.sumOf { AudioPlanner.parts(it.audio!!, effective).size }
+    val variable = effective.format == OutFormat.Mp3 && effective.vbr >= 0 && !anyCopyable
 
     Scaffold(
         topBar = {
@@ -257,6 +261,7 @@ private fun ConfigureScreen(
                             probing -> "Reading files…"
                             usable.isEmpty() -> "No audio to convert"
                             joining -> "Join ${usable.size} into one ${settings.format.label}"
+                            usable.size == 1 && fileCount > 1 -> "Convert to ${settings.format.label} in $fileCount parts"
                             usable.size == 1 -> "Convert to ${settings.format.label}"
                             else -> "Convert ${usable.size} files"
                         },
@@ -267,8 +272,9 @@ private fun ConfigureScreen(
         },
     ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item { EstimateCard(total, if (joining) 1 else usable.size) }
+            item { EstimateCard(total, fileCount, variable) }
             item { FormatSection(settings, anyCopyable, onChange) }
+            if (usable.isNotEmpty() && !joining) item { SplitSection(settings, if (single) usable[0].audio else null, onChange) }
             item { SpeedSection(settings, onChange) }
             item { SoundSection(settings, onChange) }
             if (single) item { PreviewCard(preview, settings, onPreview) }
@@ -291,7 +297,7 @@ private fun ConfigureScreen(
 }
 
 @Composable
-private fun EstimateCard(bytes: Long, count: Int) {
+private fun EstimateCard(bytes: Long, count: Int, variable: Boolean = false) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = RoundedCornerShape(28.dp)) {
         Column(Modifier.fillMaxWidth().padding(24.dp)) {
             Text("Estimated result", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -300,7 +306,7 @@ private fun EstimateCard(bytes: Long, count: Int) {
                 style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             Text(
-                if (count > 1) "across $count files" else "Saved to Music/Ultimate",
+                (if (count > 1) "across $count files" else "Saved to Music/Ultimate") + if (variable) ". A typical figure: the size follows the sound." else "",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
         }
@@ -318,14 +324,28 @@ private fun FormatSection(settings: AudioSettings, anyCopyable: Boolean, onChang
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary,
             )
         }
-        if (settings.format != OutFormat.Wav) {
-            Text("Quality", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (settings.format == OutFormat.Mp3) {
+            Text("Smart size", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AudioPlanner.MP3_BITRATES.forEach { k ->
-                    FilterChip(selected = settings.kbps == k, onClick = { onChange { it.copy(kbps = k) } }, label = { Text("$k kbps") })
+                AudioPlanner.SMART.forEach { lv ->
+                    FilterChip(selected = settings.vbr == lv.vbr, onClick = { onChange { it.copy(vbr = lv.vbr) } }, label = { Text(lv.label) })
                 }
             }
-            Text(
+            AudioPlanner.SMART.firstOrNull { it.vbr == settings.vbr }?.let {
+                Text(
+                    it.blurb + " The encoder spends only what each moment needs, so quiet stretches cost almost nothing.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (settings.format != OutFormat.Wav) {
+            Text(if (settings.format == OutFormat.Mp3) "Or a fixed rate" else "Quality", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AudioPlanner.MP3_BITRATES.forEach { k ->
+                    FilterChip(selected = settings.kbps == k && (settings.format != OutFormat.Mp3 || settings.vbr < 0), onClick = { onChange { it.copy(kbps = k, vbr = -1) } }, label = { Text("$k kbps") })
+                }
+            }
+            if (settings.format != OutFormat.Mp3 || settings.vbr < 0) Text(
                 AudioPlanner.bitrateLabel(settings.kbps).let { if (it.isEmpty()) "" else "$it quality" },
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -334,7 +354,11 @@ private fun FormatSection(settings: AudioSettings, anyCopyable: Boolean, onChang
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Mono", style = MaterialTheme.typography.bodyLarge)
-                    Text("Halves the size of voice recordings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (settings.format == OutFormat.Mp3 && settings.vbr >= 0) "Voice and calls sound the same and take about half the space."
+                        else "A fixed rate takes the same space in mono, so lower the kbps as well, or pick a Smart size.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 GooeySwitch(settings.mono, { v -> onChange { it.copy(mono = v) } })
             }
@@ -410,7 +434,7 @@ private fun PreviewCard(preview: AudioController.Preview, settings: AudioSetting
                 Column(Modifier.weight(1f)) {
                     Text("Preview", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     Text(
-                        if (settings.shaped || settings.speed != 1f) "Updates as you change the sound. Flip between original and edited while it plays." else "20 seconds from the start. Change the sound above and hear the difference.",
+                        if (settings.shaped || settings.speed != 1f) "Updates as you change the sound. Flip between original and edited while it plays." else "20 seconds from the start. \"Edited\" is made with the size you chose, so you hear exactly what the compression does.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -424,6 +448,43 @@ private fun PreviewCard(preview: AudioController.Preview, settings: AudioSetting
                 }
             } else if (preview.error == null) {
                 Text("Listening to your file…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+        }
+    }
+}
+
+/** Cuts a long recording into parts of equal length (the last may be shorter), each saved as its own file. */
+@Composable
+private fun SplitSection(settings: AudioSettings, single: AudioSource?, onChange: ((AudioSettings) -> AudioSettings) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Split into parts", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = settings.splitMin == 0, onClick = { onChange { it.copy(splitMin = 0) } }, label = { Text("Off") })
+                SplitPlan.CHOICES.forEach { m -> FilterChip(selected = settings.splitMin == m, onClick = { onChange { it.copy(splitMin = m) } }, label = { Text(SplitPlan.minutesLabel(m)) }) }
+            }
+            if (settings.splitMin == 0) Sub("Turn a long recording into several files, say an 8-hour one into eight 1-hour parts.")
+            else {
+                val parts = single?.let { AudioPlanner.parts(it, settings) }
+                Text(
+                    when {
+                        parts == null -> "Every file is cut into parts of ${SplitPlan.minutesLabel(settings.splitMin)}. Shorter files stay whole."
+                        parts.size < 2 -> "This file is not much longer than ${SplitPlan.minutesLabel(settings.splitMin)}, so it stays one file."
+                        else -> "${parts.size} parts of about ${SplitPlan.minutesLabel(settings.splitMin)}, named like \"${SplitPlan.partName("name", 0, parts.size)}\"."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Sub("Measured on the original recording, before any speed change. A short leftover joins the last part. Trim first to split only a section.")
+                if (settings.normalize || settings.fadeInMs > 0 || settings.fadeOutMs > 0) Text(
+                    "Normalize and fades are applied to each part separately.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Cut at quiet moments", style = MaterialTheme.typography.bodyLarge)
+                        Text("Ends each part in a pause, within 30 seconds of the planned cut, so no word is chopped in half.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    GooeySwitch(settings.splitQuiet, { v -> onChange { it.copy(splitQuiet = v) } })
+                }
             }
         }
     }
