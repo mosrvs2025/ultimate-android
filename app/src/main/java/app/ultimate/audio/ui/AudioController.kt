@@ -7,6 +7,7 @@ import app.ultimate.audio.engine.AudioConverter
 import app.ultimate.audio.engine.AudioProbe
 import app.ultimate.audio.engine.ConvertInput
 import app.ultimate.audio.engine.PickedVideo
+import app.ultimate.audio.model.AudioPlanner
 import app.ultimate.audio.model.AudioSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,7 +53,8 @@ class AudioController(private val app: UltimateApp) {
             preview.value = runCatching {
                 val a = original?.takeIf { it.first == base && it.second.first.exists() && preview.value.original != null }?.second
                     ?: previewer.preview(input, base, File(dir, "original-$stamp.wav")).also { original = base to it }
-                val b = previewer.preview(input, s, File(dir, "edited-$stamp.wav"))
+                // The edited preview is made with the chosen codec, so the compression itself can be heard.
+                val b = previewer.preview(input, s, File(dir, "edited-$stamp.${AudioPlanner.previewFormat(input.source, s).ext}"), encoded = true)
                 dir.listFiles()?.filter { it != a.first && it != b.first }?.forEach { it.delete() }
                 Preview(Uri.fromFile(a.first), Uri.fromFile(b.first), a.second, b.second)
             }.getOrElse { if (it is kotlinx.coroutines.CancellationException) throw it else preview.value.copy(rendering = false, error = it.message ?: "Preview failed") }

@@ -10,6 +10,7 @@ import app.ultimate.audio.model.AudioPlanner
 import app.ultimate.audio.model.AudioSettings
 import app.ultimate.audio.model.AudioSource
 import app.ultimate.audio.model.OutFormat
+import app.ultimate.audio.model.SplitPlan
 import app.ultimate.core.JobLog
 import app.ultimate.core.ProgressTicker
 import app.ultimate.core.WorkHub
@@ -41,8 +42,15 @@ sealed interface AudioStatus {
     data object Cancelled : AudioStatus
 }
 
-/** One output file: a single input, or several joined in order. [source] describes the first input, for thumbnails. */
-data class AudioJob(val id: Int, val inputs: List<ConvertInput>, val name: String, val status: AudioStatus = AudioStatus.Queued) {
+/**
+ * One output file: a single input, or several joined in order, or one part of a long input that is being split. [source] describes
+ * the first input, for thumbnails. A part has its own [startMs] to [endMs] on the original recording ([endMs] below zero: not a part).
+ */
+data class AudioJob(
+    val id: Int, val inputs: List<ConvertInput>, val name: String, val status: AudioStatus = AudioStatus.Queued,
+    val startMs: Long = 0, val endMs: Long = -1,
+) {
+    val isPart get() = endMs > 0
     val uri: Uri get() = inputs.first().uri
     val source: AudioSource get() = inputs.first().source
 }
@@ -92,19 +100,34 @@ class AudioManager(private val app: Context, private val store: AudioStore, priv
         val inputs = videos.mapNotNull { v -> v.audio?.let { ConvertInput(v.uri, v.name, it) } }
         if (inputs.isEmpty()) return
         val join = settings.join && inputs.size > 1
-        val jobs = if (join) listOf(AudioJob(0, inputs, AudioPlanner.joinedName(inputs[0].name, inputs.size)))
-        else inputs.mapIndexed { i, input -> AudioJob(i, listOf(input), input.name) }
+        // Trimming only makes sense for a single file, so it is ignored for batches and joins.
+        val effective = if (inputs.size == 1) settings else settings.copy(trimStartMs = 0, trimEndMs = -1)
+        val jobs = when {
+            join -> listOf(AudioJob(0, inputs, AudioPlanner.joinedName(inputs[0].name, inputs.size)))
+            effective.splitMin > 0 -> {
+                // A long file becomes one job per part, so the queue, the progress and the results already work for them.
+                var id = 0
+                inputs.flatMap { input ->
+                    val parts = AudioPlanner.parts(input.source, effective)
+                    if (parts.size < 2) listOf(AudioJob(id++, listOf(input), input.name))
+                    else parts.map { p ->
+                        val name = SplitPlan.partName(AudioConverter.baseName(input.name), p.index, parts.size)
+                        AudioJob(id++, listOf(input.copy(name = name)), name, startMs = p.startMs, endMs = p.endMs)
+                    }
+                }
+            }
+            else -> inputs.mapIndexed { i, input -> AudioJob(i, listOf(input), input.name) }
+        }
         _state.value = AudioQueue(jobs, active = true)
         log.reset()
         log.info(
             "Audio · ${inputs.size} file${if (inputs.size == 1) "" else "s"}${if (join) " joined into one" else ""} · ${settings.format.label}" +
-                (if (settings.format != OutFormat.Wav) " ${settings.kbps} kbps" else "") + (if (settings.mono) " · mono" else "") +
-                if (settings.speed != 1f) " · ${settings.speed}×" else "",
+                (if (settings.format == OutFormat.Mp3 && settings.vbr >= 0) " variable rate, level ${settings.vbr}" else if (settings.format != OutFormat.Wav) " ${settings.kbps} kbps" else "") +
+                (if (settings.mono) " · mono" else "") + (if (settings.speed != 1f) " · ${settings.speed}×" else "") +
+                (if (jobs.size > inputs.size && !join) " · ${jobs.size} parts of about ${SplitPlan.minutesLabel(settings.splitMin)}" else ""),
         )
         videos.filter { it.audio == null }.forEach { log.warn("skip ${it.name}: no audio track") }
         hub.start()
-        // Trimming only makes sense for a single file, so it is ignored for batches and joins.
-        val effective = if (inputs.size == 1) settings else settings.copy(trimStartMs = 0, trimEndMs = -1)
         runner = scope.launch { runAll(effective) }
     }
 
@@ -129,10 +152,41 @@ class AudioManager(private val app: Context, private val store: AudioStore, priv
         if (!_state.value.active) _state.value = AudioQueue()
     }
 
-    private suspend fun runAll(settings: AudioSettings) {
+    /**
+     * Moves each cut between the parts of a split file to the quietest moment close to it, so a part ends in a pause instead of in
+     * the middle of a word. A cut whose stretch can't be read keeps its planned place.
+     */
+    private suspend fun nudgeCuts() {
+        val jobs = _state.value.jobs
+        val byInput = jobs.withIndex().filter { it.value.isPart }.groupBy { it.value.inputs.first().uri }
+        for ((_, group) in byInput) {
+            if (group.size < 2) continue
+            val input = group.first().value.inputs.first()
+            val parts = group.map { SplitPlan.Part(it.index, it.value.startMs, it.value.endMs) }
+            log.info("▶ Looking for quiet moments to cut at (${parts.size - 1})")
+            val cuts = parts.drop(1).mapIndexed { n, p ->
+                val found = runCatching { converter.quietMoment(input, p.startMs) }.getOrNull()
+                if (found == null) log.warn("  cut ${n + 1}  couldn't look near ${formatDuration(p.startMs)}; cutting there")
+                else log.detail("  cut ${n + 1}  ${formatDuration(found)} (planned ${formatDuration(p.startMs)})")
+                found
+            }
+            val moved = SplitPlan.nudge(parts, cuts)
+            _state.update { s ->
+                s.copy(jobs = s.jobs.mapIndexed { i, j ->
+                    val k = group.indexOfFirst { it.index == i }
+                    if (k < 0) j else j.copy(startMs = moved[k].startMs, endMs = moved[k].endMs)
+                })
+            }
+        }
+    }
+
+    private suspend fun runAll(base: AudioSettings) {
         try {
+            if (base.splitMin > 0 && base.splitQuiet) nudgeCuts()
             for (i in _state.value.jobs.indices) {
                 val job = _state.value.jobs[i]
+                // A part is its own trim of the original; everything else about the sound is the same for every part.
+                val settings = (if (job.isPart) base.copy(trimStartMs = job.startMs, trimEndMs = job.endMs) else base).copy(splitMin = 0)
                 val started = SystemClock.elapsedRealtime()
                 ticker.reset()
                 log.info("▶ ${job.name}")

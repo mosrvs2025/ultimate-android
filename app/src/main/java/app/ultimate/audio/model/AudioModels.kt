@@ -31,6 +31,12 @@ data class AudioSettings(
     val fadeOutMs: Long = 0,
     /** Raise (or lower) the level so the loudest moment sits just under full scale. */
     val normalize: Boolean = false,
+    /** MP3 only: variable bit rate at this level, from 0 (best, biggest) to 9 (smallest), or -1 for the fixed [kbps]. */
+    val vbr: Int = -1,
+    /** Cut the kept part into parts of this many minutes of the original recording; 0 keeps one file. */
+    val splitMin: Int = 0,
+    /** Move each cut to the quietest moment close by, so nothing is chopped in the middle of a word. */
+    val splitQuiet: Boolean = true,
 ) {
     /** Anything that changes the sound beyond format, speed and channels. */
     val shaped: Boolean get() = pitch != 0 || bassDb != 0f || trebleDb != 0f || highCutHz != 0 || fadeInMs > 0 || fadeOutMs > 0 || normalize
@@ -54,6 +60,30 @@ data class AudioSource(
 
 object AudioPlanner {
     val MP3_BITRATES = listOf(64, 96, 128, 192, 256, 320)
+
+    /** A variable-bit-rate choice: the encoder spends only what each moment needs, so quiet and simple stretches cost almost nothing. */
+    data class SmartLevel(val vbr: Int, val label: String, val blurb: String)
+    val SMART = listOf(
+        SmartLevel(8, "Tiny", "Smallest. For voice: meetings, lectures, calls and long recordings."),
+        SmartLevel(6, "Small", "Clear voice and podcasts, and fine for most music."),
+        SmartLevel(4, "Balanced", "Most music sounds the same as the original."),
+        SmartLevel(2, "High", "Very close to the original, for music you care about."),
+    )
+
+    /** About what each level spends on average for stereo, in kbps. The real figure follows the sound; mono is a little over half. */
+    private val VBR_STEREO_KBPS = mapOf(8 to 85, 6 to 130, 4 to 165, 2 to 190)
+
+    fun vbrKbps(level: Int, mono: Boolean): Int = ((VBR_STEREO_KBPS[level] ?: 130) * if (mono) 0.55 else 1.0).toInt()
+
+    /** The parts a single file will be saved as: one if no split is asked for. Times are on the original recording. */
+    fun parts(src: AudioSource, s: AudioSettings): List<SplitPlan.Part> {
+        val start = s.trimStartMs.coerceAtLeast(0)
+        val end = if (s.trimEndMs > 0) min(s.trimEndMs, src.durationMs) else src.durationMs
+        return SplitPlan.plan(start, end, s.splitMin * 60_000L)
+    }
+
+    /** What the preview is rendered as: the real codec when there is one, so the compression itself can be heard; WAV otherwise. */
+    fun previewFormat(src: AudioSource, s: AudioSettings): OutFormat = if (s.format == OutFormat.Wav || copies(src, s)) OutFormat.Wav else s.format
 
     val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
     val HIGH_CUTS = listOf(0 to "Off", 16_000 to "16 kHz", 12_000 to "12 kHz", 8_000 to "8 kHz")
@@ -86,6 +116,7 @@ object AudioPlanner {
         val seconds = outputMs(src, s) / 1000.0
         return when {
             copies(src, s) -> ((if (src.bitrate > 0) src.bitrate else 128_000) / 8.0 * seconds).toLong()
+            s.format == OutFormat.Mp3 && s.vbr >= 0 -> (vbrKbps(s.vbr, outputChannels(src, s) == 1) * 1000 / 8.0 * seconds).toLong()
             s.format == OutFormat.Mp3 -> (s.kbps * 1000 / 8.0 * seconds).toLong()
             s.format == OutFormat.M4a -> (aacKbps(s.kbps) * 1000 / 8.0 * seconds).toLong()
             else -> (encoderRate(src.sampleRate) * outputChannels(src, s) * 2.0 * seconds).toLong() + 44
@@ -204,10 +235,12 @@ object AudioTemplates {
         AudioTemplate("Ringtone", "Fades in and out, evened out; trim to the best part", audioFiles = true) {
             AudioSettings(format = OutFormat.Mp3, kbps = 192, fadeInMs = 1_000, fadeOutMs = 3_000, normalize = true)
         },
-        AudioTemplate("Podcast at 1.5×", "Faster, mono and small, voices unchanged", audioFiles = true) { AudioSettings(format = OutFormat.Mp3, kbps = 96, mono = true, speed = 1.5f) },
-        AudioTemplate("Join voice notes", "Several recordings into one, at an even level", audioFiles = true) { AudioSettings(format = OutFormat.Mp3, kbps = 128, mono = true, join = true, normalize = true) },
+        AudioTemplate("Podcast at 1.5×", "Faster, mono and small, voices unchanged", audioFiles = true) { AudioSettings(format = OutFormat.Mp3, vbr = 6, mono = true, speed = 1.5f) },
+        AudioTemplate("Join voice notes", "Several recordings into one, at an even level", audioFiles = true) { AudioSettings(format = OutFormat.Mp3, vbr = 6, mono = true, join = true, normalize = true) },
         AudioTemplate("Clearer voice memo", "Less rumble and hiss, louder", audioFiles = true) {
-            AudioSettings(format = OutFormat.Mp3, kbps = 128, mono = true, bassDb = -6f, trebleDb = 3f, highCutHz = 12_000, normalize = true)
+            AudioSettings(format = OutFormat.Mp3, vbr = 6, mono = true, bassDb = -6f, trebleDb = 3f, highCutHz = 12_000, normalize = true)
         },
+        AudioTemplate("Long recording, tiny", "Meetings, lectures and calls: mono and as small as it can be", audioFiles = false) { AudioSettings(format = OutFormat.Mp3, vbr = 8, mono = true) },
+        AudioTemplate("Long recording in 1-hour parts", "Mono, small, cut every hour at a quiet moment", audioFiles = false) { AudioSettings(format = OutFormat.Mp3, vbr = 6, mono = true, splitMin = 60) },
     )
 }

@@ -14,9 +14,11 @@ import android.provider.MediaStore
 import app.ultimate.audio.model.AudioPlanner
 import app.ultimate.audio.model.AudioSettings
 import app.ultimate.audio.model.AudioSource
+import app.ultimate.audio.model.Mp3VbrTag
 import app.ultimate.audio.model.OutFormat
 import app.ultimate.audio.model.PcmMixer
 import app.ultimate.audio.model.PeakTracker
+import app.ultimate.audio.model.SplitPlan
 import app.ultimate.audio.model.Stretcher
 import app.ultimate.audio.model.ToneShaper
 import app.ultimate.core.JobLog
@@ -24,7 +26,6 @@ import app.ultimate.core.formatBytes
 import app.ultimate.core.formatDuration
 import de.sciss.jump3r.lowlevel.LameEncoder
 import java.io.IOException
-import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import javax.sound.sampled.AudioFormat
@@ -152,7 +153,7 @@ class AudioConverter(private val context: Context) {
         }
         val tracker = PeakTracker(totalFrames = totalFrames)
         val sink: PcmSink = when (s.format) {
-            OutFormat.Mp3 -> Mp3Sink(ParcelFileDescriptor.AutoCloseOutputStream(fd), rate, channels, s.kbps)
+            OutFormat.Mp3 -> Mp3Sink(ParcelFileDescriptor.AutoCloseOutputStream(fd), rate, channels, s.kbps, s.vbr)
             OutFormat.Wav -> WavSink(ParcelFileDescriptor.AutoCloseOutputStream(fd), rate, channels)
             OutFormat.M4a -> AacSink(fd, rate, channels, AudioPlanner.aacKbps(s.kbps))
         }
@@ -165,17 +166,19 @@ class AudioConverter(private val context: Context) {
             sink.close()
         }
         onProgress(1f, tracker.snapshot())
-        return Facts(rate, channels, tracker.snapshot())
+        return Facts(sink.actualRate() ?: rate, channels, tracker.snapshot())
     }
 
     /**
-     * Renders [lengthMs] from the trim start of one input to a WAV in [out], with [settings] applied, for a quick before/after
-     * listen. Nothing is added to the user's music.
+     * Renders [lengthMs] from the trim start of one input to [out], with [settings] applied, for a quick before/after listen. With
+     * [encoded] it is made with the chosen codec (MP3 or AAC) so the compression itself can be heard; otherwise it is a WAV. The
+     * file's type is [AudioPlanner.previewFormat] when [encoded]. Nothing is added to the user's music.
      */
-    suspend fun preview(input: ConvertInput, settings: AudioSettings, out: java.io.File, lengthMs: Long = 20_000): Pair<java.io.File, List<Float>> = withContext(Dispatchers.IO) {
+    suspend fun preview(input: ConvertInput, settings: AudioSettings, out: java.io.File, lengthMs: Long = 20_000, encoded: Boolean = false): Pair<java.io.File, List<Float>> = withContext(Dispatchers.IO) {
         val start = settings.trimStartMs.coerceAtLeast(0)
         val end = (if (settings.trimEndMs > 0) settings.trimEndMs else input.source.durationMs).coerceAtMost(start + (lengthMs * settings.speed).toLong())
-        val s = settings.copy(format = OutFormat.Wav, trimStartMs = start, trimEndMs = end, join = false)
+        val format = if (encoded) AudioPlanner.previewFormat(input.source, settings) else OutFormat.Wav
+        val s = settings.copy(format = format, trimStartMs = start, trimEndMs = end, join = false, splitMin = 0)
         this@AudioConverter.log = JobLog()
         val outMs = AudioPlanner.outputMs(input.source, s)
         ParcelFileDescriptor.open(out, ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE).use { fd ->
@@ -183,27 +186,86 @@ class AudioConverter(private val context: Context) {
         }
     }
 
+    /**
+     * The quietest moment within [searchMs] either side of [aroundMs], as a time on the original recording, for cutting a long file
+     * between sentences instead of through one. Only that stretch (about a minute) is decoded, so finding a cut costs seconds even
+     * in an eight-hour file. Null if the stretch can't be read.
+     */
+    suspend fun quietMoment(input: ConvertInput, aroundMs: Long, searchMs: Long = SplitPlan.SEARCH_MS): Long? = withContext(Dispatchers.IO) {
+        val from = (aroundMs - searchMs).coerceAtLeast(0)
+        val to = (aroundMs + searchMs).coerceAtMost(input.source.durationMs)
+        if (to - from < 2_000) return@withContext null
+        val hop = SplitPlan.HOP_MS
+        val power = ArrayList<Double>()
+        var sum = 0.0
+        var inHop = 0
+        val saved = log
+        log = JobLog() // each look would otherwise add its decoder lines to the job's details
+        try {
+            decode(input.uri, input.source, AudioSettings(trimStartMs = from, trimEndMs = to), {}) { pcm, count, rate, channels ->
+                val perHop = rate * hop / 1000
+                val frames = count / channels
+                for (f in 0 until frames) {
+                    var v = 0
+                    for (c in 0 until channels) v += pcm[f * channels + c]
+                    val x = v / channels / 32768.0
+                    sum += x * x
+                    if (++inHop >= perHop) { power += sum / inHop; sum = 0.0; inHop = 0 }
+                }
+            }
+        } finally {
+            log = saved
+        }
+        SplitPlan.quietestMs(power.toDoubleArray(), hop, aroundMs - from)?.let { from + it }
+    }
+
     /** Where PCM goes to become a file. */
     private interface PcmSink {
         fun describe(): String
+        /** The sample rate the file really has, when the encoder chose one other than asked for. */
+        fun actualRate(): Int? = null
         fun write(samples: ShortArray, count: Int)
         fun finish()
         /** Releases everything; safe after [finish] and after a failure. */
         fun close()
     }
 
-    private class Mp3Sink(private val out: OutputStream, rate: Int, channels: Int, private val kbps: Int) : PcmSink {
+    /**
+     * MP3 by LAME, at a fixed bit rate ([vbr] below zero) or variable ([vbr] 0 to 9, 0 best). A variable-rate file gets a Xing header
+     * as its first frame so players know how long it is and can seek: a blank frame is written first and overwritten with the real
+     * one (frame count, byte count, seek table) once the encoding is done, which is why the output must be seekable.
+     */
+    private class Mp3Sink(private val out: java.io.FileOutputStream, rate: Int, channels: Int, private val kbps: Int, private val vbr: Int) : PcmSink {
         private val encoder = LameEncoder(
             AudioFormat(rate.toFloat(), 16, channels, true, false), kbps,
-            if (channels == 1) LameEncoder.CHANNEL_MODE_MONO else LameEncoder.CHANNEL_MODE_AUTO, LameEncoder.QUALITY_MIDDLE, false,
+            if (channels == 1) LameEncoder.CHANNEL_MODE_MONO else LameEncoder.CHANNEL_MODE_AUTO,
+            if (vbr >= 0) vbr else LameEncoder.QUALITY_MIDDLE, vbr >= 0,
         )
         private val mode = if (channels == 1) "mono" else "joint stereo"
         private val rateHz = rate
         private val pending = ByteArray(encoder.getPCMBufferSize())
         private var pendingLen = 0
         private val mp3 = ByteArray(encoder.getMP3BufferSize())
+        private val tag = if (vbr >= 0) Mp3VbrTag.Tracker() else null
+        private val held = java.io.ByteArrayOutputStream()
+        private var tagged = false
 
-        override fun describe() = "LAME ${encoder.encoderVersion} · $kbps kbps CBR · $mode · $rateHz Hz"
+        override fun describe() = "LAME ${encoder.encoderVersion} · ${if (vbr >= 0) "variable bit rate, level $vbr" else "$kbps kbps CBR"} · $mode · $rateHz Hz"
+
+        override fun actualRate(): Int? = tag?.first?.rate
+
+        /** Writes [n] bytes of encoder output; for a variable-rate file, after the blank header frame that goes first. */
+        private fun put(n: Int) {
+            if (n <= 0) return
+            val t = tag
+            if (t == null) { out.write(mp3, 0, n); return }
+            t.feed(mp3, 0, n)
+            if (!tagged) {
+                held.write(mp3, 0, n)
+                if (t.first == null) return // the first frame isn't complete yet; its header says what the blank frame must look like
+                out.write(t.placeholder()); held.writeTo(out); held.reset(); tagged = true
+            } else out.write(mp3, 0, n)
+        }
 
         override fun write(samples: ShortArray, count: Int) {
             var i = 0
@@ -220,13 +282,19 @@ class AudioConverter(private val context: Context) {
         }
 
         private fun flush() {
-            if (pendingLen > 0) out.write(mp3, 0, encoder.encodeBuffer(pending, 0, pendingLen, mp3))
+            if (pendingLen > 0) put(encoder.encodeBuffer(pending, 0, pendingLen, mp3))
             pendingLen = 0
         }
 
         override fun finish() {
             flush()
-            out.write(mp3, 0, encoder.encodeFinish(mp3))
+            put(encoder.encodeFinish(mp3))
+            val t = tag
+            if (t != null && tagged) {
+                val size = out.channel.position()
+                out.channel.position(0)
+                out.write(t.tag(size))
+            }
         }
 
         override fun close() {
