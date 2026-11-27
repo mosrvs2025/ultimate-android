@@ -127,6 +127,9 @@ which led to shorter copy. Not checked on a phone with real data.
 `HomeActivity` used to override the old `onBackPressed()` with an empty body. Phones that deliver Back the old way (Android 13 and 14 for an
 app that hasn't opted in to predictive back) call that method, so Back never reached the Compose `BackHandler`s of the settings pages, the
 edit panel, search or the letter list; only the on-screen arrow worked. It now adds one always-enabled no-op `OnBackPressedCallback` before the
-screen is composed (so the screen's own handlers, added later, are asked first and bare home still never closes). `LauncherBackTest` walks
-Themes → list → home and checks that the override is gone (it needs Robolectric, so it runs on CI). That bare home stays put is by
-reading the code only: a test that launched the real `HomeActivity` left its animations running and stalled the tests after it.
+screen is composed (so the screen's own handlers, added later, are asked first and bare home still never closes).
+
+Which page is open is now owned by `LauncherHome`, with a single `BackHandler` using `SettingsBack.next` (page to list, list to home).
+`SettingsBackTest` covers those rules and reads `HomeActivity.kt` to check the old override is gone. A CI run of a Compose test that pressed
+Back through a dispatcher showed the handler does run and clears the page, but that test made `HostsScreenTest` (Robolectric, run after it)
+stall on "not idle" even when it passed (confirmed by a run without it: 1149 tests, 0 failures), so it was removed. Not tried on a phone.
