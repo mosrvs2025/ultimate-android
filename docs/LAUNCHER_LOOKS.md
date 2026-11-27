@@ -128,4 +128,5 @@ which led to shorter copy. Not checked on a phone with real data.
 app that hasn't opted in to predictive back) call that method, so Back never reached the Compose `BackHandler`s of the settings pages, the
 edit panel, search or the letter list; only the on-screen arrow worked. It now adds one always-enabled no-op `OnBackPressedCallback` before the
 screen is composed (so the screen's own handlers, added later, are asked first and bare home still never closes). `LauncherBackTest` walks
-Themes → list → home and checks bare home stays put and that the override is gone (it needs Robolectric, so it runs on CI).
+Themes → list → home and checks that the override is gone (it needs Robolectric, so it runs on CI). That bare home stays put is by
+reading the code only: a test that launched the real `HomeActivity` left its animations running and stalled the tests after it.
