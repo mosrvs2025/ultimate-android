@@ -34,7 +34,7 @@ import java.io.File
 /** The Themes page of the launcher settings: the looks, the colours, the parts and the share box, in one tall window so all of it is drawn. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34], application = UltimateApp::class, qualifiers = "w352dp-h1500dp-notnight-xxhdpi")
+@Config(sdk = [34], application = UltimateApp::class, qualifiers = "w352dp-h2900dp-notnight-xxhdpi")
 class LauncherLooksPageShotsTest {
     @get:Rule val compose = createComposeRule()
     private val dir get() = System.getProperty("screenshots.dir")?.let(::File)
