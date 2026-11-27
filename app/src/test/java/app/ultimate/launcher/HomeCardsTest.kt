@@ -68,8 +68,8 @@ class HomeCardsTest {
 
     @Test fun thePaceLineIsShortAndRoundsToHundreds() {
         assertNull(HomeCards.paceShort(null))
-        assertEquals("1,200 ahead of usual", HomeCards.paceShort(ActivityMath.Pace(expected = 3000.0, ahead = 1234.0, projected = 9000, goalEtaMin = null)))
-        assertEquals("400 behind usual", HomeCards.paceShort(ActivityMath.Pace(3000.0, -420.0, 7000, null)))
+        assertEquals("+1,200 vs usual", HomeCards.paceShort(ActivityMath.Pace(expected = 3000.0, ahead = 1234.0, projected = 9000, goalEtaMin = null)))
+        assertEquals("\u2212400 vs usual", HomeCards.paceShort(ActivityMath.Pace(3000.0, -420.0, 7000, null)))
         assertEquals("on your usual pace", HomeCards.paceShort(ActivityMath.Pace(3000.0, 30.0, 8000, null)))
     }
 

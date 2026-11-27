@@ -82,14 +82,14 @@ object HomeCards {
         return if (w > 0) "$who \u00b7 watching ${if (w == nodes.size && nodes.size > 1) "all" else w.toString()}" else who
     }
 
-    /** A short pace line for a small card: "1,200 ahead of usual", "400 behind usual", "on your usual pace". Null with no usual to compare to. */
+    /** A short pace line for a small card: , "on your usual pace". Null with no usual to compare to. */
     fun paceShort(p: ActivityMath.Pace?): String? {
         p ?: return null
         val gap = Math.round(p.ahead / 100.0) * 100
         return when {
             gap == 0L -> "on your usual pace"
-            gap > 0 -> "%,d ahead of usual".format(gap)
-            else -> "%,d behind usual".format(-gap)
+            gap > 0 -> "+%,d vs usual".format(gap)
+            else -> "\u2212%,d vs usual".format(-gap)
         }
     }
 
