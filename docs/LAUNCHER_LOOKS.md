@@ -1,4 +1,4 @@
-# Launcher looks (2.30.0)
+# Launcher looks (2.30.0; living looks and wallpaper colours 2.31.0)
 
 Code: `launcher/LauncherLook.kt` (parts, tokens, presets, share code), `launcher/LauncherClock.kt` (the clock layouts),
 `launcher/LauncherScreen.kt` (favourites layouts, app-row variants, rail styles), `launcher/LauncherSettings.kt` (the settings and
@@ -62,3 +62,37 @@ real icons (the renderings use sample apps with placeholder discs).
 
 Looks that change by themselves (by time of day, Focus, activity, a rule); home cards that show Ultimate's own data (activity
 rings, heart rate, a mesh camera); "match my wallpaper" colours; any colour, not just the presets; a look editor with saved slots.
+
+
+## Living looks (2.31.0)
+
+Code: `launcher/LivingLook.kt` (rules, all plain arithmetic), `health/ActivityGlance.kt` (today's step count, for the goal rule),
+`LauncherRepo.living` / `tick()` / `refreshSignals()`.
+
+A **rule** is "when" plus "which look": a time window (`Between(from, to)` in minutes after midnight, wrapping midnight when `from > to`,
+so 22:00 to 06:00 works; `from == to` never applies), **while a focus session runs** (running and not paused), or **once today's step
+goal is reached** (until midnight). The look is a preset id (`zen`) or a whole `ULOOK1:` code, so a look of your own can be used.
+
+- The look you pick yourself stays your **everyday look** (`repo.settings`). `repo.living` is that with the first applying rule's look on top;
+  the home screen and the edge rail draw `living`, the Themes page edits `settings`. A rule changes only the look's parts: hidden apps,
+  gestures, favourites and the rules themselves are never touched.
+- Rules are checked top to bottom, the first that applies wins; a rule whose look can't be read is skipped. Up to six rules; the Themes
+  page has one-tap starting points (Zen at night, Paper by day, Terminal while focusing, Dusk when the goal is reached), move up/down and
+  remove, and a small builder with 30-minute steppers.
+- The signals are read every 30 seconds while the home screen is up (and each time you come home): the clock, `UltimateApp.focus.current`,
+  and `ActivityGlance.goalReached`. The step count is read from Health Connect at most every five minutes, only when a goal rule exists,
+  and only if the steps permission was already given (the launcher never asks); with no permission the goal simply never "is reached".
+- Stored as one `x.rules` string (`t1320-360@zen` per line; `focus@terminal`; `goal@dusk`). Damaged or future-version lines are dropped,
+  the rest kept.
+
+## Colours from the wallpaper (2.31.0)
+
+Code: `launcher/WallpaperPalette.kt`, `LauncherRepo.watchWallpaper()`.
+
+`Accent.Wallpaper` ("From wallpaper") takes the colours the phone itself found in the wallpaper (`WallpaperManager.getWallpaperColors`:
+primary, secondary, tertiary) and picks two: the most colourful leads, the second is a clearly different hue (or the first turned 38 degrees
+when the picture has only one colour). Wallpaper colours are often dark or washed out, so each is moved in lightness, keeping its hue,
+until it is at least **4.5:1** against the lightest dark background (and against Paper's page on a light look). The result lives in
+`WallpaperInk` as Compose state, so the glow, rail and highlights change the moment the wallpaper (or a look's background) changes. With no
+wallpaper colours it is the original teal and violet. It is shareable in a look code (the other phone uses its own wallpaper).
+The **Mirror** look pairs it with the phone's wallpaper as the background.

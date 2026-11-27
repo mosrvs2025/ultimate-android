@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -49,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -152,9 +154,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: Lau
             FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Accent.values().forEach { ac -> Swatch(ac, ac == s.accent) { repo.update { it.copy(accent = ac) } } }
             }
-            Text("Used for the glow, the letter rail, the suggestion pods and highlights.", color = Liquid.dim, fontSize = 12.sp)
+            Text(if (s.accent == Accent.Wallpaper) "These two come from your wallpaper and change when it does." else "Used for the glow, the letter rail, the suggestion pods and highlights. \"From wallpaper\" picks its two out of your picture.", color = Liquid.dim, fontSize = 12.sp)
         }
     }
+    item { LivingLooksCard(repo, s) }
     // Each part on its own, so the looks can be mixed.
     item {
         GlassCard(title = "Make it yours", accent = s.accent.a) {
@@ -205,7 +208,9 @@ private fun LookCard(p: LookPreset, selected: Boolean, accent: Color, onClick: (
     val dot = if (s.iconShape == IconShape.AsIs) RoundedCornerShape(3.dp) else t.iconShape
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
-            Modifier.width(104.dp).height(164.dp).clip(RoundedCornerShape(18.dp)).background(Brush.verticalGradient(s.backdrop.colors))
+            Modifier.width(104.dp).height(164.dp).clip(RoundedCornerShape(18.dp)).background(Brush.verticalGradient(
+                    // The wallpaper itself isn't known here; its picked colours stand in for it.
+                    if (s.backdrop == Backdrop.Wallpaper) listOf(s.accent.a.copy(alpha = 0.55f).compositeOver(Color(0xFF0A0E14)), s.accent.b.copy(alpha = 0.45f).compositeOver(Color(0xFF0A0E14))) else s.backdrop.colors))
                 .border(if (selected) BorderStroke(3.dp, accent) else BorderStroke(1.dp, Color(0x33FFFFFF)), RoundedCornerShape(18.dp))
                 .clickable(onClick = onClick).semantics { contentDescription = p.name + " look" + if (selected) ", selected" else "" },
         ) {
@@ -386,5 +391,81 @@ private fun Swatch(accent: Accent, selected: Boolean, onClick: () -> Unit) {
             .border(if (selected) BorderStroke(3.dp, Color.White) else BorderStroke(1.dp, Color(0x33FFFFFF)), CircleShape)
             .clickable(onClick = onClick).semantics { contentDescription = accent.label + if (selected) ", selected" else "" })
         Text(accent.label, color = if (selected) Color.White else Liquid.dim, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+/** Living looks: rules that change the look by themselves, with a one-tap start and a small builder for your own. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LivingLooksCard(repo: LauncherRepo, s: LauncherSettings) {
+    val living by repo.living.collectAsState()
+    var adding by remember { mutableStateOf(false) }
+    val accent = s.accent.a
+    GlassCard(title = "Living looks", accent = accent) {
+        Text("Let the launcher change its look by itself. The look you pick stays your everyday one; a rule borrows another while it applies. The first rule from the top that applies wins.", color = Liquid.dim, fontSize = 12.sp)
+        LivingLook.status(living)?.let { Text(it, color = accent, fontSize = 14.sp) }
+        s.rules.forEachIndexed { i, r ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(LivingLook.describe(r.whenever), color = Color.White, fontSize = 15.sp)
+                    Text("wears ${LivingLook.lookName(r.look)}", color = Liquid.dim, fontSize = 12.sp)
+                }
+                RuleButton("Move up", "\u2191", i > 0) { repo.update { it.copy(rules = LivingLook.move(it.rules, i, -1)) } }
+                RuleButton("Move down", "\u2193", i < s.rules.lastIndex) { repo.update { it.copy(rules = LivingLook.move(it.rules, i, 1)) } }
+                RuleButton("Remove rule", "\u2715", true) { repo.update { it.copy(rules = it.rules.filterIndexed { j, _ -> j != i }) } }
+            }
+        }
+        val fresh = LivingLook.suggestions.filter { it.second !in s.rules }
+        if (s.rules.size < LivingLook.MAX_RULES && fresh.isNotEmpty()) {
+            Text("Start with one", color = Liquid.dim, fontSize = 12.sp)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                fresh.forEach { (label, rule) -> Chip(label, false, accent) { repo.update { it.copy(rules = LivingLook.add(it.rules, rule)) }; repo.tick() } }
+            }
+        }
+        if (s.rules.size < LivingLook.MAX_RULES) Chip(if (adding) "Close" else "Make your own rule", adding, accent) { adding = !adding }
+        if (adding) RuleBuilder(accent, current = s) { rule -> repo.update { it.copy(rules = LivingLook.add(it.rules, rule)) }; repo.tick(); adding = false }
+        if (s.rules.any { it.whenever == When.GoalReached }) Text("The step goal is read from Health Connect, only if you already allowed it in Ultimate's Activity.", color = Liquid.dim, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun RuleButton(description: String, glyph: String, enabled: Boolean, onClick: () -> Unit) {
+    Text(glyph, color = if (enabled) Color.White else Color(0x33FFFFFF), fontSize = 18.sp,
+        modifier = Modifier.clip(CircleShape).clickable(enabled = enabled, onClick = onClick).semantics { contentDescription = description }.padding(horizontal = 11.dp, vertical = 6.dp))
+}
+
+/** Pick when (a time window, while focusing, or once the step goal is reached) and which look to wear, then add it. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RuleBuilder(accent: Color, current: LauncherSettings, onAdd: (LookRule) -> Unit) {
+    var kind by remember { mutableStateOf(0) }
+    var from by remember { mutableStateOf(22 * 60) }
+    var to by remember { mutableStateOf(6 * 60) }
+    var look by remember { mutableStateOf(Looks.zen.id) }
+    Text("When", color = Liquid.dim, fontSize = 12.sp)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("A time of day", "While focusing", "Step goal reached").forEachIndexed { i, t -> Chip(t, kind == i, accent) { kind = i } }
+    }
+    if (kind == 0) {
+        TimeStepper("From", from, accent) { from = it }
+        TimeStepper("Until", to, accent) { to = it }
+    }
+    Text("Wear", color = Liquid.dim, fontSize = 12.sp)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Looks.all.forEach { p -> Chip(p.name, look == p.id, accent) { look = p.id } }
+    }
+    val rule = LookRule(when (kind) { 0 -> When.Between(from, to); 1 -> When.Focusing; else -> When.GoalReached }, look)
+    val problem = if (kind == 0 && from == to) "Pick two different times." else null
+    problem?.let { Text(it, color = Liquid.dim, fontSize = 12.sp) }
+    LiquidButton("Add this rule", { if (problem == null) onAdd(rule) }, Modifier.fillMaxWidth())
+}
+
+@Composable
+private fun TimeStepper(label: String, minutes: Int, accent: Color, onChange: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        RuleButton("$label earlier", "\u2212", true) { onChange((minutes - 30).mod(LivingLook.DAY)) }
+        Text(LivingLook.clock(minutes), color = accent, fontSize = 17.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(horizontal = 6.dp))
+        RuleButton("$label later", "+", true) { onChange((minutes + 30).mod(LivingLook.DAY)) }
     }
 }

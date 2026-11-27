@@ -15,6 +15,9 @@ import app.ultimate.launcher.LauncherHome
 import app.ultimate.launcher.LauncherRepo
 import app.ultimate.launcher.LookPreset
 import app.ultimate.launcher.Looks
+import app.ultimate.launcher.LookRule
+import app.ultimate.launcher.When
+import app.ultimate.launcher.WallpaperInk
 import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.RoborazziTaskType
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -74,6 +77,26 @@ class LauncherLooksShotsTest {
     @Test fun zen() = rest(Looks.zen)
     @Test fun tiles() = rest(Looks.tiles)
     @Test fun dusk() = rest(Looks.dusk)
+
+    @Test fun mirror() {
+        // A magenta wallpaper: the glow, the rail and the highlights should turn magenta with it.
+        WallpaperInk.set(listOf(0xFFD81B60.toInt(), 0xFF6A1B9A.toInt(), 0xFFFF8A65.toInt()))
+        rest(Looks.mirror)
+        WallpaperInk.set(emptyList())
+    }
+
+    /** A rule that applies all day (but the last minute): Zen is drawn although the owner's own look is Terminal. */
+    @Test fun aRuleWearsAnotherLook() {
+        assumeTrue(dir != null)
+        val repo = LauncherRepo(ApplicationProvider.getApplicationContext())
+        repo.seed(names.map { HomeApp(it.lowercase(), it) }, favs)
+        repo.update { Looks.terminal.apply(it).copy(rules = listOf(LookRule(When.Between(0, 1_439), "zen"))) }
+        repo.tick()
+        compose.mainClock.autoAdvance = false
+        compose.setContent { UltimateTheme { LauncherHome(repo, 0, {}, autoLoad = false) } }
+        compose.mainClock.advanceTimeBy(1_500)
+        save("look-rule-zen-over-terminal")
+    }
 
     @Test fun paperSearch() {
         assumeTrue(dir != null); show(Looks.paper)

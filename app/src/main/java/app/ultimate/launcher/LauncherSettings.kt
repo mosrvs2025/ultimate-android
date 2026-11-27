@@ -5,7 +5,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import app.ultimate.core.Liquid
 
 /** The two colours the launcher's glow, rail and highlights are drawn in. [Aurora] is the original teal and violet. */
-enum class Accent(val label: String, val a: Color, val b: Color) {
+enum class Accent(val label: String, a: Color, b: Color) : Palette {
     Aurora("Aurora", Color(0xFF3DDCD0), Color(0xFF9D8CFF)),
     Sunset("Sunset", Color(0xFFFFB347), Color(0xFFFF6F91)),
     Ocean("Ocean", Color(0xFF4FC3F7), Color(0xFF7C8CFF)),
@@ -17,6 +17,14 @@ enum class Accent(val label: String, val a: Color, val b: Color) {
     Amber("Amber", Color(0xFFFFB000), Color(0xFFFF7A00)),
     Mono("Mono", Color(0xFFF2F2F2), Color(0xFF9A9A9A)),
     Ink("Ink", Color(0xFF3B352B), Color(0xFF8B5E3C)),
+    /** Two colours picked out of the phone's wallpaper (see [WallpaperPalette]); they follow the wallpaper when it changes. */
+    Wallpaper("From wallpaper", Color.Unspecified, Color.Unspecified) {
+        override val a: Color get() = WallpaperInk.duo.a
+        override val b: Color get() = WallpaperInk.duo.b
+    };
+
+    override val a: Color = a
+    override val b: Color = b
 }
 
 /**
@@ -87,6 +95,8 @@ data class LauncherSettings(
     val favLayout: FavLayout = FavLayout.List,
     val rail: RailStyle = RailStyle.Liquid,
     val iconShape: IconShape = IconShape.AsIs,
+    /** Living looks: rules that borrow another look at certain times (see [LivingLook]). Checked top to bottom. */
+    val rules: List<LookRule> = emptyList(),
 ) {
     fun clamped() = copy(favouritesShown = favouritesShown.coerceIn(MIN_FAVS, MAX_FAVS))
 
@@ -94,7 +104,7 @@ data class LauncherSettings(
 }
 
 /** The theme in effect, read by everything the launcher draws. */
-internal val LocalLauncherTheme = staticCompositionLocalOf { Accent.Aurora }
+internal val LocalLauncherTheme = staticCompositionLocalOf<Palette> { Accent.Aurora }
 
 /** Settings to and from the plain strings kept in preferences, forgiving of anything unknown (a setting from a later version, a typo). */
 object SettingsCodec {
@@ -109,7 +119,7 @@ object SettingsCodec {
 
     /** Keys of the settings added after the first ones. All are plain strings, so a missing or odd one just means the default. */
     private val EXTRA_KEYS = listOf("dockIcons", "dockLabels", "drawerIcons", "drawerShowIcons", "drawerSort", "swipeUp", "swipeDown", "doubleTap", "longPress", "searchShowsAll", "searchWeb",
-        "face", "clockLayout", "favLayout", "rail", "iconShape")
+        "face", "clockLayout", "favLayout", "rail", "iconShape", "rules")
 
     /** [base] with the newer settings filled in from [get] (a lookup of the stored strings). */
     fun withExtras(base: LauncherSettings, get: (String) -> String?): LauncherSettings {
@@ -123,6 +133,7 @@ object SettingsCodec {
             searchShowsAll = bool("searchShowsAll", base.searchShowsAll), searchWeb = bool("searchWeb", base.searchWeb),
             face = enumOr(get("face"), base.face), clockLayout = enumOr(get("clockLayout"), base.clockLayout), favLayout = enumOr(get("favLayout"), base.favLayout),
             rail = enumOr(get("rail"), base.rail), iconShape = enumOr(get("iconShape"), base.iconShape),
+            rules = get("rules")?.let { LivingLook.decode(it) } ?: base.rules,
         )
     }
 
@@ -133,12 +144,13 @@ object SettingsCodec {
         "swipeDown" to s.swipeDown.name, "doubleTap" to s.doubleTap.name, "longPress" to s.longPress.name,
         "searchShowsAll" to s.searchShowsAll.toString(), "searchWeb" to s.searchWeb.toString(),
         "face" to s.face.name, "clockLayout" to s.clockLayout.name, "favLayout" to s.favLayout.name, "rail" to s.rail.name, "iconShape" to s.iconShape.name,
+        "rules" to LivingLook.encode(s.rules),
     ).also { check(it.keys.toList() == EXTRA_KEYS) }
 }
 
 /** The pages of the settings hub, in the order they are listed, with the words that find them when you type in the box on top. */
 enum class SettingsPage(val title: String, val subtitle: String, val words: String) {
-    Colours("Themes", "Whole looks, then colours, type, clock, favourites, rail and icons", "theme themes look looks style styles colour color accent aurora sunset ocean meadow rose ember terminal paper zen tiles dusk font type typeface clock layout favourites rail icons shape share code"),
+    Colours("Themes", "Whole looks, then colours, type, clock, favourites, rail and icons", "theme themes look looks living rule rules automatic time night day focus goal mirror style styles colour color accent aurora sunset ocean meadow rose ember terminal paper zen tiles dusk font type typeface clock layout favourites rail icons shape share code"),
     Wallpaper("Wallpaper", "Background behind the home screen", "wallpaper background black graphite glow picture photo"),
     Home("Home screen", "Clock, suggestions and the letter rail", "home clock date time suggestions now tick rail letters haptic favourites reset"),
     Dock("Favourites", "How many show, their size and names", "favourites favorites dock icons size labels names count"),

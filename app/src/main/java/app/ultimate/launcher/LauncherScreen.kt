@@ -98,8 +98,13 @@ import kotlin.math.roundToInt
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Unit, autoLoad: Boolean = true) {
     val allApps by repo.apps.collectAsState()
-    val settings by repo.settings.collectAsState()
+    // What is drawn is the owner's look with any living-look rule's look on top; the settings sheet edits the owner's own (repo.settings).
+    val living by repo.living.collectAsState()
+    val settings = living.settings
+    val ownSettings by repo.settings.collectAsState()
     val favs by repo.favourites.collectAsState()
+    // The rules look at the clock, a focus session and the step goal: check again every half minute and whenever you come home.
+    LaunchedEffect(homePresses, settings.rules.size) { while (true) { repo.refreshSignals(); delay(30_000) } }
     // Apps the owner hid stay out of the rail, the lists and search.
     val apps = remember(allApps, settings.hidden) { LauncherMath.visible(allApps, settings.hidden) }
     var settingsOpen by remember { mutableStateOf(false) }
@@ -111,6 +116,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     val density = LocalDensity.current
     val motion = motionOn()
     val look = settings.tokens()
+    androidx.compose.runtime.SideEffect { WallpaperInk.backdropLight(look.light) }
     // A light look needs dark status and navigation bar icons, or they vanish into the page.
     val view = androidx.compose.ui.platform.LocalView.current
     androidx.compose.runtime.SideEffect {
@@ -284,7 +290,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
         if (searching) SearchSheet(repo, apps, settings, onClose = { searching = false })
         if (editing && !settingsOpen) EditHomePanel(settings.accent, onWallpaper = { editing = false; repo.changeWallpaper() }, onColours = { openSettings(SettingsPage.Colours) },
             onSettings = { openSettings() }, onClose = { editing = false })
-        if (settingsOpen) LauncherSettingsSheet(repo, allApps, settings, settingsPage, onClose = { settingsOpen = false; settingsPage = null })
+        if (settingsOpen) LauncherSettingsSheet(repo, allApps, ownSettings, settingsPage, onClose = { settingsOpen = false; settingsPage = null })
     }
     }
 }
@@ -394,7 +400,7 @@ internal enum class RowVariant { Plain, Numbered, Tile, Pill, Centered }
 
 /** An app's icon cut to the look's shape, or its first letter in a coloured disc until it has loaded. */
 @Composable
-private fun AppIcon(icon: androidx.compose.ui.graphics.ImageBitmap?, size: androidx.compose.ui.unit.Dp, shape: androidx.compose.ui.graphics.Shape, label: String, th: Accent) {
+private fun AppIcon(icon: androidx.compose.ui.graphics.ImageBitmap?, size: androidx.compose.ui.unit.Dp, shape: androidx.compose.ui.graphics.Shape, label: String, th: Palette) {
     Box(Modifier.size(size).clip(shape), contentAlignment = Alignment.Center) {
         if (icon != null) Image(icon, null, Modifier.fillMaxSize())
         else Box(Modifier.fillMaxSize().clip(if (shape == androidx.compose.ui.graphics.RectangleShape) CircleShape else shape).background(Brush.linearGradient(listOf(th.a.copy(alpha = 0.5f), th.b.copy(alpha = 0.4f)))), contentAlignment = Alignment.Center) { Text(label.take(1), color = LocalLook.current.fg, fontSize = 15.sp) }

@@ -1,6 +1,8 @@
 package app.ultimate.launcher
 
 import android.app.usage.UsageStatsManager
+import app.ultimate.UltimateApp
+import app.ultimate.health.ActivityGlance
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -31,10 +33,47 @@ class LauncherRepo(context: Context) {
     private fun readSettings() = SettingsCodec.withExtras(SettingsCodec.decode(prefs.getString("accent", null), prefs.getString("backdrop", null), prefs.getString("clock", null),
         prefs.getBoolean("showDate", true), prefs.getBoolean("railTicks", true), prefs.getInt("favsShown", 5), prefs.getBoolean("suggestions", true), prefs.getString("hidden", null))) { key -> prefs.getString("x.$key", null) }
     private val _settings = MutableStateFlow(readSettings())
-    /** The owner's choices about how the launcher looks and behaves. */
+    /** The owner's choices about how the launcher looks and behaves (the base look, before any living-look rule). */
     val settings: StateFlow<LauncherSettings> = _settings
+
+    private var signals = Signals(minuteOfDay = minuteOfDay())
+    private val _living = MutableStateFlow(LivingLook.effective(_settings.value, signals))
+    /** What is drawn: [settings] with the look a rule is wearing on top, and that rule. Same as [settings] when no rule applies. */
+    val living: StateFlow<Living> = _living
+
+    private fun minuteOfDay(): Int = java.util.Calendar.getInstance().let { it.get(java.util.Calendar.HOUR_OF_DAY) * 60 + it.get(java.util.Calendar.MINUTE) }
+
+    /** Reads what the rules look at (the time, a running focus session, today's step goal) and redraws if the look changes. Cheap; call it every minute. */
+    fun tick() {
+        val focus = (app as? UltimateApp)?.focus?.current?.value?.let { it.running && !it.paused } ?: false
+        val goal = _settings.value.rules.any { it.whenever == When.GoalReached } && runCatching { ActivityGlance.goalReached(app) }.getOrDefault(false)
+        signals = Signals(minuteOfDay(), focus, goal)
+        _living.value = LivingLook.effective(_settings.value, signals)
+    }
+
+    /** [tick], after freshening the step count when a rule needs it. Off the main thread. */
+    suspend fun refreshSignals() {
+        if (_settings.value.rules.any { it.whenever == When.GoalReached }) runCatching { ActivityGlance.refresh(app) }
+        tick()
+    }
+
+    private var inkWatcher: Any? = null
+    /** Keeps [WallpaperInk] in step with the phone's wallpaper colours, for the "match my wallpaper" accent. */
+    fun watchWallpaper() {
+        runCatching {
+            val wm = android.app.WallpaperManager.getInstance(app)
+            fun read() { WallpaperInk.set(wm.getWallpaperColors(android.app.WallpaperManager.FLAG_SYSTEM)?.let { c -> listOfNotNull(c.primaryColor, c.secondaryColor, c.tertiaryColor).map { it.toArgb() } }.orEmpty()) }
+            read()
+            if (inkWatcher == null) {
+                val l = android.app.WallpaperManager.OnColorsChangedListener { _, _ -> read() }
+                wm.addOnColorsChangedListener(l, android.os.Handler(android.os.Looper.getMainLooper())); inkWatcher = l
+            }
+        }
+    }
+
     fun update(change: (LauncherSettings) -> LauncherSettings) {
         val s = change(_settings.value).clamped(); _settings.value = s
+        _living.value = LivingLook.effective(s, signals)
         prefs.edit().putString("accent", s.accent.name).putString("backdrop", s.backdrop.name).putString("clock", s.clock.name).putBoolean("showDate", s.showDate)
             .putBoolean("railTicks", s.railTicks).putInt("favsShown", s.favouritesShown).putBoolean("suggestions", s.suggestions).putString("hidden", SettingsCodec.encodeHidden(s.hidden))
             .also { e -> SettingsCodec.extras(s).forEach { (k, v) -> e.putString("x.$k", v) } }.apply()
@@ -51,6 +90,7 @@ class LauncherRepo(context: Context) {
             .map { HomeApp(it.activityInfo.packageName, it.loadLabel(pm).toString(), runCatching { pm.getPackageInfo(it.activityInfo.packageName, 0).firstInstallTime }.getOrDefault(0L)) }
             .distinctBy { it.pkg }.sortedBy { it.label.lowercase() }
         _apps.value = list
+        withContext(Dispatchers.Main) { watchWallpaper() }
         val saved = prefs.getString("favs", null)
         _favourites.value = if (saved != null) saved.split(',').filter { it.isNotBlank() && list.any { a -> a.pkg == it } }
             else LauncherMath.defaultFavourites(usage(), phoneDefaults(), list.map { it.pkg }.toSet(), app.packageName)

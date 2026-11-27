@@ -199,7 +199,9 @@ internal fun EdgeRailContent(
     onOpen: (String) -> Unit, onAction: (String) -> Unit, onClose: () -> Unit,
 ) {
     // The same colours and hidden apps as the home screen.
-    val settings by repo.settings.collectAsState()
+    val living by repo.living.collectAsState()
+    val settings = living.settings
+    LaunchedEffect(Unit) { repo.tick() }
     // Over other apps the rail sits on a dark scrim, so it keeps light text whatever the look; it takes the look's type, icon shape and
     // rail style (a hidden rail would be invisible here, so that one is drawn as plain letters).
     val tokens = settings.tokens().let { LookTokens.Default.copy(face = it.face, iconShape = it.iconShape, rail = if (it.rail == RailStyle.Hidden) RailStyle.Plain else it.rail) }
