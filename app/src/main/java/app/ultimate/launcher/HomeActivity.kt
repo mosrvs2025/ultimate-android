@@ -3,6 +3,7 @@ package app.ultimate.launcher
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.mutableIntStateOf
@@ -23,6 +24,9 @@ class HomeActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         repo = LauncherRepo(this)
+        // Home has nowhere to go back to, so Back on the bare home screen does nothing instead of leaving it. This is added before the screen
+        // is composed, so every Back handler the screen adds later (closing search, a settings page, the edit panel) is asked first.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) { override fun handleOnBackPressed() = Unit })
         setContent {
             UltimateTheme {
                 LauncherHome(repo, presses.intValue, onOpenUltimate = { startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
@@ -36,8 +40,4 @@ class HomeActivity : ComponentActivity() {
 
     /** Apps may have been installed or removed while away. */
     override fun onResume() { super.onResume(); presses.intValue++; lifecycleScope.launch { repo.load() } }
-
-    @Deprecated("Home has nowhere to go back to.")
-    @Suppress("MissingSuperCall")
-    override fun onBackPressed() = Unit
 }
