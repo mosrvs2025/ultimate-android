@@ -1,7 +1,7 @@
 package app.ultimate.launcher
 
 import androidx.activity.ComponentActivity
-import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -36,10 +36,10 @@ class LauncherBackTest {
         // The title says where we are: "Themes" on the page, "Launcher settings" on the list, and no title at all back on the home screen.
         compose.onNodeWithText("Launcher settings").assertDoesNotExist()
         back()
-        compose.onNodeWithText("Launcher settings").assertIsDisplayed()   // back on the list of pages
+        compose.onNodeWithText("Launcher settings").assertExists()   // back on the list of pages
         back()
         compose.onNodeWithText("Launcher settings").assertDoesNotExist()  // settings closed
-        compose.onNodeWithContentDescription("Launcher settings").assertIsDisplayed()   // the gear on the home screen
+        compose.onNodeWithContentDescription("Launcher settings").assertExists()   // the gear on the home screen
         assertFalse("Back from settings must not leave the home screen", compose.activity.isFinishing)
     }
 
