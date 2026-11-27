@@ -132,7 +132,8 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     var sticky by remember { mutableStateOf<Char?>(null) }
     // Pressing Home while already home closes whatever is open, like every launcher.
     LaunchedEffect(homePresses) { searching = false; sticky = null; settingsOpen = false; editing = false }
-    BackHandler(enabled = settingsOpen) { settingsOpen = false; settingsPage = null }
+    // One Back handler for all of settings: a page goes back to the list, and the list closes settings.
+    BackHandler(enabled = settingsOpen) { val next = SettingsBack.next(SettingsBack.State(settingsOpen, settingsPage)); settingsOpen = next.open; settingsPage = next.page }
     BackHandler(enabled = !settingsOpen && (searching || sticky != null)) { searching = false; sticky = null }
     fun openSettings(page: SettingsPage? = null) { editing = false; settingsPage = page; settingsOpen = true }
     // What a swipe, double tap or hold on an empty part of the screen does is the owner's choice (settings, Gestures).
@@ -294,7 +295,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
         if (searching) SearchSheet(repo, apps, settings, onClose = { searching = false })
         if (editing && !settingsOpen) EditHomePanel(settings.accent, onWallpaper = { editing = false; repo.changeWallpaper() }, onColours = { openSettings(SettingsPage.Colours) },
             onSettings = { openSettings() }, onClose = { editing = false })
-        if (settingsOpen) LauncherSettingsSheet(repo, allApps, ownSettings, settingsPage, onClose = { settingsOpen = false; settingsPage = null })
+        if (settingsOpen) LauncherSettingsSheet(repo, allApps, ownSettings, settingsPage, onPage = { settingsPage = it }, onClose = { settingsOpen = false; settingsPage = null })
     }
     }
 }

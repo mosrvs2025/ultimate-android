@@ -121,3 +121,15 @@ Three cards under the clock, each **off until switched on** (Settings, Home scre
 
 Checked: `HomeCardsTest` (wording, short pace line, camera lines, storage), and renders of all three cards in Aurora, Terminal and Paper,
 which led to shorter copy. Not checked on a phone with real data.
+
+### Back in the launcher settings (2.32.0 fix)
+
+`HomeActivity` used to override the old `onBackPressed()` with an empty body. Phones that deliver Back the old way (Android 13 and 14 for an
+app that hasn't opted in to predictive back) call that method, so Back never reached the Compose `BackHandler`s of the settings pages, the
+edit panel, search or the letter list; only the on-screen arrow worked. It now adds one always-enabled no-op `OnBackPressedCallback` before the
+screen is composed (so the screen's own handlers, added later, are asked first and bare home still never closes).
+
+Which page is open is now owned by `LauncherHome`, with a single `BackHandler` using `SettingsBack.next` (page to list, list to home).
+`SettingsBackTest` covers those rules and reads `HomeActivity.kt` to check the old override is gone. A CI run of a Compose test that pressed
+Back through a dispatcher showed the handler does run and clears the page, but that test made `HostsScreenTest` (Robolectric, run after it)
+stall on "not idle" even when it passed (confirmed by a run without it: 1149 tests, 0 failures), so it was removed. Not tried on a phone.

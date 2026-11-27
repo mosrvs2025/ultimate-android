@@ -179,3 +179,14 @@ enum class SettingsPage(val title: String, val subtitle: String, val words: Stri
         }
     }
 }
+
+/** What system Back does in the launcher settings: a page goes back to the list of pages, the list closes settings, and with settings closed there is nothing to undo. */
+internal object SettingsBack {
+    data class State(val open: Boolean, val page: SettingsPage?)
+
+    fun next(s: State): State = when {
+        !s.open -> s
+        s.page != null -> s.copy(page = null)
+        else -> s.copy(open = false)
+    }
+}

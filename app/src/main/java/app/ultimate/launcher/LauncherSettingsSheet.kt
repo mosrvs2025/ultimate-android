@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Dock
@@ -75,20 +74,18 @@ import androidx.compose.ui.text.AnnotatedString
 /**
  * The launcher's settings, opened from the gear in the top right or from the edit-home panel. A short list of pages, like a phone's own
  * settings (themes, wallpaper, home screen, favourites, app list, gestures, search), with a box on top to find one by typing and a shortcut
- * to the phone's settings. Each choice takes effect at once and is kept on the phone. [startPage] opens straight onto a page.
+ * to the phone's settings. Each choice takes effect at once and is kept on the phone. Which page is open ([page], null for the list) is owned by the
+ * caller, which also handles the system Back button (page to list, list to home), so there is exactly one Back handler for all of settings.
  */
 @Composable
-internal fun LauncherSettingsSheet(repo: LauncherRepo, allApps: List<HomeApp>, s: LauncherSettings, startPage: SettingsPage? = null, onClose: () -> Unit) {
-    var page by remember { mutableStateOf(startPage) }
-    // Back goes from a page to the list first, and only then closes settings.
-    BackHandler(enabled = page != null) { page = null }
+internal fun LauncherSettingsSheet(repo: LauncherRepo, allApps: List<HomeApp>, s: LauncherSettings, page: SettingsPage?, onPage: (SettingsPage?) -> Unit, onClose: () -> Unit) {
     Column(Modifier.fillMaxSize().background(Color(0xFF080B10)).statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton({ if (page != null) page = null else onClose() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (page != null) "Back to launcher settings" else "Close settings", tint = Color.White) }
+            IconButton({ if (page != null) onPage(null) else onClose() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (page != null) "Back to launcher settings" else "Close settings", tint = Color.White) }
             Text(page?.title ?: "Launcher settings", color = Color.White, fontSize = 20.sp)
         }
         val current = page
-        if (current == null) SettingsHub(repo, s) { page = it }
+        if (current == null) SettingsHub(repo, s) { onPage(it) }
         else LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
             when (current) {
                 SettingsPage.Colours -> colourItems(repo, s)
