@@ -133,7 +133,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     // Pressing Home while already home closes whatever is open, like every launcher.
     LaunchedEffect(homePresses) { searching = false; sticky = null; settingsOpen = false; editing = false }
     // One Back handler for all of settings: a page goes back to the list, and the list closes settings.
-    BackHandler(enabled = settingsOpen) { println("LAUNCHER-BACK handler ran: page=$settingsPage open=$settingsOpen"); if (settingsPage != null) settingsPage = null else settingsOpen = false }
+    BackHandler(enabled = settingsOpen) { if (settingsPage != null) settingsPage = null else settingsOpen = false }
     BackHandler(enabled = !settingsOpen && (searching || sticky != null)) { searching = false; sticky = null }
     fun openSettings(page: SettingsPage? = null) { editing = false; settingsPage = page; settingsOpen = true }
     // What a swipe, double tap or hold on an empty part of the screen does is the owner's choice (settings, Gestures).
