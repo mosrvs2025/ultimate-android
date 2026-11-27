@@ -2,6 +2,7 @@ package app.ultimate.launcher
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.staticCompositionLocalOf
+import app.ultimate.core.Liquid
 
 /** The two colours the launcher's glow, rail and highlights are drawn in. [Aurora] is the original teal and violet. */
 enum class Accent(val label: String, val a: Color, val b: Color) {
@@ -11,16 +12,30 @@ enum class Accent(val label: String, val a: Color, val b: Color) {
     Meadow("Meadow", Color(0xFF7BE495), Color(0xFF3DDCD0)),
     Rose("Rose", Color(0xFFFF7EB3), Color(0xFFA394FF)),
     Ember("Ember", Color(0xFFFF8A65), Color(0xFFFFD54F)),
+    /** Terminal green and a warm amber, a pale mono pair and a dark brown ink (for light backgrounds). */
+    Phosphor("Phosphor", Color(0xFF39FF88), Color(0xFF00C46A)),
+    Amber("Amber", Color(0xFFFFB000), Color(0xFFFF7A00)),
+    Mono("Mono", Color(0xFFF2F2F2), Color(0xFF9A9A9A)),
+    Ink("Ink", Color(0xFF3B352B), Color(0xFF8B5E3C)),
 }
 
 /**
- * What is behind everything: the original soft blue-black glow, pure black (kind to OLED screens), a lighter graphite, or the phone's own
- * wallpaper showing through a dark veil (so the white text stays readable on a bright picture).
+ * What is behind everything, and the colours the text on it is drawn in: the original soft blue-black glow, pure black (kind to OLED
+ * screens), a lighter graphite, deeper colours, a light paper, or the phone's own wallpaper showing through a dark veil (so the white
+ * text stays readable on a bright picture). [fg] is the main text, [dim] the quieter text, [light] says the background is light (so the
+ * status bar icons turn dark), and [sheet] is the dark panel search slides up in. Every one but the wallpaper is fully opaque.
  */
-enum class Backdrop(val label: String, val colors: List<Color>) {
+enum class Backdrop(
+    val label: String, val colors: List<Color>,
+    val fg: Color = Color.White, val dim: Color = Liquid.dim, val light: Boolean = false, val sheet: Color = Color(0xF00A0E14),
+) {
     Aurora("Aurora", listOf(Color(0xFF070A0F), Color(0xFF0E141C), Color(0xFF0A0E14))),
     Black("Black", listOf(Color(0xFF000000), Color(0xFF000000), Color(0xFF000000))),
     Graphite("Graphite", listOf(Color(0xFF14181F), Color(0xFF1B212B), Color(0xFF12161D))),
+    Midnight("Midnight", listOf(Color(0xFF050B1E), Color(0xFF0B1838), Color(0xFF06102A)), dim = Color(0xFF8FA3C8), sheet = Color(0xF0060D22)),
+    Dusk("Dusk", listOf(Color(0xFF1A0F2E), Color(0xFF3A1B4A), Color(0xFF4A1F3E)), dim = Color(0xFFC3A9D6), sheet = Color(0xF01A0F2E)),
+    Terminal("Terminal", listOf(Color(0xFF020603), Color(0xFF000000), Color(0xFF010402)), fg = Color(0xFF8CFFB0), dim = Color(0xFF3F9462), sheet = Color(0xF0000000)),
+    Paper("Paper", listOf(Color(0xFFF7F2E8), Color(0xFFF1EADB), Color(0xFFF5EFE3)), fg = Color(0xFF1E1B16), dim = Color(0xFF6B655A), light = true, sheet = Color(0xF01E1B16)),
     Wallpaper("Phone's wallpaper", listOf(Color(0x80000000), Color(0x66000000), Color(0x99000000))),
 }
 
@@ -66,6 +81,12 @@ data class LauncherSettings(
     /** Search: list every app before anything is typed, and offer a web search when nothing matches. */
     val searchShowsAll: Boolean = true,
     val searchWeb: Boolean = false,
+    /** The look, apart from its colours: the typeface, how the clock and the favourites are laid out, the rail, and the shape of icons. */
+    val face: Face = Face.Default,
+    val clockLayout: ClockLayout = ClockLayout.Day,
+    val favLayout: FavLayout = FavLayout.List,
+    val rail: RailStyle = RailStyle.Liquid,
+    val iconShape: IconShape = IconShape.AsIs,
 ) {
     fun clamped() = copy(favouritesShown = favouritesShown.coerceIn(MIN_FAVS, MAX_FAVS))
 
@@ -87,7 +108,8 @@ object SettingsCodec {
     fun encodeHidden(hidden: Set<String>) = hidden.filter { it.isNotBlank() && ',' !in it }.sorted().joinToString(",")
 
     /** Keys of the settings added after the first ones. All are plain strings, so a missing or odd one just means the default. */
-    private val EXTRA_KEYS = listOf("dockIcons", "dockLabels", "drawerIcons", "drawerShowIcons", "drawerSort", "swipeUp", "swipeDown", "doubleTap", "longPress", "searchShowsAll", "searchWeb")
+    private val EXTRA_KEYS = listOf("dockIcons", "dockLabels", "drawerIcons", "drawerShowIcons", "drawerSort", "swipeUp", "swipeDown", "doubleTap", "longPress", "searchShowsAll", "searchWeb",
+        "face", "clockLayout", "favLayout", "rail", "iconShape")
 
     /** [base] with the newer settings filled in from [get] (a lookup of the stored strings). */
     fun withExtras(base: LauncherSettings, get: (String) -> String?): LauncherSettings {
@@ -99,6 +121,8 @@ object SettingsCodec {
             swipeUp = enumOr(get("swipeUp"), base.swipeUp), swipeDown = enumOr(get("swipeDown"), base.swipeDown),
             doubleTap = enumOr(get("doubleTap"), base.doubleTap), longPress = enumOr(get("longPress"), base.longPress),
             searchShowsAll = bool("searchShowsAll", base.searchShowsAll), searchWeb = bool("searchWeb", base.searchWeb),
+            face = enumOr(get("face"), base.face), clockLayout = enumOr(get("clockLayout"), base.clockLayout), favLayout = enumOr(get("favLayout"), base.favLayout),
+            rail = enumOr(get("rail"), base.rail), iconShape = enumOr(get("iconShape"), base.iconShape),
         )
     }
 
@@ -108,12 +132,13 @@ object SettingsCodec {
         "drawerShowIcons" to s.drawerShowIcons.toString(), "drawerSort" to s.drawerSort.name, "swipeUp" to s.swipeUp.name,
         "swipeDown" to s.swipeDown.name, "doubleTap" to s.doubleTap.name, "longPress" to s.longPress.name,
         "searchShowsAll" to s.searchShowsAll.toString(), "searchWeb" to s.searchWeb.toString(),
+        "face" to s.face.name, "clockLayout" to s.clockLayout.name, "favLayout" to s.favLayout.name, "rail" to s.rail.name, "iconShape" to s.iconShape.name,
     ).also { check(it.keys.toList() == EXTRA_KEYS) }
 }
 
 /** The pages of the settings hub, in the order they are listed, with the words that find them when you type in the box on top. */
 enum class SettingsPage(val title: String, val subtitle: String, val words: String) {
-    Colours("Themes", "Colours of the glow, rail and highlights", "theme colour color accent aurora sunset ocean meadow rose ember look"),
+    Colours("Themes", "Whole looks, then colours, type, clock, favourites, rail and icons", "theme themes look looks style styles colour color accent aurora sunset ocean meadow rose ember terminal paper zen tiles dusk font type typeface clock layout favourites rail icons shape share code"),
     Wallpaper("Wallpaper", "Background behind the home screen", "wallpaper background black graphite glow picture photo"),
     Home("Home screen", "Clock, suggestions and the letter rail", "home clock date time suggestions now tick rail letters haptic favourites reset"),
     Dock("Favourites", "How many show, their size and names", "favourites favorites dock icons size labels names count"),

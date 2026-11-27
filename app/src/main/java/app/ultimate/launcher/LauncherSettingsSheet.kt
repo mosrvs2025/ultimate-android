@@ -58,6 +58,16 @@ import app.ultimate.core.GooeySwitch
 import app.ultimate.core.Liquid
 import app.ultimate.core.LiquidButton
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 
 /**
  * The launcher's settings, opened from the gear in the top right or from the edit-home panel. A short list of pages, like a phone's own
@@ -127,6 +137,16 @@ private fun HubRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title:
 
 @OptIn(ExperimentalLayoutApi::class)
 private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: LauncherRepo, s: LauncherSettings) {
+    // Whole looks first: each is a set of parts, shown as a small picture of itself.
+    item {
+        GlassCard(title = "Looks", accent = s.accent.a) {
+            val current = Looks.matching(s)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Looks.all.forEach { p -> LookCard(p, current == p, s.accent.a) { repo.update { p.apply(it) } } }
+            }
+            Text(if (current != null) "${current.name}: ${current.blurb}." else "Your own mix. Change any part below, or pick a look to start again from it.", color = Liquid.dim, fontSize = 12.sp)
+        }
+    }
     item {
         GlassCard(title = "Colours", accent = s.accent.a) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -134,6 +154,88 @@ private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: Lau
             }
             Text("Used for the glow, the letter rail, the suggestion pods and highlights.", color = Liquid.dim, fontSize = 12.sp)
         }
+    }
+    // Each part on its own, so the looks can be mixed.
+    item {
+        GlassCard(title = "Make it yours", accent = s.accent.a) {
+            PartRow("Background", Backdrop.entries, s.backdrop, { it.label }, s.accent.a) { v -> repo.update { it.copy(backdrop = v) } }
+            PartRow("Typeface", Face.entries, s.face, { it.label }, s.accent.a) { v -> repo.update { it.copy(face = v) } }
+            PartRow("Clock", ClockLayout.entries, s.clockLayout, { it.label }, s.accent.a) { v -> repo.update { it.copy(clockLayout = v) } }
+            PartRow("Favourites", FavLayout.entries, s.favLayout, { it.label }, s.accent.a) { v -> repo.update { it.copy(favLayout = v) } }
+            PartRow("Letter rail", RailStyle.entries, s.rail, { it.label }, s.accent.a) { v -> repo.update { it.copy(rail = v) } }
+            PartRow("Icon shape", IconShape.entries, s.iconShape, { it.label }, s.accent.a) { v -> repo.update { it.copy(iconShape = v) } }
+            Text("A hidden rail still works: put your thumb on the right edge and slide.", color = Liquid.dim, fontSize = 12.sp)
+        }
+    }
+    // A look as a line of text: copy yours to share it, paste one to wear it.
+    item {
+        var pasted by remember { mutableStateOf("") }
+        var note by remember { mutableStateOf<String?>(null) }
+        val clipboard = LocalClipboardManager.current
+        GlassCard(title = "Share a look", accent = s.accent.a) {
+            val code = LookCode.encode(s)
+            Text(code, color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            Chip("Copy this look", false, s.accent.a) { clipboard.setText(AnnotatedString(code)); note = "Copied. Paste it to a friend, or into another phone's Share a look box." }
+            LiquidInput(pasted, { pasted = it }, "Paste a look code", {
+                val applied = LookCode.apply(pasted, s)
+                if (applied == null) note = "That isn't a look code. It starts with ULOOK1:" else { repo.update { LookCode.apply(pasted, it) ?: it }; note = "Applied."; pasted = "" }
+            }, sendLabel = "Use")
+            note?.let { Text(it, color = Liquid.dim, fontSize = 12.sp) }
+            Text("Only the look is in the code: colours, type and layout. Never your apps.", color = Liquid.dim, fontSize = 12.sp)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun <T> PartRow(title: String, options: List<T>, selected: T, label: (T) -> String, accent: Color, onPick: (T) -> Unit) {
+    Text(title, color = Liquid.dim, fontSize = 12.sp)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { o -> Chip(label(o), o == selected, accent) { onPick(o) } }
+    }
+}
+
+/** A look drawn small, from its own parts: the clock, three favourites and the rail, on its own background. */
+@Composable
+private fun LookCard(p: LookPreset, selected: Boolean, accent: Color, onClick: () -> Unit) {
+    val s = p.apply(LauncherSettings())
+    val t = s.tokens()
+    val names = listOf("Mail", "Phone", "Maps")
+    // Icons "as they are" have no shape of their own; the preview draws them as softly rounded dots.
+    val dot = if (s.iconShape == IconShape.AsIs) RoundedCornerShape(3.dp) else t.iconShape
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier.width(104.dp).height(164.dp).clip(RoundedCornerShape(18.dp)).background(Brush.verticalGradient(s.backdrop.colors))
+                .border(if (selected) BorderStroke(3.dp, accent) else BorderStroke(1.dp, Color(0x33FFFFFF)), RoundedCornerShape(18.dp))
+                .clickable(onClick = onClick).semantics { contentDescription = p.name + " look" + if (selected) ", selected" else "" },
+        ) {
+            Column(Modifier.padding(start = 10.dp, top = 12.dp, end = 24.dp)) {
+                when (s.clockLayout) {
+                    ClockLayout.Day -> Text("THU", style = TextStyle(brush = Brush.linearGradient(listOf(t.fg, s.accent.a, s.accent.b)), fontSize = 24.sp, fontWeight = FontWeight.Thin, letterSpacing = 3.sp, fontFamily = t.face))
+                    ClockLayout.Digital -> Text("14:05", color = t.fg, fontSize = 26.sp, fontWeight = FontWeight.ExtraLight, fontFamily = t.face)
+                    ClockLayout.Terminal -> { Text("\$ date", color = s.accent.a, fontSize = 8.sp, fontFamily = t.face); Text("14:05", color = t.fg, fontSize = 14.sp, fontFamily = t.face) }
+                    ClockLayout.Editorial -> { Text("THURSDAY", color = t.dim, fontSize = 6.sp, letterSpacing = 1.5.sp, fontFamily = t.face); Text("27", color = t.fg, fontSize = 32.sp, fontWeight = FontWeight.Light, fontFamily = t.face) }
+                    ClockLayout.Hidden -> Unit
+                }
+                Spacer(Modifier.height(10.dp))
+                when (s.favLayout) {
+                    FavLayout.List -> names.forEach { n ->
+                        Row(Modifier.padding(bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(9.dp).clip(dot).background(s.accent.a.copy(alpha = 0.75f))); Spacer(Modifier.width(5.dp))
+                            Text(n, color = t.fg, fontSize = 10.sp, fontFamily = t.face)
+                        }
+                    }
+                    FavLayout.Numbered -> names.forEachIndexed { i, n -> Text("[${i + 1}] $n", color = t.fg, fontSize = 10.sp, fontFamily = t.face) }
+                    FavLayout.Grid -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { repeat(2) { Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { repeat(3) { Box(Modifier.size(20.dp).clip(dot).background(s.accent.a.copy(alpha = 0.6f))) } } } }
+                    FavLayout.Pills -> names.forEach { n -> Text(n, color = t.fg, fontSize = 9.sp, fontFamily = t.face, modifier = Modifier.padding(bottom = 4.dp).clip(RoundedCornerShape(50)).background(s.accent.a.copy(alpha = 0.28f)).padding(horizontal = 9.dp, vertical = 2.dp)) }
+                    FavLayout.Centered -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) { names.forEach { n -> Text(n, color = t.fg, fontSize = 11.sp, fontWeight = FontWeight.Light, fontFamily = t.face) } }
+                }
+            }
+            if (s.rail != RailStyle.Hidden) Column(Modifier.align(Alignment.CenterEnd).padding(end = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                listOf("A", "B", "C", "D", "E", "F").forEach { l -> Text(l, color = t.fg.copy(alpha = 0.5f), fontSize = 7.sp, fontFamily = t.face) }
+            }
+        }
+        Text(p.name, color = if (selected) Color.White else Liquid.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
     }
 }
 

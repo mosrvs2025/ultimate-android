@@ -68,7 +68,7 @@ class ActivityShotsTest {
     private fun shot(name: String, content: @androidx.compose.runtime.Composable () -> Unit) {
         assumeTrue(dir != null)
         compose.mainClock.autoAdvance = false
-        compose.setContent { UltimateTheme { content() } }
+        compose.setContent { UltimateTheme { androidx.compose.material3.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) { content() } } }
         compose.mainClock.advanceTimeBy(1500)
         val out = dir!!.apply { mkdirs() }.resolve(name)
         compose.onRoot().captureRoboImage(out.path, roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record, recordOptions = RoborazziOptions.RecordOptions(resizeScale = 0.5)))

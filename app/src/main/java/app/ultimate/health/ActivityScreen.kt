@@ -122,8 +122,9 @@ fun ActivityRings(steps: Float?, active: Float?, kcal: Float?, modifier: Modifie
                 drawArc(track, 0f, 360f, false, topLeft, box, style = Stroke(w))
                 val f = fills[i]; val base = colors[i]
                 if (f > 0.002f) drawArc(base, -90f, minOf(f, 1f) * 360f, false, topLeft, box, style = Stroke(w, cap = StrokeCap.Round))
-                if (f > 1f) drawArc(lerp(base, Color.White, 0.40f), -90f, (minOf(f, 2f) - 1f) * 360f, false, topLeft, box, style = Stroke(w, cap = StrokeCap.Round))
-                if (f > 2f) drawArc(lerp(base, Color.White, 0.70f), -90f, (minOf(f, 3f) - 2f) * 360f, false, topLeft, box, style = Stroke(w, cap = StrokeCap.Round))
+                // Each lap a little lighter than the last, but never so light the colour is lost (a huge day would otherwise wash out to white).
+                if (f > 1f) drawArc(lerp(base, Color.White, 0.22f), -90f, (minOf(f, 2f) - 1f) * 360f, false, topLeft, box, style = Stroke(w, cap = StrokeCap.Round))
+                if (f > 2f) drawArc(lerp(base, Color.White, 0.40f), -90f, (minOf(f, 3f) - 2f) * 360f, false, topLeft, box, style = Stroke(w, cap = StrokeCap.Round))
             }
         }
         content()
