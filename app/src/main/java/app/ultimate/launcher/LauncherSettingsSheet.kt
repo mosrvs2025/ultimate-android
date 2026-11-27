@@ -201,6 +201,8 @@ private fun LookCard(p: LookPreset, selected: Boolean, accent: Color, onClick: (
     val s = p.apply(LauncherSettings())
     val t = s.tokens()
     val names = listOf("Mail", "Phone", "Maps")
+    // Icons "as they are" have no shape of their own; the preview draws them as softly rounded dots.
+    val dot = if (s.iconShape == IconShape.AsIs) RoundedCornerShape(3.dp) else t.iconShape
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier.width(104.dp).height(164.dp).clip(RoundedCornerShape(18.dp)).background(Brush.verticalGradient(s.backdrop.colors))
@@ -219,12 +221,12 @@ private fun LookCard(p: LookPreset, selected: Boolean, accent: Color, onClick: (
                 when (s.favLayout) {
                     FavLayout.List -> names.forEach { n ->
                         Row(Modifier.padding(bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(9.dp).clip(t.iconShape).background(s.accent.a.copy(alpha = 0.75f))); Spacer(Modifier.width(5.dp))
+                            Box(Modifier.size(9.dp).clip(dot).background(s.accent.a.copy(alpha = 0.75f))); Spacer(Modifier.width(5.dp))
                             Text(n, color = t.fg, fontSize = 10.sp, fontFamily = t.face)
                         }
                     }
                     FavLayout.Numbered -> names.forEachIndexed { i, n -> Text("[${i + 1}] $n", color = t.fg, fontSize = 10.sp, fontFamily = t.face) }
-                    FavLayout.Grid -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { repeat(2) { Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { repeat(3) { Box(Modifier.size(20.dp).clip(t.iconShape).background(s.accent.a.copy(alpha = 0.6f))) } } } }
+                    FavLayout.Grid -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { repeat(2) { Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { repeat(3) { Box(Modifier.size(20.dp).clip(dot).background(s.accent.a.copy(alpha = 0.6f))) } } } }
                     FavLayout.Pills -> names.forEach { n -> Text(n, color = t.fg, fontSize = 9.sp, fontFamily = t.face, modifier = Modifier.padding(bottom = 4.dp).clip(RoundedCornerShape(50)).background(s.accent.a.copy(alpha = 0.28f)).padding(horizontal = 9.dp, vertical = 2.dp)) }
                     FavLayout.Centered -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) { names.forEach { n -> Text(n, color = t.fg, fontSize = 11.sp, fontWeight = FontWeight.Light, fontFamily = t.face) } }
                 }

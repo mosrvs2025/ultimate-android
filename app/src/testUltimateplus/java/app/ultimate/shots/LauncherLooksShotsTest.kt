@@ -75,6 +75,13 @@ class LauncherLooksShotsTest {
     @Test fun tiles() = rest(Looks.tiles)
     @Test fun dusk() = rest(Looks.dusk)
 
+    @Test fun paperSearch() {
+        assumeTrue(dir != null); show(Looks.paper)
+        compose.onRoot().performTouchInput { down(Offset(300f, 1_900f)); moveTo(Offset(300f, 1_500f)); moveTo(Offset(300f, 800f)); up() }
+        repeat(40) { compose.mainClock.advanceTimeByFrame() }
+        save("look-paper-search")
+    }
+
     @Test fun terminalRail() = thumbOnTheRail(Looks.terminal)
     @Test fun paperRail() = thumbOnTheRail(Looks.paper)
     @Test fun zenRail() = thumbOnTheRail(Looks.zen)

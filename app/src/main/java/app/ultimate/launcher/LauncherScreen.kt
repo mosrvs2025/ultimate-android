@@ -203,7 +203,10 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
         })
 
         // ---- left: clock, favourites, or the letter's apps
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(start = 28.dp, end = 96.dp, top = 48.dp)) {
+        // A look with centred favourites centres everything, with the same room either side (the rail is out of the way, or hidden).
+        val centred = settings.favLayout == FavLayout.Centered
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(start = 28.dp, end = if (centred) 28.dp else 96.dp, top = 48.dp),
+            horizontalAlignment = if (centred) Alignment.CenterHorizontally else Alignment.Start) {
             ClockBlock(onOpenUltimate, settings)
             Spacer(Modifier.height(36.dp))
             // What is worth offering right now: refreshed every half minute and whenever you come home.
@@ -394,7 +397,7 @@ internal enum class RowVariant { Plain, Numbered, Tile, Pill, Centered }
 private fun AppIcon(icon: androidx.compose.ui.graphics.ImageBitmap?, size: androidx.compose.ui.unit.Dp, shape: androidx.compose.ui.graphics.Shape, label: String, th: Accent) {
     Box(Modifier.size(size).clip(shape), contentAlignment = Alignment.Center) {
         if (icon != null) Image(icon, null, Modifier.fillMaxSize())
-        else Box(Modifier.fillMaxSize().clip(CircleShape).background(Brush.linearGradient(listOf(th.a.copy(alpha = 0.5f), th.b.copy(alpha = 0.4f)))), contentAlignment = Alignment.Center) { Text(label.take(1), color = LocalLook.current.fg, fontSize = 15.sp) }
+        else Box(Modifier.fillMaxSize().clip(if (shape == androidx.compose.ui.graphics.RectangleShape) CircleShape else shape).background(Brush.linearGradient(listOf(th.a.copy(alpha = 0.5f), th.b.copy(alpha = 0.4f)))), contentAlignment = Alignment.Center) { Text(label.take(1), color = LocalLook.current.fg, fontSize = 15.sp) }
     }
 }
 

@@ -71,7 +71,8 @@ internal fun ClockBlock(onOpenUltimate: () -> Unit, settings: LauncherSettings) 
         }
         ClockLayout.Terminal -> {
             Text("ultimate@phone:~\$ date", color = th.a, fontSize = 13.sp, fontFamily = family)
-            Text(if (settings.showDate) ClockText.format("EEE d MMM yyyy", now) + "  " + time else time, color = look.fg, fontSize = 20.sp, fontFamily = family)
+            Text(time, color = look.fg, fontSize = 32.sp, fontFamily = family)
+            if (settings.showDate) Text(ClockText.format("EEE d MMM yyyy", now), color = look.dim, fontSize = 15.sp, fontFamily = family)
             Text("ultimate@phone:~\$ ▌", color = th.a, fontSize = 13.sp, fontFamily = family)
         }
         ClockLayout.Editorial -> {
