@@ -46,7 +46,14 @@ class LauncherBackTest {
         val before = callbacks()
         back()
         try { compose.onNodeWithText("Launcher settings").assertExists() }   // back on the list of pages
-        catch (e: AssertionError) { throw AssertionError("After Back from Themes the list of pages should show.\nBack callbacks before the press:\n$before\nafter:\n${callbacks()}\nfinishing=${compose.activity.isFinishing}\nThe screen is:\n" + compose.onRoot().printToString(maxDepth = 1), e) }
+        catch (e: AssertionError) {
+            // Diagnostics: call the enabled callback directly, to tell "the press didn't reach it" from "it ran and nothing changed".
+            val d = compose.activity.onBackPressedDispatcher
+            val f = d.javaClass.getDeclaredField("onBackPressedCallbacks").also { it.isAccessible = true }
+            val first = (f.get(d) as Iterable<*>).map { it as androidx.activity.OnBackPressedCallback }.last { it.isEnabled }
+            compose.runOnUiThread { first.handleOnBackPressed() }; frames()
+            val afterDirect = runCatching { compose.onNodeWithText("Launcher settings").assertExists(); "the list of pages shows" }.getOrElse { "still not on the list of pages" }
+            throw AssertionError("Calling the enabled callback directly: $afterDirect.\n" + "After Back from Themes the list of pages should show.\nBack callbacks before the press:\n$before\nafter:\n${callbacks()}\nfinishing=${compose.activity.isFinishing}\nThe screen is:\n" + compose.onRoot().printToString(maxDepth = 1), e) }
         back()
         compose.onNodeWithText("Launcher settings").assertDoesNotExist()  // settings closed
         compose.onNodeWithContentDescription("Launcher settings").assertExists()   // the gear on the home screen
