@@ -42,7 +42,7 @@ object HeartWords {
     }
 
     /** The small line under it: how old the reading is, the resting rate if it isn't the headline, and the day's range. */
-    fun detail(b: HeartBrief, nowMs: Long): String {
+    fun detail(b: HeartBrief, nowMs: Long, range: Boolean = true): String {
         val freshReading = b.bpm != null && nowMs - b.at <= FRESH_MS
         val parts = ArrayList<String>()
         when {
@@ -51,7 +51,7 @@ object HeartWords {
             b.bpm != null -> parts += "last reading ${ago(b.at, nowMs)}"
         }
         if (freshReading && b.restingBpm != null) parts += "resting ${b.restingBpm}"
-        if (b.lowBpm != null && b.highBpm != null && b.lowBpm != b.highBpm) parts += "${b.lowBpm}–${b.highBpm} today"
+        if (range && b.lowBpm != null && b.highBpm != null && b.lowBpm != b.highBpm) parts += "${b.lowBpm}–${b.highBpm} today"
         return parts.joinToString(" · ")
     }
 }

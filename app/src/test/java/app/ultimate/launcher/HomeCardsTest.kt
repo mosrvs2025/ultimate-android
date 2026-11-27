@@ -1,5 +1,6 @@
 package app.ultimate.launcher
 
+import app.ultimate.health.ActivityMath
 import app.ultimate.health.HeartBrief
 import app.ultimate.health.HeartWords
 import app.ultimate.mesh.CamNodes
@@ -51,14 +52,25 @@ class HomeCardsTest {
 
     private fun node(name: String, viewing: Boolean = false) = CamNodes.Node(name.lowercase(), name, viewing)
 
-    @Test fun theCamerasLineNamesWhoIsSharing() {
-        assertNull(HomeCards.cameraLine(emptyList()))
-        assertEquals("Kitchen is sharing its camera", HomeCards.cameraLine(listOf(node("Kitchen"))))
-        assertEquals("Kitchen and Garden are sharing cameras", HomeCards.cameraLine(listOf(node("Kitchen"), node("Garden"))))
-        assertEquals("Kitchen, Garden and Hall are sharing cameras", HomeCards.cameraLine(listOf(node("Kitchen"), node("Garden"), node("Hall"))))
-        assertEquals("Kitchen, Garden and 2 more are sharing cameras", HomeCards.cameraLine(listOf("Kitchen", "Garden", "Hall", "Shed").map { node(it) }))
-        assertEquals("A device is sharing its camera", HomeCards.cameraLine(listOf(node(""))))
+    @Test fun theCamerasCardNamesWhoIsSharingInOneShortLine() {
+        assertNull(HomeCards.cameraTitle(emptyList()))
+        assertEquals("Kitchen camera", HomeCards.cameraTitle(listOf(node("Kitchen"))))
+        assertEquals("sharing now", HomeCards.cameraDetail(listOf(node("Kitchen"))))
+        assertEquals("2 cameras", HomeCards.cameraTitle(listOf(node("Kitchen"), node("Garden"))))
+        assertEquals("Kitchen, Garden", HomeCards.cameraDetail(listOf(node("Kitchen"), node("Garden"))))
+        assertEquals("Kitchen, Garden and 2 more", HomeCards.cameraDetail(listOf("Kitchen", "Garden", "Hall", "Shed").map { node(it) }))
+        assertEquals("Kitchen, Garden \u00b7 watching 1", HomeCards.cameraDetail(listOf(node("Kitchen", viewing = true), node("Garden"))))
+        assertEquals("Kitchen, Garden \u00b7 watching all", HomeCards.cameraDetail(listOf(node("Kitchen", viewing = true), node("Garden", viewing = true))))
+        assertEquals("sharing now \u00b7 watching 1", HomeCards.cameraDetail(listOf(node("Kitchen", viewing = true))))
+        assertEquals("A device camera", HomeCards.cameraTitle(listOf(node(""))))
         assertEquals(1, HomeCards.watching(listOf(node("Kitchen", viewing = true), node("Garden"))))
+    }
+
+    @Test fun thePaceLineIsShortAndRoundsToHundreds() {
+        assertNull(HomeCards.paceShort(null))
+        assertEquals("1,200 ahead of usual", HomeCards.paceShort(ActivityMath.Pace(expected = 3000.0, ahead = 1234.0, projected = 9000, goalEtaMin = null)))
+        assertEquals("400 behind usual", HomeCards.paceShort(ActivityMath.Pace(3000.0, -420.0, 7000, null)))
+        assertEquals("on your usual pace", HomeCards.paceShort(ActivityMath.Pace(3000.0, 30.0, 8000, null)))
     }
 
     @Test fun eachCardOpensItsOwnPage() {
