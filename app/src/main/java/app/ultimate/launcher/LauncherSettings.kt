@@ -150,7 +150,7 @@ object SettingsCodec {
 
 /** The pages of the settings hub, in the order they are listed, with the words that find them when you type in the box on top. */
 enum class SettingsPage(val title: String, val subtitle: String, val words: String) {
-    Colours("Themes", "Whole looks, then colours, type, clock, favourites, rail and icons", "theme themes look looks living rule rules automatic time night day focus goal wallpaper match style styles colour color accent aurora sunset ocean meadow rose ember terminal paper zen tiles dusk font type typeface clock layout favourites rail icons shape share code"),
+    Colours("Themes", "Whole looks, then colours, type, clock, favourites, rail and icons", "theme themes look looks living rule rules automatic time night day focus goal mirror style styles colour color accent aurora sunset ocean meadow rose ember terminal paper zen tiles dusk font type typeface clock layout favourites rail icons shape share code"),
     Wallpaper("Wallpaper", "Background behind the home screen", "wallpaper background black graphite glow picture photo"),
     Home("Home screen", "Clock, suggestions and the letter rail", "home clock date time suggestions now tick rail letters haptic favourites reset"),
     Dock("Favourites", "How many show, their size and names", "favourites favorites dock icons size labels names count"),

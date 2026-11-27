@@ -149,7 +149,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: Lau
             Text(if (current != null) "${current.name}: ${current.blurb}." else "Your own mix. Change any part below, or pick a look to start again from it.", color = Liquid.dim, fontSize = 12.sp)
         }
     }
-    item { LivingLooksCard(repo, s) }
     item {
         GlassCard(title = "Colours", accent = s.accent.a) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -158,6 +157,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: Lau
             Text(if (s.accent == Accent.Wallpaper) "These two come from your wallpaper and change when it does." else "Used for the glow, the letter rail, the suggestion pods and highlights. \"From wallpaper\" picks its two out of your picture.", color = Liquid.dim, fontSize = 12.sp)
         }
     }
+    item { LivingLooksCard(repo, s) }
     // Each part on its own, so the looks can be mixed.
     item {
         GlassCard(title = "Make it yours", accent = s.accent.a) {
