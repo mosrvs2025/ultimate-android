@@ -61,6 +61,17 @@ class LauncherLooksTest {
         assertTrue(Backdrop.Paper.light); assertFalse(Backdrop.Aurora.light); assertFalse(Backdrop.Terminal.light)
     }
 
+    @Test fun searchIsReadableInEveryLookEvenThoughItsPanelIsAlwaysDark() {
+        Looks.all.forEach { p ->
+            val s = p.apply(LauncherSettings()); val t = s.tokens().onSheet()
+            val panel = s.backdrop.sheet.copy(alpha = 1f)
+            assertTrue("${p.name}: results on the search panel, contrast ${contrast(t.fg, panel)}", contrast(t.fg, panel) >= 7.0)
+            assertTrue("${p.name}: quiet text on the search panel, contrast ${contrast(t.dim, panel)}", contrast(t.dim, panel) >= 4.5)
+        }
+        assertEquals("a dark look is already right", Looks.terminal.apply(LauncherSettings()).tokens(), Looks.terminal.apply(LauncherSettings()).tokens().onSheet())
+        assertFalse(Looks.paper.apply(LauncherSettings()).tokens().onSheet().light)
+    }
+
     @Test fun everyLooksSettingsSurviveBeingStoredAndReadBack() {
         Looks.all.forEach { p ->
             val s = p.apply(LauncherSettings())

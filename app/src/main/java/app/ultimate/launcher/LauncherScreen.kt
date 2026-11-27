@@ -566,7 +566,11 @@ private fun SearchSheet(repo: LauncherRepo, apps: List<HomeApp>, settings: Launc
     }
     val enter = remember { Animatable(0f) }
     LaunchedEffect(Unit) { enter.animateTo(1f, spring(Spring.DampingRatioLowBouncy, Spring.StiffnessLow)) }
-    Column(Modifier.fillMaxSize().background(LocalLook.current.sheet).statusBarsPadding().navigationBarsPadding().imePadding()
+    // The panel is dark whatever the look, so a light look draws its text light here, and its dark accent as a warm amber.
+    val look = LocalLook.current
+    val accent = if (look.light) Accent.Amber else LocalLauncherTheme.current
+    androidx.compose.runtime.CompositionLocalProvider(LocalLook provides look.onSheet(), LocalLauncherTheme provides accent) {
+    Column(Modifier.fillMaxSize().background(look.sheet).statusBarsPadding().navigationBarsPadding().imePadding()
         .offset { IntOffset(0, ((1f - enter.value) * 400).roundToInt()) }.padding(horizontal = 20.dp)) {
         // Results above, the box at the bottom where the thumb already is; the closest match sits right above the box.
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), reverseLayout = true) {
@@ -578,5 +582,6 @@ private fun SearchSheet(repo: LauncherRepo, apps: List<HomeApp>, settings: Launc
             items(results, key = { it.pkg }) { a -> AppRow(repo, a, highlighted = a == results.firstOrNull() && q.isNotBlank(), delayIndex = 0, onOpen = { repo.launch(a.pkg); onClose() }, big = false, iconScale = settings.drawerIcons.scale, showIcon = settings.drawerShowIcons) }
         }
         LiquidInput(q, { q = it }, "Search apps", { results.firstOrNull()?.let { repo.launch(it.pkg); onClose() } }, Modifier.padding(vertical = 12.dp), sendLabel = "Open")
+    }
     }
 }

@@ -41,6 +41,12 @@ data class LookTokens(
     companion object { val Default = LookTokens(Color.White, Liquid.dim, false, Color(0xF00A0E14), FontFamily.Default, RailStyle.Liquid, RectangleShape) }
 }
 
+/**
+ * The same look as drawn on the dark panel search slides up in: a light look has dark text, which would vanish on that panel, so its text
+ * becomes the paper colour (a dark look is already right).
+ */
+fun LookTokens.onSheet(): LookTokens = if (light) copy(fg = Color(0xFFF7F2E8), dim = Color(0xFFB9B1A0), light = false) else this
+
 fun LauncherSettings.tokens() = LookTokens(backdrop.fg, backdrop.dim, backdrop.light, backdrop.sheet, face.family, rail, iconShape.shape)
 
 internal val LocalLook = staticCompositionLocalOf { LookTokens.Default }
