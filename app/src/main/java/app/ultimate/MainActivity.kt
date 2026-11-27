@@ -11,7 +11,7 @@ import app.ultimate.core.UltimateTheme
 import app.ultimate.home.UltimateRoot
 
 class MainActivity : ComponentActivity() {
-    companion object { const val EXTRA_TOOL = "app.ultimate.TOOL"; const val EXTRA_FILES = "app.ultimate.FILES" }
+    companion object { const val EXTRA_TOOL = "app.ultimate.TOOL"; const val EXTRA_SOURCE = "app.ultimate.SOURCE"; const val EXTRA_FILES = "app.ultimate.FILES" }
 
     private val ultimate get() = application as UltimateApp
 
@@ -54,7 +54,7 @@ class MainActivity : ComponentActivity() {
         // A finished-work notification names its tool, so tapping it lands there instead of on Home.
         intent?.getStringExtra(EXTRA_TOOL)?.let { id ->
             val files = (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableArrayListExtra(EXTRA_FILES, Uri::class.java) else intent.getParcelableArrayListExtra<Uri>(EXTRA_FILES)).orEmpty()
-            ultimate.tools.firstOrNull { it.id == id }?.let { ultimate.shell.open(it, app.ultimate.core.ToolLaunch(files)) }
+            ultimate.tools.firstOrNull { it.id == id }?.let { ultimate.shell.open(it, app.ultimate.core.ToolLaunch(files, source = intent.getStringExtra(EXTRA_SOURCE))) }
             return
         }
         val uris: List<Uri> = when (intent?.action) {

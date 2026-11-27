@@ -97,6 +97,8 @@ data class LauncherSettings(
     val iconShape: IconShape = IconShape.AsIs,
     /** Living looks: rules that borrow another look at certain times (see [LivingLook]). Checked top to bottom. */
     val rules: List<LookRule> = emptyList(),
+    /** Cards on the home screen that show something from Ultimate (see [HomeCards]). None until switched on. */
+    val cards: Set<HomeCard> = emptySet(),
 ) {
     fun clamped() = copy(favouritesShown = favouritesShown.coerceIn(MIN_FAVS, MAX_FAVS))
 
@@ -119,7 +121,7 @@ object SettingsCodec {
 
     /** Keys of the settings added after the first ones. All are plain strings, so a missing or odd one just means the default. */
     private val EXTRA_KEYS = listOf("dockIcons", "dockLabels", "drawerIcons", "drawerShowIcons", "drawerSort", "swipeUp", "swipeDown", "doubleTap", "longPress", "searchShowsAll", "searchWeb",
-        "face", "clockLayout", "favLayout", "rail", "iconShape", "rules")
+        "face", "clockLayout", "favLayout", "rail", "iconShape", "rules", "cards")
 
     /** [base] with the newer settings filled in from [get] (a lookup of the stored strings). */
     fun withExtras(base: LauncherSettings, get: (String) -> String?): LauncherSettings {
@@ -134,6 +136,7 @@ object SettingsCodec {
             face = enumOr(get("face"), base.face), clockLayout = enumOr(get("clockLayout"), base.clockLayout), favLayout = enumOr(get("favLayout"), base.favLayout),
             rail = enumOr(get("rail"), base.rail), iconShape = enumOr(get("iconShape"), base.iconShape),
             rules = get("rules")?.let { LivingLook.decode(it) } ?: base.rules,
+            cards = get("cards")?.let { HomeCards.decode(it) } ?: base.cards,
         )
     }
 
@@ -145,6 +148,7 @@ object SettingsCodec {
         "searchShowsAll" to s.searchShowsAll.toString(), "searchWeb" to s.searchWeb.toString(),
         "face" to s.face.name, "clockLayout" to s.clockLayout.name, "favLayout" to s.favLayout.name, "rail" to s.rail.name, "iconShape" to s.iconShape.name,
         "rules" to LivingLook.encode(s.rules),
+        "cards" to HomeCards.encode(s.cards),
     ).also { check(it.keys.toList() == EXTRA_KEYS) }
 }
 
@@ -152,7 +156,7 @@ object SettingsCodec {
 enum class SettingsPage(val title: String, val subtitle: String, val words: String) {
     Colours("Themes", "Whole looks, then colours, type, clock, favourites, rail and icons", "theme themes look looks living rule rules automatic time night day focus goal mirror style styles colour color accent aurora sunset ocean meadow rose ember terminal paper zen tiles dusk font type typeface clock layout favourites rail icons shape share code"),
     Wallpaper("Wallpaper", "Background behind the home screen", "wallpaper background black graphite glow picture photo"),
-    Home("Home screen", "Clock, suggestions and the letter rail", "home clock date time suggestions now tick rail letters haptic favourites reset"),
+    Home("Home screen", "Clock, suggestions and the letter rail", "home clock date time suggestions now tick rail letters haptic favourites reset cards activity rings heart rate camera cameras"),
     Dock("Favourites", "How many show, their size and names", "favourites favorites dock icons size labels names count"),
     Drawer("App list", "Order, icons and hidden apps", "app drawer list sort order icons hidden hide letters"),
     Gestures("Gestures", "What swipes, double tap and hold do", "gesture swipe up down double tap long press hold notifications"),
@@ -169,5 +173,16 @@ enum class SettingsPage(val title: String, val subtitle: String, val words: Stri
                 words.all { w -> have.any { it.startsWith(w) } }
             }
         }
+    }
+}
+
+/** What system Back does in the launcher settings: a page goes back to the list of pages, the list closes settings, and with settings closed there is nothing to undo. */
+internal object SettingsBack {
+    data class State(val open: Boolean, val page: SettingsPage?)
+
+    fun next(s: State): State = when {
+        !s.open -> s
+        s.page != null -> s.copy(page = null)
+        else -> s.copy(open = false)
     }
 }

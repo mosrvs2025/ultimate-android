@@ -3,6 +3,9 @@ package app.ultimate.launcher
 import android.app.usage.UsageStatsManager
 import app.ultimate.UltimateApp
 import app.ultimate.health.ActivityGlance
+import app.ultimate.health.ActivityRepo
+import app.ultimate.health.HeartGlance
+import app.ultimate.mesh.CamNodes
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -56,6 +59,25 @@ class LauncherRepo(context: Context) {
         if (_settings.value.rules.any { it.whenever == When.GoalReached }) runCatching { ActivityGlance.refresh(app) }
         tick()
     }
+
+    private val _cards = MutableStateFlow(CardData())
+    /** What the home cards show. Filled by [refreshCards] for the cards that are switched on. */
+    val cards: StateFlow<CardData> = _cards
+
+    /** Reads what the switched-on cards need (activity, heart, shared cameras). Each read is throttled by its own source; call about every minute. */
+    suspend fun refreshCards() {
+        if (cardsFixed) return
+        val on = _settings.value.cards
+        if (on.isEmpty()) { if (_cards.value != CardData()) _cards.value = CardData(); return }
+        val activity = if (HomeCard.Activity in on) runCatching { ActivityRepo.load(app, history = false) }.getOrNull() else null
+        val heart = if (HomeCard.Heart in on) runCatching { HeartGlance.read(app) }.getOrNull() else null
+        val cams = if (HomeCard.Cameras in on) runCatching { CamNodes.list() }.getOrDefault(emptyList()) else emptyList()
+        _cards.value = CardData(activity, heart, cams, System.currentTimeMillis())
+    }
+
+    /** For previews and tests: cards with fixed contents. */
+    internal fun seedCards(data: CardData) { cardsFixed = true; _cards.value = data }
+    private var cardsFixed = false
 
     private var inkWatcher: Any? = null
     /** Keeps [WallpaperInk] in step with the phone's wallpaper colours, for the "match my wallpaper" accent. */

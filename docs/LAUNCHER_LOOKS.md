@@ -1,4 +1,4 @@
-# Launcher looks (2.30.0; living looks and wallpaper colours 2.31.0)
+# Launcher looks (2.30.0; living looks and wallpaper colours 2.31.0; home cards 2.32.0)
 
 Code: `launcher/LauncherLook.kt` (parts, tokens, presets, share code), `launcher/LauncherClock.kt` (the clock layouts),
 `launcher/LauncherScreen.kt` (favourites layouts, app-row variants, rail styles), `launcher/LauncherSettings.kt` (the settings and
@@ -96,3 +96,40 @@ until it is at least **4.5:1** against the lightest dark background (and against
 `WallpaperInk` as Compose state, so the glow, rail and highlights change the moment the wallpaper (or a look's background) changes. With no
 wallpaper colours it is the original teal and violet. It is shareable in a look code (the other phone uses its own wallpaper).
 The **Mirror** look pairs it with the phone's wallpaper as the background.
+
+
+## Home cards (2.32.0)
+
+Code: `launcher/HomeCards.kt` (the cards and their wording), `health/HeartGlance.kt` (the heart read and its words),
+`LauncherRepo.cards` / `refreshCards()`, `LauncherSettings.cards`.
+
+Three cards under the clock, each **off until switched on** (Settings, Home screen, Cards; stored as `x.cards`, so an old install has none):
+
+| Card | Shows | Tap opens |
+| --- | --- | --- |
+| Activity | the three rings, today's steps, active time, and "+1,200 vs usual" against your usual day (`ActivityMath`) | Timeline, Activity tab (`EXTRA_SOURCE` = `activity`) |
+| Heart | the newest heart rate if it is under 6 h old, else the resting rate, with how old it is | Health |
+| Cameras | "Kitchen camera" or "2 cameras", who is sharing, and how many are being watched from this phone | Mesh |
+
+- Drawn in the look being worn (text colours, typeface, accent), as small rounded blocks with ellipses instead of clipping. A card with
+  nothing to say (no camera sharing) is not drawn.
+- The launcher **never asks for permission**. Activity reads through `ActivityRepo`; Heart through `HeartGlance` (newest sample in 3 days,
+  newest resting rate in 4 days, kept for two minutes). Without Health Connect or the permission the card says "Tap to allow ..." and a tap
+  opens the matching page. Cameras reads `CamNodes.list()` (the owner's own mesh devices that chose to share), never frames, and is empty
+  in editions without the mesh.
+- The cards refresh about every minute while the home screen is up, only for the cards that are on.
+
+Checked: `HomeCardsTest` (wording, short pace line, camera lines, storage), and renders of all three cards in Aurora, Terminal and Paper,
+which led to shorter copy. Not checked on a phone with real data.
+
+### Back in the launcher settings (2.32.0 fix)
+
+`HomeActivity` used to override the old `onBackPressed()` with an empty body. Phones that deliver Back the old way (Android 13 and 14 for an
+app that hasn't opted in to predictive back) call that method, so Back never reached the Compose `BackHandler`s of the settings pages, the
+edit panel, search or the letter list; only the on-screen arrow worked. It now adds one always-enabled no-op `OnBackPressedCallback` before the
+screen is composed (so the screen's own handlers, added later, are asked first and bare home still never closes).
+
+Which page is open is now owned by `LauncherHome`, with a single `BackHandler` using `SettingsBack.next` (page to list, list to home).
+`SettingsBackTest` covers those rules and reads `HomeActivity.kt` to check the old override is gone. A CI run of a Compose test that pressed
+Back through a dispatcher showed the handler does run and clears the page, but that test made `HostsScreenTest` (Robolectric, run after it)
+stall on "not idle" even when it passed (confirmed by a run without it: 1149 tests, 0 failures), so it was removed. Not tried on a phone.
