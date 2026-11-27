@@ -5,6 +5,8 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToString
 import androidx.test.core.app.ApplicationProvider
 import app.ultimate.core.UltimateTheme
 import org.junit.Assert.assertFalse
@@ -35,7 +37,8 @@ class LauncherBackTest {
         // The title says where we are: "Themes" on the page, "Launcher settings" on the list, and no title at all back on the home screen.
         compose.onNodeWithText("Launcher settings").assertDoesNotExist()
         back()
-        compose.onNodeWithText("Launcher settings").assertExists()   // back on the list of pages
+        try { compose.onNodeWithText("Launcher settings").assertExists() }   // back on the list of pages
+        catch (e: AssertionError) { throw AssertionError("After Back from Themes the list of pages should show. The screen is:\n" + compose.onRoot().printToString(), e) }
         back()
         compose.onNodeWithText("Launcher settings").assertDoesNotExist()  // settings closed
         compose.onNodeWithContentDescription("Launcher settings").assertExists()   // the gear on the home screen
