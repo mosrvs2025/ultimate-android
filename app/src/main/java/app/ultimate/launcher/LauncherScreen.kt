@@ -96,7 +96,7 @@ import kotlin.math.roundToInt
  */
 @Composable
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Unit, autoLoad: Boolean = true) {
+fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Unit, autoLoad: Boolean = true, onOpenTool: (tool: String, source: String?) -> Unit = { _, _ -> onOpenUltimate() }) {
     val allApps by repo.apps.collectAsState()
     // What is drawn is the owner's look with any living-look rule's look on top; the settings sheet edits the owner's own (repo.settings).
     val living by repo.living.collectAsState()
@@ -105,6 +105,9 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     val favs by repo.favourites.collectAsState()
     // The rules look at the clock, a focus session and the step goal: check again every half minute and whenever you come home.
     LaunchedEffect(homePresses, settings.rules.size) { while (true) { repo.refreshSignals(); delay(30_000) } }
+    // Cards that show something from Ultimate (activity, heart, shared cameras): only the ones switched on are read, about every minute.
+    val cardData by repo.cards.collectAsState()
+    LaunchedEffect(homePresses, settings.cards) { while (true) { repo.refreshCards(); delay(60_000) } }
     // Apps the owner hid stay out of the rail, the lists and search.
     val apps = remember(allApps, settings.hidden) { LauncherMath.visible(allApps, settings.hidden) }
     var settingsOpen by remember { mutableStateOf(false) }
@@ -214,7 +217,8 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(start = 28.dp, end = if (centred) 28.dp else 96.dp, top = 48.dp),
             horizontalAlignment = if (centred) Alignment.CenterHorizontally else Alignment.Start) {
             ClockBlock(onOpenUltimate, settings)
-            Spacer(Modifier.height(36.dp))
+            Spacer(Modifier.height(if (settings.cards.isEmpty()) 36.dp else 24.dp))
+            if (current == null) HomeCardsBlock(settings.cards, cardData, cardData.at, onOpenTool)
             // What is worth offering right now: refreshed every half minute and whenever you come home.
             var nowItems by remember { mutableStateOf<List<Now>>(emptyList()) }
             LaunchedEffect(homePresses, apps.size) { while (true) { nowItems = repo.now(); delay(30_000) } }

@@ -25,7 +25,8 @@ class HomeActivity : ComponentActivity() {
         repo = LauncherRepo(this)
         setContent {
             UltimateTheme {
-                LauncherHome(repo, presses.intValue, onOpenUltimate = { startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) })
+                LauncherHome(repo, presses.intValue, onOpenUltimate = { startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
+                    onOpenTool = { tool, source -> startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(MainActivity.EXTRA_TOOL, tool).also { i -> source?.let { i.putExtra(MainActivity.EXTRA_SOURCE, it) } }) })
             }
         }
     }

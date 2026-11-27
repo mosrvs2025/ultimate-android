@@ -268,6 +268,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.homeItems(repo: Launc
         }
     }
     item {
+        GlassCard(title = "Cards", accent = s.accent.a) {
+            HomeCard.entries.forEach { c -> Toggle(c.label, c.sub, c in s.cards) { on -> repo.update { it.copy(cards = if (on) it.cards + c else it.cards - c) } } }
+            Text("Cards sit under the clock in the look you are wearing, and a tap opens the matching page of Ultimate. Heart and Activity read only what Ultimate already may read from Health Connect: the launcher never asks. The cameras card lists only your own devices that chose to share a camera and never shows video.", color = Liquid.dim, fontSize = 12.sp)
+        }
+    }
+    item {
         var reset by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
         GlassCard(title = "Home screen", accent = s.accent.a) {
