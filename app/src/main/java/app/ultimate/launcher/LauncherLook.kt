@@ -77,7 +77,11 @@ object Looks {
         it.parts(Accent.Sunset, Backdrop.Dusk, Face.Clean, ClockLayout.Day, FavLayout.Pills, RailStyle.Liquid, IconShape.Circle).copy(drawerShowIcons = true, favouritesShown = 5)
     }
 
-    val all = listOf(aurora, terminal, paper, zen, tiles, dusk)
+    val mirror = LookPreset("mirror", "Mirror", "Your own wallpaper behind everything, with its colours picked out for the glow and the rail") {
+        it.parts(Accent.Wallpaper, Backdrop.Wallpaper, Face.Clean, ClockLayout.Digital, FavLayout.List, RailStyle.Liquid, IconShape.Squircle).copy(drawerShowIcons = true, favouritesShown = 5)
+    }
+
+    val all = listOf(aurora, terminal, paper, zen, tiles, dusk, mirror)
 
     private fun LauncherSettings.sameLook(o: LauncherSettings) =
         accent == o.accent && backdrop == o.backdrop && face == o.face && clockLayout == o.clockLayout && favLayout == o.favLayout && rail == o.rail && iconShape == o.iconShape

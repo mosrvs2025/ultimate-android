@@ -8,7 +8,11 @@ import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import app.ultimate.UltimateApp
 import app.ultimate.core.UltimateTheme
+import app.ultimate.launcher.Accent
 import app.ultimate.launcher.HomeApp
+import app.ultimate.launcher.LookRule
+import app.ultimate.launcher.When
+import app.ultimate.launcher.WallpaperInk
 import app.ultimate.launcher.LauncherHome
 import app.ultimate.launcher.LauncherRepo
 import com.github.takahirom.roborazzi.RoborazziOptions
@@ -31,9 +35,16 @@ class LauncherLooksPageShotsTest {
     @get:Rule val compose = createComposeRule()
     private val dir get() = System.getProperty("screenshots.dir")?.let(::File)
 
-    @Test fun themesPage() {
+    @Test fun themesPage() = page("looks-page", withRules = false)
+
+    /** The same page with a few rules set and the wallpaper's colours chosen, so the Living looks card is seen in use. */
+    @Test fun themesPageWithRules() = page("looks-page-rules", withRules = true)
+
+    private fun page(name: String, withRules: Boolean) {
         assumeTrue(dir != null)
+        WallpaperInk.set(listOf(0xFF1FA39A.toInt(), 0xFFE8742C.toInt()))
         val repo = LauncherRepo(ApplicationProvider.getApplicationContext())
+        if (withRules) repo.update { it.copy(accent = Accent.Wallpaper, rules = listOf(LookRule(When.Between(22 * 60, 6 * 60), "zen"), LookRule(When.Focusing, "terminal"))) }
         repo.seed(listOf("Gmail", "Photos", "Phone", "Maps", "Chrome").map { HomeApp(it.lowercase(), it) }, listOf("gmail", "photos"))
         compose.mainClock.autoAdvance = false
         compose.setContent { UltimateTheme { LauncherHome(repo, 0, {}, autoLoad = false) } }
@@ -42,7 +53,7 @@ class LauncherLooksPageShotsTest {
         repeat(30) { compose.mainClock.advanceTimeByFrame() }
         compose.onNodeWithText("Themes").performClick()
         repeat(20) { compose.mainClock.advanceTimeByFrame() }
-        val out = dir!!.apply { mkdirs() }.resolve("looks-page.png")
+        val out = dir!!.apply { mkdirs() }.resolve("$name.png")
         compose.onRoot().captureRoboImage(out.path, roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record, recordOptions = RoborazziOptions.RecordOptions(resizeScale = 0.5)))
     }
 }
