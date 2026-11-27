@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -170,6 +171,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: Lau
             Text("A hidden rail still works: put your thumb on the right edge and slide.", color = Liquid.dim, fontSize = 12.sp)
         }
     }
+    item { YourLooksCard(repo, s) }
     // A look as a line of text: copy yours to share it, paste one to wear it.
     item {
         var pasted by remember { mutableStateOf("") }
@@ -183,8 +185,22 @@ private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: Lau
                 val applied = LookCode.apply(pasted, s)
                 if (applied == null) note = "That isn't a look code. It starts with ULOOK1:" else { repo.update { LookCode.apply(pasted, it) ?: it }; note = "Applied."; pasted = "" }
             }, sendLabel = "Use")
+            val scope = rememberCoroutineScope()
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var qr by remember { mutableStateOf(false) }
+            val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+                if (uri != null) scope.launch {
+                    val found = withContext(kotlinx.coroutines.Dispatchers.IO) { readLookFromPicture(context, uri) }
+                    if (found == null) note = "No look QR found in that picture." else { repo.update { LookCode.apply(found, it) ?: it }; note = "Applied the look from the picture." }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Chip("Show as a QR", false, s.accent.a) { qr = true }
+                Chip("Read a QR picture", false, s.accent.a) { picker.launch("image/*") }
+            }
+            if (qr) LookQrDialog("Your look", code) { qr = false }
             note?.let { Text(it, color = Liquid.dim, fontSize = 12.sp) }
-            Text("Only the look is in the code: colours, type and layout. Never your apps.", color = Liquid.dim, fontSize = 12.sp)
+            Text("Only the look is in the code: colours, type and layout. Never your apps. To pass a look on, show the QR and let them photograph or screenshot it, then they pick that picture.", color = Liquid.dim, fontSize = 12.sp)
         }
     }
 }
@@ -200,8 +216,11 @@ private fun <T> PartRow(title: String, options: List<T>, selected: T, label: (T)
 
 /** A look drawn small, from its own parts: the clock, three favourites and the rail, on its own background. */
 @Composable
-private fun LookCard(p: LookPreset, selected: Boolean, accent: Color, onClick: () -> Unit) {
-    val s = p.apply(LauncherSettings())
+private fun LookCard(p: LookPreset, selected: Boolean, accent: Color, onClick: () -> Unit) = LookPreview(p.name, p.apply(LauncherSettings()), selected, accent, onClick)
+
+/** Any look (a preset, one you saved, or the one you are wearing) drawn small from its own parts. */
+@Composable
+private fun LookPreview(name: String, s: LauncherSettings, selected: Boolean, accent: Color, onClick: () -> Unit) {
     val t = s.tokens()
     val names = listOf("Mail", "Phone", "Maps")
     // Icons "as they are" have no shape of their own; the preview draws them as softly rounded dots.
@@ -212,7 +231,7 @@ private fun LookCard(p: LookPreset, selected: Boolean, accent: Color, onClick: (
                     // The wallpaper itself isn't known here; its picked colours stand in for it.
                     if (s.backdrop == Backdrop.Wallpaper) listOf(s.accent.a.copy(alpha = 0.55f).compositeOver(Color(0xFF0A0E14)), s.accent.b.copy(alpha = 0.45f).compositeOver(Color(0xFF0A0E14))) else s.backdrop.colors))
                 .border(if (selected) BorderStroke(3.dp, accent) else BorderStroke(1.dp, Color(0x33FFFFFF)), RoundedCornerShape(18.dp))
-                .clickable(onClick = onClick).semantics { contentDescription = p.name + " look" + if (selected) ", selected" else "" },
+                .clickable(onClick = onClick).semantics { contentDescription = name + " look" + if (selected) ", selected" else "" },
         ) {
             Column(Modifier.padding(start = 10.dp, top = 12.dp, end = 24.dp)) {
                 when (s.clockLayout) {
@@ -240,7 +259,7 @@ private fun LookCard(p: LookPreset, selected: Boolean, accent: Color, onClick: (
                 listOf("A", "B", "C", "D", "E", "F").forEach { l -> Text(l, color = t.fg.copy(alpha = 0.5f), fontSize = 7.sp, fontFamily = t.face) }
             }
         }
-        Text(p.name, color = if (selected) Color.White else Liquid.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+        Text(name, color = if (selected) Color.White else Liquid.dim, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
@@ -414,7 +433,7 @@ private fun LivingLooksCard(repo: LauncherRepo, s: LauncherSettings) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(LivingLook.describe(r.whenever), color = Color.White, fontSize = 15.sp)
-                    Text("wears ${LivingLook.lookName(r.look)}", color = Liquid.dim, fontSize = 12.sp)
+                    Text("wears ${LivingLook.lookName(r.look, s.slots)}", color = Liquid.dim, fontSize = 12.sp)
                 }
                 RuleButton("Move up", "\u2191", i > 0) { repo.update { it.copy(rules = LivingLook.move(it.rules, i, -1)) } }
                 RuleButton("Move down", "\u2193", i < s.rules.lastIndex) { repo.update { it.copy(rules = LivingLook.move(it.rules, i, 1)) } }
@@ -459,6 +478,7 @@ private fun RuleBuilder(accent: Color, current: LauncherSettings, onAdd: (LookRu
     Text("Wear", color = Liquid.dim, fontSize = 12.sp)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Looks.all.forEach { p -> Chip(p.name, look == p.id, accent) { look = p.id } }
+        current.slots.forEach { slot -> Chip(slot.name, look == slot.code, accent) { look = slot.code } }
     }
     val rule = LookRule(when (kind) { 0 -> When.Between(from, to); 1 -> When.Focusing; else -> When.GoalReached }, look)
     val problem = if (kind == 0 && from == to) "Pick two different times." else null
@@ -475,3 +495,78 @@ private fun TimeStepper(label: String, minutes: Int, accent: Color, onChange: (I
         RuleButton("$label later", "+", true) { onChange((minutes + 30).mod(LivingLook.DAY)) }
     }
 }
+
+/** The looks you saved: wear one, show its QR, delete it, or save the one you are wearing under a name. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun YourLooksCard(repo: LauncherRepo, s: LauncherSettings) {
+    var name by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf<String?>(null) }
+    var qrFor by remember { mutableStateOf<LookSlot?>(null) }
+    val accent = s.accent.a
+    val suggestion = LookSlots.suggestName(s, s.slots)
+    GlassCard(title = "Your looks", accent = accent) {
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
+            LookPreview("Right now", s, false, accent) {}
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Save what you are wearing so you can come back to it, give it to a rule, or share it.", color = Liquid.dim, fontSize = 12.sp)
+                LiquidInput(name, { name = it.take(LookSlots.MAX_NAME) }, suggestion, {
+                    saveSlot(repo, s, name.ifBlank { suggestion }) { note = it; if (it.startsWith("Saved")) name = "" }
+                }, Modifier.fillMaxWidth(), sendLabel = "Save")
+            }
+        }
+        note?.let { Text(it, color = Liquid.dim, fontSize = 12.sp) }
+        if (s.slots.isEmpty()) Text("Nothing saved yet.", color = Liquid.dim, fontSize = 13.sp)
+        s.slots.forEachIndexed { i, slot ->
+            val look = LookCode.apply(slot.code, LauncherSettings())
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(26.dp).clip(CircleShape).background(Brush.linearGradient(listOf(look?.accent?.a ?: Color.Gray, look?.accent?.b ?: Color.DarkGray))))
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(slot.name, color = Color.White, fontSize = 15.sp, maxLines = 1)
+                    Text(Looks.matching(look ?: LauncherSettings())?.name ?: "A mix of your own", color = Liquid.dim, fontSize = 12.sp)
+                }
+                RuleButton("Wear ${slot.name}", "\u2713", true) { repo.update { LookCode.apply(slot.code, it) ?: it }; note = "Wearing ${slot.name}." }
+                RuleButton("QR for ${slot.name}", "\u25A6", true) { qrFor = slot }
+                RuleButton("Delete ${slot.name}", "\u2715", true) { repo.update { it.copy(slots = LookSlots.delete(it.slots, i)) } }
+            }
+        }
+        Text("\u2713 wears it, \u25A6 shows its QR, \u2715 deletes it. Up to ${LookSlots.MAX} looks. A rule under Living looks can wear any of them.", color = Liquid.dim, fontSize = 12.sp)
+    }
+    qrFor?.let { LookQrDialog(it.name, it.code) { qrFor = null } }
+}
+
+private fun saveSlot(repo: LauncherRepo, s: LauncherSettings, name: String, report: (String) -> Unit) {
+    when (val r = LookSlots.save(s.slots, name, LookCode.encode(s))) {
+        is LookSlots.Saved.Ok -> { repo.update { it.copy(slots = r.slots) }; report("Saved as ${LookSlots.cleanName(name)}.") }
+        LookSlots.Saved.Full -> report("You have ${LookSlots.MAX} saved looks. Delete one first, or save under an existing name to replace it.")
+        LookSlots.Saved.NoName -> report("Give it a name first.")
+    }
+}
+
+/** A look's QR on white, big enough to photograph, with what it is and what it contains. */
+@Composable
+private fun LookQrDialog(name: String, code: String, onClose: () -> Unit) {
+    androidx.compose.ui.window.Dialog(onClose) {
+        Column(Modifier.clip(RoundedCornerShape(24.dp)).background(Color(0xFF101620)).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(name, color = Color.White, fontSize = 18.sp)
+            app.ultimate.send.QrCode(code, Modifier.size(260.dp))
+            Text("Let a friend photograph or screenshot this, then in their Themes page choose Read a QR picture. Only the look is in it: never your apps.", color = Liquid.dim, fontSize = 12.sp)
+            LiquidButton("Done", onClose, Modifier.fillMaxWidth())
+        }
+    }
+}
+
+/** Looks for a look QR in a picture the owner picked. Done here, on the phone: the picture is never sent anywhere. */
+private fun readLookFromPicture(context: android.content.Context, uri: android.net.Uri): String? = runCatching {
+    val source = android.graphics.ImageDecoder.createSource(context.contentResolver, uri)
+    val bitmap = android.graphics.ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+        decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+        val scale = maxOf(info.size.width, info.size.height) / 2048.0
+        if (scale > 1) decoder.setTargetSize((info.size.width / scale).toInt(), (info.size.height / scale).toInt())
+    }
+    try {
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        LookQr.decode(pixels, bitmap.width, bitmap.height)
+    } finally { bitmap.recycle() }
+}.getOrNull()

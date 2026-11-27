@@ -9,6 +9,10 @@ import androidx.test.core.app.ApplicationProvider
 import app.ultimate.UltimateApp
 import app.ultimate.core.UltimateTheme
 import app.ultimate.launcher.Accent
+import app.ultimate.launcher.Face
+import app.ultimate.launcher.LookCode
+import app.ultimate.launcher.LookSlot
+import app.ultimate.launcher.Looks
 import app.ultimate.launcher.HomeApp
 import app.ultimate.launcher.LookRule
 import app.ultimate.launcher.When
@@ -40,10 +44,17 @@ class LauncherLooksPageShotsTest {
     /** The same page with a few rules set and the wallpaper's colours chosen, so the Living looks card is seen in use. */
     @Test fun themesPageWithRules() = page("looks-page-rules", withRules = true)
 
-    private fun page(name: String, withRules: Boolean) {
+    /** Two saved looks and a rule wearing one of them, so the Your looks card and the rule's saved-look chip are seen in use. */
+    @Test fun themesPageWithSavedLooks() = page("looks-page-saved", withRules = false, withSlots = true)
+
+    private fun page(name: String, withRules: Boolean, withSlots: Boolean = false) {
         assumeTrue(dir != null)
         WallpaperInk.set(listOf(0xFF1FA39A.toInt(), 0xFFE8742C.toInt()))
         val repo = LauncherRepo(ApplicationProvider.getApplicationContext())
+        if (withSlots) repo.update {
+            val night = LookCode.encode(Looks.zen.apply(it)); val work = LookCode.encode(Looks.terminal.apply(it).copy(face = Face.Serif))
+            Looks.paper.apply(it).copy(slots = listOf(LookSlot("Night owl", night), LookSlot("Work mix", work)), rules = listOf(LookRule(When.Between(22 * 60, 6 * 60), night)))
+        }
         if (withRules) repo.update { it.copy(accent = Accent.Wallpaper, rules = listOf(LookRule(When.Between(22 * 60, 6 * 60), "zen"), LookRule(When.Focusing, "terminal"))) }
         repo.seed(listOf("Gmail", "Photos", "Phone", "Maps", "Chrome").map { HomeApp(it.lowercase(), it) }, listOf("gmail", "photos"))
         compose.mainClock.autoAdvance = false
