@@ -26,6 +26,13 @@ class LauncherBackTest {
     private fun frames(n: Int = 20) = repeat(n) { compose.mainClock.advanceTimeByFrame() }
     private fun back() { compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }; frames() }
 
+    /** Every Back callback the activity has, and whether it is on: what a failure needs to say where the press went. */
+    private fun callbacks(): String = runCatching {
+        val d = compose.activity.onBackPressedDispatcher
+        val f = d.javaClass.getDeclaredField("onBackPressedCallbacks").also { it.isAccessible = true }
+        (f.get(d) as Iterable<*>).joinToString("\n") { c -> "  " + c!!.javaClass.name + " enabled=" + (c as androidx.activity.OnBackPressedCallback).isEnabled }
+    }.getOrElse { "(could not list: $it)" }
+
     @Test fun backWalksOutOfSettingsOneStepAtATime() {
         val repo = LauncherRepo(ApplicationProvider.getApplicationContext())
         repo.seed(listOf("Gmail", "Photos", "Phone").map { HomeApp(it.lowercase(), it) }, listOf("gmail"))
@@ -36,9 +43,10 @@ class LauncherBackTest {
         compose.onNodeWithText("Themes").performClick(); frames(30)
         // The title says where we are: "Themes" on the page, "Launcher settings" on the list, and no title at all back on the home screen.
         compose.onNodeWithText("Launcher settings").assertDoesNotExist()
+        val before = callbacks()
         back()
         try { compose.onNodeWithText("Launcher settings").assertExists() }   // back on the list of pages
-        catch (e: AssertionError) { throw AssertionError("After Back from Themes the list of pages should show. The screen is:\n" + compose.onRoot().printToString(), e) }
+        catch (e: AssertionError) { throw AssertionError("After Back from Themes the list of pages should show.\nBack callbacks before the press:\n$before\nafter:\n${callbacks()}\nfinishing=${compose.activity.isFinishing}\nThe screen is:\n" + compose.onRoot().printToString(maxDepth = 1), e) }
         back()
         compose.onNodeWithText("Launcher settings").assertDoesNotExist()  // settings closed
         compose.onNodeWithContentDescription("Launcher settings").assertExists()   // the gear on the home screen
