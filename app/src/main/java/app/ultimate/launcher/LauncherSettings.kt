@@ -1,6 +1,8 @@
 package app.ultimate.launcher
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.runtime.staticCompositionLocalOf
 import app.ultimate.core.Liquid
 
@@ -190,3 +192,12 @@ internal object SettingsBack {
         else -> s.copy(open = false)
     }
 }
+
+/**
+ * The accent as text and highlights on the dark settings sheet. A light look's accent is dark (Ink is a brown), which would vanish on that sheet,
+ * so a colour that isn't light enough is lightened until it reads (the look's own preview still draws its real colours).
+ */
+internal fun readableOnDark(c: Color): Color = if (c.luminance() >= 0.35f) c else lerp(c, Color.White, 0.62f)
+
+internal val LauncherSettings.ink get() = readableOnDark(accent.a)
+internal val LauncherSettings.inkB get() = readableOnDark(accent.b)

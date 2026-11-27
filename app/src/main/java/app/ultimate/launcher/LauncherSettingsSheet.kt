@@ -118,8 +118,8 @@ private fun androidx.compose.foundation.layout.ColumnScope.SettingsHub(repo: Lau
     val found = remember(q) { SettingsPage.matching(q) }
     Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { LiquidInput(q, { q = it }, "Search launcher settings", { found.firstOrNull()?.let(open) }, Modifier.fillMaxWidth(), sendLabel = "Open") }
     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 28.dp)) {
-        if (q.isBlank()) item { HubRow(Icons.Rounded.Settings, "System settings", "Tap to open your device settings", s.accent.a) { repo.openSystemSettings() } }
-        items(found, key = { it.name }) { p -> HubRow(pageIcon(p), p.title, p.subtitle, if (p.ordinal % 2 == 0) s.accent.a else s.accent.b) { open(p) } }
+        if (q.isBlank()) item { HubRow(Icons.Rounded.Settings, "System settings", "Tap to open your device settings", s.ink) { repo.openSystemSettings() } }
+        items(found, key = { it.name }) { p -> HubRow(pageIcon(p), p.title, p.subtitle, if (p.ordinal % 2 == 0) s.ink else s.inkB) { open(p) } }
         if (found.isEmpty()) item { Text("Nothing matches \"$q\".", color = Liquid.dim, fontSize = 14.sp, modifier = Modifier.padding(20.dp)) }
     }
 }
@@ -139,16 +139,16 @@ private fun HubRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title:
 private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: LauncherRepo, s: LauncherSettings) {
     // Whole looks first: each is a set of parts, shown as a small picture of itself.
     item {
-        GlassCard(title = "Looks", accent = s.accent.a) {
+        GlassCard(title = "Looks", accent = s.ink) {
             val current = Looks.matching(s)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Looks.all.forEach { p -> LookCard(p, current == p, s.accent.a) { repo.update { p.apply(it) } } }
+                Looks.all.forEach { p -> LookCard(p, current == p, s.ink) { repo.update { p.apply(it) } } }
             }
             Text(if (current != null) "${current.name}: ${current.blurb}." else "Your own mix. Change any part below, or pick a look to start again from it.", color = Liquid.dim, fontSize = 12.sp)
         }
     }
     item {
-        GlassCard(title = "Colours", accent = s.accent.a) {
+        GlassCard(title = "Colours", accent = s.ink) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Accent.values().forEach { ac -> Swatch(ac, ac == s.accent) { repo.update { it.copy(accent = ac) } } }
             }
@@ -158,13 +158,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: Lau
     item { LivingLooksCard(repo, s) }
     // Each part on its own, so the looks can be mixed.
     item {
-        GlassCard(title = "Make it yours", accent = s.accent.a) {
-            PartRow("Background", Backdrop.entries, s.backdrop, { it.label }, s.accent.a) { v -> repo.update { it.copy(backdrop = v) } }
-            PartRow("Typeface", Face.entries, s.face, { it.label }, s.accent.a) { v -> repo.update { it.copy(face = v) } }
-            PartRow("Clock", ClockLayout.entries, s.clockLayout, { it.label }, s.accent.a) { v -> repo.update { it.copy(clockLayout = v) } }
-            PartRow("Favourites", FavLayout.entries, s.favLayout, { it.label }, s.accent.a) { v -> repo.update { it.copy(favLayout = v) } }
-            PartRow("Letter rail", RailStyle.entries, s.rail, { it.label }, s.accent.a) { v -> repo.update { it.copy(rail = v) } }
-            PartRow("Icon shape", IconShape.entries, s.iconShape, { it.label }, s.accent.a) { v -> repo.update { it.copy(iconShape = v) } }
+        GlassCard(title = "Make it yours", accent = s.ink) {
+            PartRow("Background", Backdrop.entries, s.backdrop, { it.label }, s.ink) { v -> repo.update { it.copy(backdrop = v) } }
+            PartRow("Typeface", Face.entries, s.face, { it.label }, s.ink) { v -> repo.update { it.copy(face = v) } }
+            PartRow("Clock", ClockLayout.entries, s.clockLayout, { it.label }, s.ink) { v -> repo.update { it.copy(clockLayout = v) } }
+            PartRow("Favourites", FavLayout.entries, s.favLayout, { it.label }, s.ink) { v -> repo.update { it.copy(favLayout = v) } }
+            PartRow("Letter rail", RailStyle.entries, s.rail, { it.label }, s.ink) { v -> repo.update { it.copy(rail = v) } }
+            PartRow("Icon shape", IconShape.entries, s.iconShape, { it.label }, s.ink) { v -> repo.update { it.copy(iconShape = v) } }
             Text("A hidden rail still works: put your thumb on the right edge and slide.", color = Liquid.dim, fontSize = 12.sp)
         }
     }
@@ -174,10 +174,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: Lau
         var pasted by remember { mutableStateOf("") }
         var note by remember { mutableStateOf<String?>(null) }
         val clipboard = LocalClipboardManager.current
-        GlassCard(title = "Share a look", accent = s.accent.a) {
+        GlassCard(title = "Share a look", accent = s.ink) {
             val code = LookCode.encode(s)
             Text(code, color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-            Chip("Copy this look", false, s.accent.a) { clipboard.setText(AnnotatedString(code)); note = "Copied. Paste it to a friend, or into another phone's Share a look box." }
+            Chip("Copy this look", false, s.ink) { clipboard.setText(AnnotatedString(code)); note = "Copied. Paste it to a friend, or into another phone's Share a look box." }
             LiquidInput(pasted, { pasted = it }, "Paste a look code", {
                 val applied = LookCode.apply(pasted, s)
                 if (applied == null) note = "That isn't a look code. It starts with ULOOK1:" else { repo.update { LookCode.apply(pasted, it) ?: it }; note = "Applied."; pasted = "" }
@@ -192,8 +192,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: Lau
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip("Show as a QR", false, s.accent.a) { qr = true }
-                Chip("Read a QR picture", false, s.accent.a) { picker.launch("image/*") }
+                Chip("Show as a QR", false, s.ink) { qr = true }
+                Chip("Read a QR picture", false, s.ink) { picker.launch("image/*") }
             }
             if (qr) LookQrDialog("Your look", code) { qr = false }
             note?.let { Text(it, color = Liquid.dim, fontSize = 12.sp) }
@@ -263,9 +263,9 @@ private fun LookPreview(name: String, s: LauncherSettings, selected: Boolean, ac
 @OptIn(ExperimentalLayoutApi::class)
 private fun androidx.compose.foundation.lazy.LazyListScope.wallpaperItems(repo: LauncherRepo, s: LauncherSettings) {
     item {
-        GlassCard(title = "Background", accent = s.accent.b) {
+        GlassCard(title = "Background", accent = s.inkB) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Backdrop.values().forEach { b -> Chip(b.label, b == s.backdrop, s.accent.a) { repo.update { it.copy(backdrop = b) } } }
+                Backdrop.values().forEach { b -> Chip(b.label, b == s.backdrop, s.ink) { repo.update { it.copy(backdrop = b) } } }
             }
             Text(if (s.backdrop == Backdrop.Wallpaper) "Your phone's wallpaper shows through, under a dark veil so the text stays easy to read." else "Black saves battery on OLED screens. Pick Phone's wallpaper to see your own picture.", color = Liquid.dim, fontSize = 12.sp)
             LiquidButton("Change wallpaper", { repo.changeWallpaper() }, Modifier.fillMaxWidth())
@@ -276,15 +276,15 @@ private fun androidx.compose.foundation.lazy.LazyListScope.wallpaperItems(repo: 
 @OptIn(ExperimentalLayoutApi::class)
 private fun androidx.compose.foundation.lazy.LazyListScope.homeItems(repo: LauncherRepo, s: LauncherSettings) {
     item {
-        GlassCard(title = "Clock", accent = s.accent.b) {
+        GlassCard(title = "Clock", accent = s.inkB) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ClockStyle.values().forEach { c -> Chip(c.label, c == s.clock, s.accent.a) { repo.update { it.copy(clock = c) } } }
+                ClockStyle.values().forEach { c -> Chip(c.label, c == s.clock, s.ink) { repo.update { it.copy(clock = c) } } }
             }
             Toggle("Show the date", null, s.showDate) { v -> repo.update { it.copy(showDate = v) } }
         }
     }
     item {
-        GlassCard(title = "Cards", accent = s.accent.a) {
+        GlassCard(title = "Cards", accent = s.ink) {
             HomeCard.entries.forEach { c -> Toggle(c.label, c.sub, c in s.cards) { on -> repo.update { it.copy(cards = if (on) it.cards + c else it.cards - c) } } }
             Text("Cards sit under the clock in the look you are wearing, and a tap opens the matching page of Ultimate. Heart and Activity read only what Ultimate already may read from Health Connect: the launcher never asks. The cameras card lists only your own devices that chose to share a camera and never shows video.", color = Liquid.dim, fontSize = 12.sp)
         }
@@ -292,7 +292,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.homeItems(repo: Launc
     item {
         var reset by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
-        GlassCard(title = "Home screen", accent = s.accent.a) {
+        GlassCard(title = "Home screen", accent = s.ink) {
             Toggle("Suggestions", "Apps and actions offered for this moment, above your favourites.", s.suggestions) { v -> repo.update { it.copy(suggestions = v) } }
             Toggle("Tick on each letter", "A light tick under your thumb while you slide the letters.", s.railTicks) { v -> repo.update { it.copy(railTicks = v) } }
             Text("Press and hold any app to add it to your favourites or remove it.", color = Liquid.dim, fontSize = 12.sp)
@@ -306,14 +306,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.homeItems(repo: Launc
 @OptIn(ExperimentalLayoutApi::class)
 private fun androidx.compose.foundation.lazy.LazyListScope.dockItems(repo: LauncherRepo, s: LauncherSettings) {
     item {
-        GlassCard(title = "Favourites", accent = s.accent.a) {
+        GlassCard(title = "Favourites", accent = s.ink) {
             Text("How many show", color = Color.White, fontSize = 15.sp)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(3, 4, 5, 6, 8).forEach { n -> Chip("$n", n == s.favouritesShown, s.accent.a) { repo.update { it.copy(favouritesShown = n) } } }
+                listOf(3, 4, 5, 6, 8).forEach { n -> Chip("$n", n == s.favouritesShown, s.ink) { repo.update { it.copy(favouritesShown = n) } } }
             }
             Text("Icon size", color = Color.White, fontSize = 15.sp)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IconSize.values().forEach { z -> Chip(z.label, z == s.dockIcons, s.accent.a) { repo.update { it.copy(dockIcons = z) } } }
+                IconSize.values().forEach { z -> Chip(z.label, z == s.dockIcons, s.ink) { repo.update { it.copy(dockIcons = z) } } }
             }
             Toggle("Show names", "Off gives a row of icons only.", s.dockLabels) { v -> repo.update { it.copy(dockLabels = v) } }
         }
@@ -323,23 +323,23 @@ private fun androidx.compose.foundation.lazy.LazyListScope.dockItems(repo: Launc
 @OptIn(ExperimentalLayoutApi::class)
 private fun androidx.compose.foundation.lazy.LazyListScope.drawerItems(repo: LauncherRepo, allApps: List<HomeApp>, s: LauncherSettings) {
     item {
-        GlassCard(title = "App list", accent = s.accent.b) {
+        GlassCard(title = "App list", accent = s.inkB) {
             Text("Order inside each letter", color = Color.White, fontSize = 15.sp)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppSort.values().forEach { o -> Chip(o.label, o == s.drawerSort, s.accent.a) { repo.update { it.copy(drawerSort = o) } } }
+                AppSort.values().forEach { o -> Chip(o.label, o == s.drawerSort, s.ink) { repo.update { it.copy(drawerSort = o) } } }
             }
             Toggle("Show icons", null, s.drawerShowIcons) { v -> repo.update { it.copy(drawerShowIcons = v) } }
             if (s.drawerShowIcons) {
                 Text("Icon size", color = Color.White, fontSize = 15.sp)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconSize.values().forEach { z -> Chip(z.label, z == s.drawerIcons, s.accent.a) { repo.update { it.copy(drawerIcons = z) } } }
+                    IconSize.values().forEach { z -> Chip(z.label, z == s.drawerIcons, s.ink) { repo.update { it.copy(drawerIcons = z) } } }
                 }
             }
         }
     }
     item {
         var hiding by remember { mutableStateOf(false) }
-        GlassCard(title = "Hidden apps", accent = s.accent.a) {
+        GlassCard(title = "Hidden apps", accent = s.ink) {
             Text(if (s.hidden.isEmpty()) "Nothing hidden." else "${s.hidden.size} hidden from the letters, lists and search. They stay installed.", color = Liquid.dim, fontSize = 13.sp)
             LiquidButton(if (hiding) "Done" else "Choose apps to hide", { hiding = !hiding }, Modifier.fillMaxWidth())
             if (hiding) allApps.forEach { a ->
@@ -354,11 +354,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.drawerItems(repo: Lau
 
 private fun androidx.compose.foundation.lazy.LazyListScope.gestureItems(repo: LauncherRepo, s: LauncherSettings) {
     item {
-        GlassCard(title = "On an empty part of the home screen", accent = s.accent.a) {
-            GesturePicker("Swipe up", s.swipeUp, s.accent.a) { g -> repo.update { it.copy(swipeUp = g) } }
-            GesturePicker("Swipe down", s.swipeDown, s.accent.a) { g -> repo.update { it.copy(swipeDown = g) } }
-            GesturePicker("Double tap", s.doubleTap, s.accent.a) { g -> repo.update { it.copy(doubleTap = g) } }
-            GesturePicker("Press and hold", s.longPress, s.accent.a) { g -> repo.update { it.copy(longPress = g) } }
+        GlassCard(title = "On an empty part of the home screen", accent = s.ink) {
+            GesturePicker("Swipe up", s.swipeUp, s.ink) { g -> repo.update { it.copy(swipeUp = g) } }
+            GesturePicker("Swipe down", s.swipeDown, s.ink) { g -> repo.update { it.copy(swipeDown = g) } }
+            GesturePicker("Double tap", s.doubleTap, s.ink) { g -> repo.update { it.copy(doubleTap = g) } }
+            GesturePicker("Press and hold", s.longPress, s.ink) { g -> repo.update { it.copy(longPress = g) } }
             Text("The letter rail, the apps and the buttons keep their own touches.", color = Liquid.dim, fontSize = 12.sp)
         }
     }
@@ -366,7 +366,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.gestureItems(repo: La
 
 private fun androidx.compose.foundation.lazy.LazyListScope.searchItems(repo: LauncherRepo, s: LauncherSettings) {
     item {
-        GlassCard(title = "Search", accent = s.accent.b) {
+        GlassCard(title = "Search", accent = s.inkB) {
             Toggle("List every app first", "Off shows an empty list until you start typing.", s.searchShowsAll) { v -> repo.update { it.copy(searchShowsAll = v) } }
             Toggle("Offer a web search", "When you type something no app matches, a row sends it to your browser.", s.searchWeb) { v -> repo.update { it.copy(searchWeb = v) } }
         }
@@ -422,7 +422,7 @@ private fun Swatch(accent: Accent, selected: Boolean, onClick: () -> Unit) {
 private fun LivingLooksCard(repo: LauncherRepo, s: LauncherSettings) {
     val living by repo.living.collectAsState()
     var adding by remember { mutableStateOf(false) }
-    val accent = s.accent.a
+    val accent = s.ink
     GlassCard(title = "Living looks", accent = accent) {
         Text("Let the launcher change its look by itself. The look you pick stays your everyday one; a rule borrows another while it applies. The first rule from the top that applies wins.", color = Liquid.dim, fontSize = 12.sp)
         LivingLook.status(living)?.let { Text(it, color = accent, fontSize = 14.sp) }
@@ -500,7 +500,7 @@ private fun YourLooksCard(repo: LauncherRepo, s: LauncherSettings) {
     var name by remember { mutableStateOf("") }
     var note by remember { mutableStateOf<String?>(null) }
     var qrFor by remember { mutableStateOf<LookSlot?>(null) }
-    val accent = s.accent.a
+    val accent = s.ink
     val suggestion = LookSlots.suggestName(s, s.slots)
     GlassCard(title = "Your looks", accent = accent) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
