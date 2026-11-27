@@ -200,7 +200,10 @@ internal fun EdgeRailContent(
 ) {
     // The same colours and hidden apps as the home screen.
     val settings by repo.settings.collectAsState()
-    androidx.compose.runtime.CompositionLocalProvider(LocalLauncherTheme provides settings.accent) {
+    // Over other apps the rail sits on a dark scrim, so it keeps light text whatever the look; it takes the look's type, icon shape and
+    // rail style (a hidden rail would be invisible here, so that one is drawn as plain letters).
+    val tokens = settings.tokens().let { LookTokens.Default.copy(face = it.face, iconShape = it.iconShape, rail = if (it.rail == RailStyle.Hidden) RailStyle.Plain else it.rail) }
+    androidx.compose.runtime.CompositionLocalProvider(LocalLauncherTheme provides settings.accent, LocalLook provides tokens) {
         EdgeRailBody(repo, settings, dragFlow, expandedFlow, hoverFlow, onOpen, onAction, onClose)
     }
 }

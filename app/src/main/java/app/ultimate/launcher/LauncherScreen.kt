@@ -110,6 +110,14 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     val motion = motionOn()
+    val look = settings.tokens()
+    // A light look needs dark status and navigation bar icons, or they vanish into the page.
+    val view = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.SideEffect {
+        view.context.findActivity()?.window?.let { w ->
+            androidx.core.view.WindowCompat.getInsetsController(w, view).apply { isAppearanceLightStatusBars = look.light; isAppearanceLightNavigationBars = look.light }
+        }
+    }
 
     var searching by remember { mutableStateOf(false) }
     var sticky by remember { mutableStateOf<Char?>(null) }
@@ -170,7 +178,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     val rowPx = with(density) { 56.dp.toPx() }
 
     val flingDrag = remember { FlingDrag() }
-    androidx.compose.runtime.CompositionLocalProvider(LocalFlingDrag provides flingDrag, LocalLauncherTheme provides settings.accent) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalFlingDrag provides flingDrag, LocalLauncherTheme provides settings.accent, LocalLook provides look) {
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(settings.backdrop.colors))
         // Swipe up for search: a real swipe (not the first few pixels of a scroll), and not while a letter's list is open, where
         // swiping up is how that list is scrolled.
@@ -196,7 +204,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
 
         // ---- left: clock, favourites, or the letter's apps
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(start = 28.dp, end = 96.dp, top = 48.dp)) {
-            Clock(onOpenUltimate, settings)
+            ClockBlock(onOpenUltimate, settings)
             Spacer(Modifier.height(36.dp))
             // What is worth offering right now: refreshed every half minute and whenever you come home.
             var nowItems by remember { mutableStateOf<List<Now>>(emptyList()) }
@@ -205,16 +213,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 val favAlpha = (1f - (if (current != null) 1f else 0f)).coerceIn(0f, 1f)
                 val dock = favs.mapNotNull { pkg -> apps.firstOrNull { it.pkg == pkg } }.take(settings.favouritesShown)
-                if (settings.dockLabels) Column(Modifier.alpha(favAlpha), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    dock.forEachIndexed { i, a ->
-                        AppRow(repo, a, highlighted = false, delayIndex = i, onOpen = { repo.launch(a.pkg) }, big = true, iconScale = settings.dockIcons.scale)
-                    }
-                    if (favs.isEmpty() && apps.isNotEmpty()) Text("Long-press any app to make it a favourite.", color = Liquid.dim, fontSize = 14.sp)
-                } else androidx.compose.foundation.layout.FlowRow(Modifier.alpha(favAlpha), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Icons only: a wrapping row, each icon still opens on tap and gives the menu on hold.
-                    dock.forEachIndexed { i, a -> AppRow(repo, a, highlighted = false, delayIndex = i, onOpen = { repo.launch(a.pkg) }, big = true, iconScale = settings.dockIcons.scale, compact = true) }
-                    if (favs.isEmpty() && apps.isNotEmpty()) Text("Long-press any app to make it a favourite.", color = Liquid.dim, fontSize = 14.sp)
-                }
+                FavouritesBlock(repo, dock, favs.isEmpty() && apps.isNotEmpty(), settings, Modifier.alpha(favAlpha))
             }
         }
 
@@ -275,7 +274,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
         // ---- settings: a small gear in the top right
         if (!searching && !settingsOpen) Box(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 6.dp, end = 8.dp).size(48.dp).clip(CircleShape)
             .clickable { openSettings() }.semantics { contentDescription = "Launcher settings" }, contentAlignment = Alignment.Center) {
-            androidx.compose.material3.Icon(Icons.Rounded.Settings, null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(24.dp))
+            androidx.compose.material3.Icon(Icons.Rounded.Settings, null, tint = look.fg.copy(alpha = 0.6f), modifier = Modifier.size(24.dp))
         }
 
         // ---- search
@@ -292,6 +291,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
 @Composable
 internal fun NowRow(repo: LauncherRepo, items: List<Now>, onDone: () -> Unit = {}) {
     val th = LocalLauncherTheme.current
+    val look = LocalLook.current
     androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items.forEachIndexed { i, n ->
             val motion = motionOn()
@@ -310,8 +310,8 @@ internal fun NowRow(repo: LauncherRepo, items: List<Now>, onDone: () -> Unit = {
                 }
                 Spacer(Modifier.width(10.dp))
                 Column {
-                    Text(n.label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1)
-                    Text(n.because, color = Liquid.dim, fontSize = 11.sp, maxLines = 1)
+                    Text(n.label, color = look.fg, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, fontFamily = look.face)
+                    Text(n.because, color = look.dim, fontSize = 11.sp, maxLines = 1, fontFamily = look.face)
                 }
             }
         }
@@ -328,10 +328,12 @@ private fun Modifier.androidxBorder(a: Color, b: Color): Modifier = this.then(Mo
 @Composable
 internal fun RailVisual(letters: List<Char>, follow: Float, wave: Float, pop: Float, current: Char?, dragging: Boolean, modifier: Modifier = Modifier.fillMaxSize()) {
     val th = LocalLauncherTheme.current
+    val look = LocalLook.current
+    val style = look.rail
     val measurer = rememberTextMeasurer()
     Box(modifier) {
         // The liquid: a spine, a drop under the finger, and two beads joining them, melted together by the gooey effect.
-        Canvas(Modifier.fillMaxSize().gooey(14f)) {
+        if (style == RailStyle.Liquid) Canvas(Modifier.fillMaxSize().gooey(14f)) {
             val spineX = size.width - 18.dp.toPx()
             if (wave > 0.02f) {
                 val y = follow.coerceIn(0f, size.height)
@@ -351,10 +353,25 @@ internal fun RailVisual(letters: List<Char>, follow: Float, wave: Float, pop: Fl
             val pos = LauncherMath.position(follow, inset, usable, n)
             for ((i, ch) in letters.withIndex()) {
                 val y = inset + if (n == 1) 0f else usable * i / (n - 1)
-                val b = LauncherMath.bulge(i, pos) * wave
                 val selected = current == ch && dragging
+                if (style != RailStyle.Liquid) {
+                    // Plain letters stand still in a column; the one under the thumb grows and takes the accent colour. The hidden rail shows
+                    // nothing until touched, and then only the letter under the thumb, floating beside it.
+                    if (style == RailStyle.Hidden) {
+                        if (selected) {
+                            val big = measurer.measure(ch.toString(), TextStyle(color = th.a, fontSize = 40.sp, fontWeight = FontWeight.Light, fontFamily = look.face))
+                            drawText(big, topLeft = Offset(spineX - 40.dp.toPx() - big.size.width / 2f, follow - big.size.height / 2f))
+                        }
+                    } else {
+                        val t = TextStyle(color = if (selected) th.a else look.fg.copy(alpha = 0.5f), fontSize = if (selected) 22.sp else 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, fontFamily = look.face)
+                        val layout = measurer.measure(ch.toString(), t)
+                        drawText(layout, topLeft = Offset(spineX - layout.size.width / 2f - if (selected) 6.dp.toPx() else 0f, y - layout.size.height / 2f))
+                    }
+                    continue
+                }
+                val b = LauncherMath.bulge(i, pos) * wave
                 val x = spineX - b * 44.dp.toPx()
-                val style = TextStyle(color = if (selected) Color(0xFF0B0F14) else Color.White.copy(alpha = 0.45f + 0.55f * b), fontSize = (11f + 9f * b).sp, fontWeight = if (selected || b > 0.6f) FontWeight.Bold else FontWeight.Medium)
+                val style = TextStyle(color = if (selected) Color(0xFF0B0F14) else look.fg.copy(alpha = 0.45f + 0.55f * b), fontSize = (11f + 9f * b).sp, fontWeight = if (selected || b > 0.6f) FontWeight.Bold else FontWeight.Medium)
                 if (selected) {
                     // The bubble: the letter the finger is on, inside the drop that melted out of the rail.
                     val bx = spineX - 64.dp.toPx() * wave
@@ -369,24 +386,56 @@ internal fun RailVisual(letters: List<Char>, follow: Float, wave: Float, pop: Fl
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+/** The ways an app can be drawn in a list: the usual row, or one of the look's favourite layouts. */
+internal enum class RowVariant { Plain, Numbered, Tile, Pill, Centered }
+
+/** An app's icon cut to the look's shape, or its first letter in a coloured disc until it has loaded. */
 @Composable
-private fun Clock(onOpenUltimate: () -> Unit, settings: LauncherSettings) {
-    val th = LocalLauncherTheme.current
-    val system24 = android.text.format.DateFormat.is24HourFormat(androidx.compose.ui.platform.LocalContext.current)
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(60_000 - now % 60_000 + 50) } }
-    val d = Date(now)
-    val day = SimpleDateFormat("EEE", Locale.getDefault()).format(d).uppercase().take(3)
-    Row(verticalAlignment = Alignment.Bottom) {
-        Text(day, style = TextStyle(brush = Brush.linearGradient(listOf(Color.White, th.a, th.b)), fontSize = 64.sp, fontWeight = FontWeight.Thin, letterSpacing = 10.sp))
+private fun AppIcon(icon: androidx.compose.ui.graphics.ImageBitmap?, size: androidx.compose.ui.unit.Dp, shape: androidx.compose.ui.graphics.Shape, label: String, th: Accent) {
+    Box(Modifier.size(size).clip(shape), contentAlignment = Alignment.Center) {
+        if (icon != null) Image(icon, null, Modifier.fillMaxSize())
+        else Box(Modifier.fillMaxSize().clip(CircleShape).background(Brush.linearGradient(listOf(th.a.copy(alpha = 0.5f), th.b.copy(alpha = 0.4f)))), contentAlignment = Alignment.Center) { Text(label.take(1), color = LocalLook.current.fg, fontSize = 15.sp) }
     }
-    Text(LauncherMath.clockLine(now, settings.clock, settings.showDate, system24), color = Color.White.copy(alpha = 0.75f), fontSize = 16.sp, letterSpacing = 1.sp)
-    // A quiet way into Ultimate itself.
-    Row(Modifier.padding(top = 10.dp).clip(RoundedCornerShape(14.dp)).combinedClickable(onClick = onOpenUltimate).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(10.dp).background(Brush.linearGradient(listOf(th.a, th.b)), CircleShape))
-        Spacer(Modifier.width(8.dp))
-        Text("Ultimate", color = Liquid.dim, fontSize = 13.sp)
+}
+
+private tailrec fun android.content.Context.findActivity(): android.app.Activity? = when (this) {
+    is android.app.Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+/** The favourites, laid out the way the look asks for: a list, a numbered list, tiles, pills, or centred. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+internal fun FavouritesBlock(repo: LauncherRepo, dock: List<HomeApp>, showHint: Boolean, settings: LauncherSettings, modifier: Modifier) {
+    val look = LocalLook.current
+    val scale = settings.dockIcons.scale
+    @Composable fun hint() { if (showHint) Text("Long-press any app to make it a favourite.", color = look.dim, fontSize = 14.sp, fontFamily = look.face) }
+    when (settings.favLayout) {
+        FavLayout.List -> if (settings.dockLabels) Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            dock.forEachIndexed { i, a -> AppRow(repo, a, highlighted = false, delayIndex = i, onOpen = { repo.launch(a.pkg) }, big = true, iconScale = scale) }
+            hint()
+        } else androidx.compose.foundation.layout.FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Icons only: a wrapping row, each icon still opens on tap and gives the menu on hold.
+            dock.forEachIndexed { i, a -> AppRow(repo, a, highlighted = false, delayIndex = i, onOpen = { repo.launch(a.pkg) }, big = true, iconScale = scale, compact = true) }
+            hint()
+        }
+        FavLayout.Numbered -> Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            dock.forEachIndexed { i, a -> AppRow(repo, a, highlighted = false, delayIndex = i, onOpen = { repo.launch(a.pkg) }, big = true, iconScale = scale, variant = RowVariant.Numbered, number = i + 1) }
+            hint()
+        }
+        FavLayout.Grid -> androidx.compose.foundation.layout.FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            dock.forEachIndexed { i, a -> AppRow(repo, a, highlighted = false, delayIndex = i, onOpen = { repo.launch(a.pkg) }, big = true, iconScale = scale, variant = RowVariant.Tile) }
+            hint()
+        }
+        FavLayout.Pills -> androidx.compose.foundation.layout.FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            dock.forEachIndexed { i, a -> AppRow(repo, a, highlighted = false, delayIndex = i, onOpen = { repo.launch(a.pkg) }, big = true, iconScale = scale, variant = RowVariant.Pill) }
+            hint()
+        }
+        FavLayout.Centered -> Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            dock.forEachIndexed { i, a -> AppRow(repo, a, highlighted = false, delayIndex = i, onOpen = { repo.launch(a.pkg) }, big = true, iconScale = scale, variant = RowVariant.Centered) }
+            hint()
+        }
     }
 }
 
@@ -399,8 +448,12 @@ internal fun AppRow(
     showIcon: Boolean = true,
     /** Just the icon, no name, as wide as the icon: for a row of favourites. */
     compact: Boolean = false,
+    /** How the row is drawn: the usual row, or one of the look's favourite layouts. [number] is the place in a numbered list. */
+    variant: RowVariant = RowVariant.Plain,
+    number: Int = 0,
 ) {
     val th = LocalLauncherTheme.current
+    val look = LocalLook.current
     var icon by remember(a.pkg) { mutableStateOf(repo.icon(a.pkg)) }
     LaunchedEffect(a.pkg) { if (icon == null) icon = repo.loadIcon(a.pkg) }
     val motion = motionOn()
@@ -444,22 +497,50 @@ internal fun AppRow(
                     fling.toast = if (err == null) "Sent ${hit.first.label} to ${hit.second.name}" else "Couldn't send to ${hit.second.name}: $err" }
             }
         }
+    val common = Modifier.offset { IntOffset(((1f - enter.value) * 120).roundToInt(), 0) }.alpha(enter.value.coerceIn(0f, 1f)).scale(lift)
+    val highlight = if (highlighted) Brush.horizontalGradient(listOf(th.a.copy(alpha = 0.35f), th.b.copy(alpha = 0.18f))) else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
     Box {
-        Row((if (compact) Modifier else Modifier.fillMaxWidth()).height(((if (big) 52.dp else 56.dp) * iconScale.coerceAtLeast(1f)))
-            .offset { IntOffset(((1f - enter.value) * 120).roundToInt(), 0) }.alpha(enter.value.coerceIn(0f, 1f)).scale(lift)
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (highlighted) Brush.horizontalGradient(listOf(th.a.copy(alpha = 0.35f), th.b.copy(alpha = 0.18f))) else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent)))
-            .then(gesture).padding(horizontal = 6.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            if (showIcon || compact) Box(Modifier.size((if (big) 30.dp else 34.dp) * iconScale).semantics { if (compact) contentDescription = a.label }, contentAlignment = Alignment.Center) {
-                val ic = icon
-                if (ic != null) Image(ic, null, Modifier.fillMaxSize())
-                // Icons-only favourites would be invisible without their icon, so until it loads (or if it can't) show the app's first letter.
-                else if (compact) Box(Modifier.fillMaxSize().clip(CircleShape).background(Brush.linearGradient(listOf(th.a.copy(alpha = 0.5f), th.b.copy(alpha = 0.4f)))), contentAlignment = Alignment.Center) { Text(a.label.take(1), color = Color.White, fontSize = 15.sp) }
+        when (variant) {
+            RowVariant.Plain -> Row((if (compact) Modifier else Modifier.fillMaxWidth()).height(((if (big) 52.dp else 56.dp) * iconScale.coerceAtLeast(1f)))
+                .then(common).clip(RoundedCornerShape(16.dp)).background(highlight)
+                .then(gesture).padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                if (showIcon || compact) Box(Modifier.size((if (big) 30.dp else 34.dp) * iconScale).clip(look.iconShape).semantics { if (compact) contentDescription = a.label }, contentAlignment = Alignment.Center) {
+                    val ic = icon
+                    if (ic != null) Image(ic, null, Modifier.fillMaxSize())
+                    // Icons-only favourites would be invisible without their icon, so until it loads (or if it can't) show the app's first letter.
+                    else if (compact) Box(Modifier.fillMaxSize().clip(CircleShape).background(Brush.linearGradient(listOf(th.a.copy(alpha = 0.5f), th.b.copy(alpha = 0.4f)))), contentAlignment = Alignment.Center) { Text(a.label.take(1), color = look.fg, fontSize = 15.sp) }
+                }
+                if (!compact) {
+                    if (showIcon) Spacer(Modifier.width(14.dp))
+                    Text(a.label, color = look.fg, fontSize = if (big) 20.sp else 17.sp, fontWeight = if (big) FontWeight.Light else FontWeight.Normal, maxLines = 1, fontFamily = look.face)
+                }
             }
-            if (!compact) {
-                if (showIcon) Spacer(Modifier.width(14.dp))
-                Text(a.label, color = Color.White, fontSize = if (big) 20.sp else 17.sp, fontWeight = if (big) FontWeight.Light else FontWeight.Normal, maxLines = 1)
+            // A numbered list, like a menu in a terminal: no icon, the number in the accent colour.
+            RowVariant.Numbered -> Row(Modifier.fillMaxWidth().height(40.dp).then(common).clip(RoundedCornerShape(10.dp)).background(highlight).then(gesture).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("[$number]", color = th.a, fontSize = 15.sp, fontFamily = look.face)
+                Spacer(Modifier.width(12.dp))
+                Text(a.label, color = look.fg, fontSize = if (big) 18.sp else 16.sp, maxLines = 1, fontFamily = look.face)
+            }
+            // A tile: the icon over its name, several to a row.
+            RowVariant.Tile -> Column(Modifier.width(68.dp).then(common).clip(RoundedCornerShape(16.dp)).background(highlight).then(gesture).padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                AppIcon(icon, 52.dp * iconScale, look.iconShape, a.label, th)
+                Spacer(Modifier.height(4.dp))
+                Text(a.label, color = look.fg, fontSize = 11.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontFamily = look.face)
+            }
+            // A soft pill with the accent colours.
+            RowVariant.Pill -> Row(Modifier.then(common).clip(RoundedCornerShape(26.dp))
+                .background(Brush.horizontalGradient(listOf(th.a.copy(alpha = if (highlighted) 0.45f else 0.22f), th.b.copy(alpha = 0.14f))))
+                .border(1.dp, th.a.copy(alpha = 0.35f), RoundedCornerShape(26.dp)).then(gesture).padding(start = 8.dp, end = 16.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                AppIcon(icon, 30.dp * iconScale, look.iconShape, a.label, th)
+                Spacer(Modifier.width(10.dp))
+                Text(a.label, color = look.fg, fontSize = 16.sp, maxLines = 1, fontFamily = look.face)
+            }
+            // In the middle of the screen, large and light.
+            RowVariant.Centered -> Row(Modifier.fillMaxWidth().height(52.dp).then(common).clip(RoundedCornerShape(16.dp)).background(highlight).then(gesture), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                AppIcon(icon, 30.dp * iconScale, look.iconShape, a.label, th)
+                Spacer(Modifier.width(14.dp))
+                Text(a.label, color = look.fg, fontSize = 22.sp, fontWeight = FontWeight.Light, maxLines = 1, fontFamily = look.face)
             }
         }
         DropdownMenu(menu, { menu = false }) {
@@ -482,7 +563,7 @@ private fun SearchSheet(repo: LauncherRepo, apps: List<HomeApp>, settings: Launc
     }
     val enter = remember { Animatable(0f) }
     LaunchedEffect(Unit) { enter.animateTo(1f, spring(Spring.DampingRatioLowBouncy, Spring.StiffnessLow)) }
-    Column(Modifier.fillMaxSize().background(Color(0xF00A0E14)).statusBarsPadding().navigationBarsPadding().imePadding()
+    Column(Modifier.fillMaxSize().background(LocalLook.current.sheet).statusBarsPadding().navigationBarsPadding().imePadding()
         .offset { IntOffset(0, ((1f - enter.value) * 400).roundToInt()) }.padding(horizontal = 20.dp)) {
         // Results above, the box at the bottom where the thumb already is; the closest match sits right above the box.
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), reverseLayout = true) {
