@@ -702,8 +702,9 @@ internal fun StudioHeader(page: SettingsPage, shown: LauncherSettings, base: Lau
             SettingsPage.Drawer -> AppListThumb(shown, 1.3f)
             SettingsPage.Search -> SearchThumb(shown, 1.3f)
             SettingsPage.Gestures -> GesturePad(shown, 1.3f)
-            else -> androidx.compose.animation.Crossfade(LookCode.encode(shown) + shown.favouritesShown + shown.clock + shown.showDate + shown.cards + shown.suggestions + shown.dockIcons + shown.dockLabels, animationSpec = androidx.compose.animation.core.tween(260), label = "studio") { _ ->
-                LookThumb(shown, pending, accent, LookStudio.name(shown), 1.3f)
+            // The picture cross-fades between the settings it is given, so each state draws its own.
+            else -> androidx.compose.animation.Crossfade(shown, animationSpec = androidx.compose.animation.core.tween(260), label = "studio") { state ->
+                LookThumb(state, pending, accent, LookStudio.name(state), 1.3f)
             }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
