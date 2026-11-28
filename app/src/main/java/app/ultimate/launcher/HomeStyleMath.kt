@@ -18,7 +18,7 @@ enum class HomeStyle(val label: String, val blurb: String) {
     Pages("Pages", "Every app in a grid of pages you swipe between, with your favourites in a dock"),
     Hive("Hive", "Hexagon icons packed like a honeycomb, scrolling down"),
     Dial("Dial", "A ring of apps round the corner your thumb rests in: spin it"),
-    Tiles("Tiles", "Big coloured tiles for your favourites, wide and small, with All apps at the end"),
+    Tiles("Metro", "Big coloured tiles for your favourites, wide and small, with All apps at the end"),
     Prompt("Prompt", "A command line: type a few letters and press Enter"),
 }
 

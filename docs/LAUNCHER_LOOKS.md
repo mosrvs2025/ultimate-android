@@ -162,3 +162,34 @@ The first fix (2.32.0) did not cure it on the owner's phone and the cause could 
 was the thing failing; below API 33, and for a hardware Back key, `onBackPressed()` is overridden to count and call `super`. The foot of every
 launcher settings page shows "Back pressed N times since the launcher started": N rising with no page change means the launcher got Back and mishandled
 it; N not rising means Android never delivered Back to the launcher. Remove the counter once the cause is known.
+
+## Home styles (2.34.0)
+
+Code: `launcher/HomeStyleMath.kt` (the `HomeStyle` enum and `StyleMath`, plain arithmetic), `launcher/HomeStyles.kt` (the drawing), the wiring in
+`LauncherScreen.kt` (`styled`), the Home style row and `MiniStyle` previews in `LauncherSettingsSheet.kt`.
+
+The look part `homeStyle` is separate from `favLayout`: the original (**Lists**) is a list of favourites and the liquid letter rail; the others
+hold every app themselves, so the rail is not drawn and the room it took is used.
+
+| Style | What it is | Notes |
+| --- | --- | --- |
+| Pages | grid of every app, `HorizontalPager`, page dots, a dock of favourites | cells fit the area (`StyleMath.gridFit`: 3 to 6 columns, at least 2 rows) |
+| Hive | hexagons packed like a honeycomb, scrolling | rows of `hiveCols`; odd rows pushed half a cell; each row's box is 3/4 of a hexagon so the next tucks in |
+| Dial | an arc from 180 to 270 degrees round the bottom-right corner, drag to spin | centre half an icon in from the corner so the ends are whole; `dialSelected` is the middle app, a tick when it changes |
+| Metro (`HomeStyle.Tiles`) | favourites as coloured tiles: one large, then small, small, wide, ...; All apps at the end | `StyleMath.tilePlan`; text colour chosen for contrast on the tile |
+| Prompt | a command line: favourites numbered, typing filters (`LauncherMath.search`), Enter opens the top match, a bare number opens that line | output sits at the bottom with the input, nearest the thumb; `imePadding` |
+
+Press and hold on any cell gives the menu (favourite, app info); carrying an app to another device is only in the Lists style. Five new
+looks (Pages, Hive, Dial, Metro, Prompt) use the styles; the older presets set `homeStyle` to Lists, so choosing one puts the list back.
+The style is the tenth part of a look code (`...|true|Hive`); a nine-part code still reads and means Lists, an unknown style keeps what was there.
+
+Checked: `HomeStyleMathTest` (pages hold every app once, grid fit limits, hive rows, dial angles/clamp/selection/turning across the 0/360 seam,
+tile rhythm, prompt list/pick/Enter, style stored and shared), and renders of all five styles and of every look card, which found the dial's end
+icons cut by the screen edge. Not tried on a phone.
+
+### Web search from the launcher's search
+
+`LauncherRepo.webSearch(query, engine)`: for Google, the phone's own `ACTION_WEB_SEARCH` first, then the results page in the browser
+(`SearchEngine.url`, the query URL-escaped); other engines (DuckDuckGo, Bing, Brave) open their results page; with no browser a toast says so.
+Enter in the search box opens the best app match, or searches the web when there is none and web search is on (the button then reads Search).
+The engine is the setting `searchEngine` (Settings, Search). Before, the row's failure was silent and Enter on a miss did nothing.
