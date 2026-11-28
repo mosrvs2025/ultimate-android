@@ -370,7 +370,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.searchItems(repo: Lau
     item {
         GlassCard(title = "Search", accent = s.inkB) {
             Toggle("List every app first", "Off shows an empty list until you start typing.", s.searchShowsAll) { v -> repo.update { it.copy(searchShowsAll = v) } }
-            Toggle("Offer a web search", "When you type something no app matches, a row sends it to your browser.", s.searchWeb) { v -> repo.update { it.copy(searchWeb = v) } }
+            Toggle("Offer a web search", "A row under the results sends what you typed to the web, and Enter does the same when no app matches.", s.searchWeb) { v -> repo.update { it.copy(searchWeb = v) } }
+            if (s.searchWeb) PartRow("Search with", SearchEngine.entries, s.searchEngine, { it.label }, s.ink) { v -> repo.update { it.copy(searchEngine = v) } }
         }
     }
 }

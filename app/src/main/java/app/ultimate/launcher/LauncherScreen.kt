@@ -591,12 +591,17 @@ private fun SearchSheet(repo: LauncherRepo, apps: List<HomeApp>, settings: Launc
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), reverseLayout = true) {
             // With reverseLayout the first item sits at the bottom, nearest the box: a web search for what is typed goes there when asked for.
             if (settings.searchWeb && q.isNotBlank()) item(key = "web") {
-                Text("Search the web for \"${q.trim()}\"", color = LocalLauncherTheme.current.a, fontSize = 16.sp, maxLines = 1,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { if (repo.webSearch(q.trim())) onClose() }.padding(horizontal = 6.dp, vertical = 14.dp))
+                Text("Search ${settings.searchEngine.label} for \"${q.trim()}\"", color = LocalLauncherTheme.current.a, fontSize = 16.sp, maxLines = 1,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { if (repo.webSearch(q, settings.searchEngine)) onClose() }.padding(horizontal = 6.dp, vertical = 14.dp))
             }
             items(results, key = { it.pkg }) { a -> AppRow(repo, a, highlighted = a == results.firstOrNull() && q.isNotBlank(), delayIndex = 0, onOpen = { repo.launch(a.pkg); onClose() }, big = false, iconScale = settings.drawerIcons.scale, showIcon = settings.drawerShowIcons) }
         }
-        LiquidInput(q, { q = it }, "Search apps", { results.firstOrNull()?.let { repo.launch(it.pkg); onClose() } }, Modifier.padding(vertical = 12.dp), sendLabel = "Open")
+        // Enter opens the best match; with nothing to open it searches the web, if that is switched on, so a miss isn't a dead end.
+        LiquidInput(q, { q = it }, "Search apps", {
+            val first = results.firstOrNull()
+            if (first != null) { repo.launch(first.pkg); onClose() }
+            else if (settings.searchWeb && q.isNotBlank() && repo.webSearch(q, settings.searchEngine)) onClose()
+        }, Modifier.padding(vertical = 12.dp), sendLabel = if (results.isEmpty() && settings.searchWeb && q.isNotBlank()) "Search" else "Open")
     }
     }
 }

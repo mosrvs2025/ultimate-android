@@ -52,6 +52,17 @@ enum class Backdrop(
 /** How big app icons are drawn. [scale] multiplies the usual size, which is Medium. */
 enum class IconSize(val label: String, val scale: Float) { Small("Small", 0.8f), Medium("Medium", 1f), Large("Large", 1.3f) }
 
+/** Where "search the web" from the launcher's search sends what you typed. */
+enum class SearchEngine(val label: String, private val base: String) {
+    Google("Google", "https://www.google.com/search?q="),
+    DuckDuckGo("DuckDuckGo", "https://duckduckgo.com/?q="),
+    Bing("Bing", "https://www.bing.com/search?q="),
+    Brave("Brave", "https://search.brave.com/search?q=");
+
+    /** The results page for [query], with anything that isn't plain text escaped so a "&" or "#" in it can't cut the search short. */
+    fun url(query: String): String = base + java.net.URLEncoder.encode(query.trim(), "UTF-8")
+}
+
 /** How the apps inside a letter (and in search) are ordered. */
 enum class AppSort(val label: String) { AZ("A to Z"), ZA("Z to A"), Newest("Newest first") }
 
@@ -105,6 +116,8 @@ data class LauncherSettings(
     val slots: List<LookSlot> = emptyList(),
     /** How the home screen is arranged (see [HomeStyle]); the original is a list of favourites and a letter rail. */
     val homeStyle: HomeStyle = HomeStyle.Lists,
+    /** Which search engine the web search uses. */
+    val searchEngine: SearchEngine = SearchEngine.Google,
 ) {
     fun clamped() = copy(favouritesShown = favouritesShown.coerceIn(MIN_FAVS, MAX_FAVS))
 
@@ -127,7 +140,7 @@ object SettingsCodec {
 
     /** Keys of the settings added after the first ones. All are plain strings, so a missing or odd one just means the default. */
     private val EXTRA_KEYS = listOf("dockIcons", "dockLabels", "drawerIcons", "drawerShowIcons", "drawerSort", "swipeUp", "swipeDown", "doubleTap", "longPress", "searchShowsAll", "searchWeb",
-        "face", "clockLayout", "favLayout", "rail", "iconShape", "rules", "cards", "slots", "homeStyle")
+        "face", "clockLayout", "favLayout", "rail", "iconShape", "rules", "cards", "slots", "homeStyle", "searchEngine")
 
     /** [base] with the newer settings filled in from [get] (a lookup of the stored strings). */
     fun withExtras(base: LauncherSettings, get: (String) -> String?): LauncherSettings {
@@ -145,6 +158,7 @@ object SettingsCodec {
             cards = get("cards")?.let { HomeCards.decode(it) } ?: base.cards,
             slots = get("slots")?.let { LookSlots.decode(it) } ?: base.slots,
             homeStyle = enumOr(get("homeStyle"), base.homeStyle),
+            searchEngine = enumOr(get("searchEngine"), base.searchEngine),
         )
     }
 
@@ -159,6 +173,7 @@ object SettingsCodec {
         "cards" to HomeCards.encode(s.cards),
         "slots" to LookSlots.encode(s.slots),
         "homeStyle" to s.homeStyle.name,
+        "searchEngine" to s.searchEngine.name,
     ).also { check(it.keys.toList() == EXTRA_KEYS) }
 }
 
@@ -170,7 +185,7 @@ enum class SettingsPage(val title: String, val subtitle: String, val words: Stri
     Dock("Favourites", "How many show, their size and names", "favourites favorites dock icons size labels names count"),
     Drawer("App list", "Order, icons and hidden apps", "app drawer list sort order icons hidden hide letters"),
     Gestures("Gestures", "What swipes, double tap and hold do", "gesture swipe up down double tap long press hold notifications"),
-    Search("Search", "How searching for apps behaves", "search web find apps keyboard"),
+    Search("Search", "How searching for apps behaves", "search web find apps keyboard engine google duckduckgo bing brave"),
     ;
 
     companion object {
