@@ -2,6 +2,8 @@ package app.ultimate.launcher
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.runtime.staticCompositionLocalOf
 import app.ultimate.core.Liquid
@@ -199,6 +201,11 @@ enum class SettingsPage(val title: String, val subtitle: String, val words: Stri
             }
         }
     }
+}
+
+/** How many times the system's Back reached the launcher (shown at the foot of the settings, to tell "never arrived" from "arrived, changed nothing"). */
+internal object LauncherBack {
+    var presses by androidx.compose.runtime.mutableIntStateOf(0)
 }
 
 /** What system Back does in the launcher settings: a page goes back to the list of pages, the list closes settings, and with settings closed there is nothing to undo. */

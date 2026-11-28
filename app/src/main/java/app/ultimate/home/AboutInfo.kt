@@ -62,6 +62,10 @@ object Changelog {
     data class Entry(val version: String, val notes: List<String>, val tries: List<String> = emptyList())
 
     val entries = listOf(
+        Entry("2.33.1", listOf(
+            "Back in the launcher settings, second attempt. Back still did nothing for you in the settings after the first fix, and I could not reproduce it, so this build does two things. First, newer Android (13 and up) now hands Back straight to the launcher through its own door, and the launcher passes it on to the same handlers, in case the usual route was the one failing. Second, the foot of every launcher settings page now says how many times Back has reached the launcher (Back pressed N times since the launcher started). If you press Back and that number goes up but the page stays, the launcher got the press and mishandled it; if the number does not go up, Android never delivered the press to the launcher (a phone or gesture setting), and that points somewhere else. Please tell me which you see, and which phone.",
+            "Checked: the Back rules and the source are tested; the new route and the counter are not tried on a phone, which is exactly what this build is for.",
+        ), tries = listOf("launcher")),
         Entry("2.33.0", listOf(
             "Your looks. Settings, Themes has a new card, Your looks, where you save the look you are wearing under a name (up to eight) and come back to it with one tap. Each saved look is the whole look as it was when you saved it, so a preset changing later can't change it. Saving under a name you already used replaces that one. A living-looks rule can wear any of your saved looks too: they appear next to the ready-made ones when you make a rule.",
             "Share a look as a QR. Under Share a look, Show as a QR draws your look as a QR code, and each saved look has its own QR button. A friend photographs or screenshots it, then picks that picture with Read a QR picture in their Themes page, and the look is applied. The picture is read on the phone and never sent anywhere, only the look is in the code (never your apps), and a QR that isn't a look is refused.",

@@ -32,7 +32,9 @@ class SettingsBackTest {
 
     @Test fun theHomeActivityDoesNotSwallowBackTheOldWay() {
         val source = listOf("src/main/java/app/ultimate/launcher/HomeActivity.kt", "app/src/main/java/app/ultimate/launcher/HomeActivity.kt").map(::File).first { it.exists() }.readText()
-        assertFalse("an empty onBackPressed override stops Back reaching the screen's handlers", Regex("""override\s+fun\s+onBackPressed""").containsMatchIn(source))
+        val override = Regex("""override\s+fun\s+onBackPressed\(\)\s*\{([^}]*)}""").find(source)
+        assertTrue("an onBackPressed override must pass the press on (an empty one stops Back reaching the screen's handlers)", override == null || override.groupValues[1].contains("super.onBackPressed()"))
+        assertFalse("no one-line empty override", Regex("""override\s+fun\s+onBackPressed\(\)\s*=\s*Unit""").containsMatchIn(source))
         assertTrue("home stays home through one always-enabled callback, added before the screen", source.contains("OnBackPressedCallback(true)") && source.indexOf("OnBackPressedCallback(true)") < source.indexOf("setContent {"))
     }
 }
