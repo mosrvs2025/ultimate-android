@@ -48,6 +48,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
@@ -78,34 +81,36 @@ import androidx.compose.ui.text.AnnotatedString
  * caller, which also handles the system Back button (page to list, list to home), so there is exactly one Back handler for all of settings.
  */
 @Composable
-internal fun LauncherSettingsSheet(repo: LauncherRepo, allApps: List<HomeApp>, s: LauncherSettings, page: SettingsPage?, onPage: (SettingsPage?) -> Unit, onClose: () -> Unit, initialDraft: LauncherSettings? = null) {
-    // Themes and Wallpaper share one draft: choices change a picture first and the real home screen only when you tap Apply.
-    var draft by remember { mutableStateOf(initialDraft) }
-    val studio = page == SettingsPage.Colours || page == SettingsPage.Wallpaper
-    androidx.compose.runtime.LaunchedEffect(studio) { if (!studio) draft = null }
+internal fun LauncherSettingsSheet(
+    repo: LauncherRepo, allApps: List<HomeApp>, s: LauncherSettings, page: SettingsPage?, onPage: (SettingsPage?) -> Unit, onClose: () -> Unit,
+    draft: LauncherSettings? = null, onDraft: (LauncherSettings?) -> Unit = {}, onPeek: () -> Unit = {},
+) {
+    // Every page edits one draft, held by the home screen so it survives moving between pages and peeking: choices change a picture first
+    // and the real home screen only when you tap Apply. Living-look rules and saved looks are the exceptions (they act at once).
     val shown = draft?.let { LookStudio.commit(it, s) } ?: s
-    val edit: ((LauncherSettings) -> LauncherSettings) -> Unit = { f -> draft = f(shown) }
+    val edit: ((LauncherSettings) -> LauncherSettings) -> Unit = { f -> onDraft(f(shown)) }
+    val pending = LookStudio.pending(draft, s)
+    val apply = { draft?.let { d -> repo.update { LookStudio.commit(d, it) } }; onDraft(null) }
     Column(Modifier.fillMaxSize().background(Color(0xFF080B10)).statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton({ if (page != null) onPage(null) else onClose() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (page != null) "Back to launcher settings" else "Close settings", tint = Color.White) }
             Text(page?.title ?: "Launcher settings", color = Color.White, fontSize = 20.sp)
         }
         val current = page
-        if (studio) StudioHeader(shown, s, onApply = { draft?.let { d -> repo.update { LookStudio.commit(d, it) } }; draft = null }, onUndo = { draft = null }, onShuffle = { draft = LookStudio.shuffle(shown, kotlin.random.Random.Default) })
-        if (current == null) SettingsHub(repo, s) { onPage(it) }
+        if (current != null) StudioHeader(current, shown, s, onApply = apply, onUndo = { onDraft(null) }, onShuffle = { onDraft(LookStudio.shuffle(shown, kotlin.random.Random.Default)) }, onPeek = onPeek, edit = edit)
+        else if (pending) PendingBar(shown.ink, onApply = apply, onUndo = { onDraft(null) }, onPeek = onPeek)
+        if (current == null) SettingsHub(repo, shown, pending) { onPage(it) }
         else LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
             when (current) {
                 SettingsPage.Colours -> colourItems(repo, s, shown, edit)
                 SettingsPage.Wallpaper -> wallpaperItems(repo, shown, edit)
-                SettingsPage.Home -> homeItems(repo, s)
-                SettingsPage.Dock -> dockItems(repo, s)
-                SettingsPage.Drawer -> drawerItems(repo, allApps, s)
-                SettingsPage.Gestures -> gestureItems(repo, s)
-                SettingsPage.Search -> searchItems(repo, s)
+                SettingsPage.Home -> homeItems(repo, shown, edit)
+                SettingsPage.Dock -> dockItems(shown, edit)
+                SettingsPage.Drawer -> drawerItems(allApps, shown, edit)
+                SettingsPage.Gestures -> gestureItems(shown, edit)
+                SettingsPage.Search -> searchItems(shown, edit)
             }
-            item {
-                Text("These settings are kept on this phone.", color = Liquid.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-            }
+            item { Text("These settings are kept on this phone.", color = Liquid.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
         }
     }
 }
@@ -122,12 +127,12 @@ private fun pageIcon(p: SettingsPage) = when (p) {
 
 /** The first screen: find a setting by typing, open the phone's own settings, or pick a page. */
 @Composable
-private fun androidx.compose.foundation.layout.ColumnScope.SettingsHub(repo: LauncherRepo, s: LauncherSettings, open: (SettingsPage) -> Unit) {
+private fun androidx.compose.foundation.layout.ColumnScope.SettingsHub(repo: LauncherRepo, s: LauncherSettings, pending: Boolean, open: (SettingsPage) -> Unit) {
     var q by remember { mutableStateOf("") }
     val found = remember(q) { SettingsPage.matching(q) }
     Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { LiquidInput(q, { q = it }, "Search launcher settings", { found.firstOrNull()?.let(open) }, Modifier.fillMaxWidth(), sendLabel = "Open") }
     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 28.dp)) {
-        if (q.isBlank()) item { LookHero(s) { open(SettingsPage.Colours) } }
+        if (q.isBlank()) item { LookHero(s, pending) { open(SettingsPage.Colours) } }
         if (q.isBlank()) item { HubRow(Icons.Rounded.Settings, "System settings", "Tap to open your device settings", s.ink) { repo.openSystemSettings() } }
         items(found, key = { it.name }) { p -> HubRow(pageIcon(p), p.title, p.subtitle, if (p.ordinal % 2 == 0) s.ink else s.inkB) { open(p) } }
         if (found.isEmpty()) item { Text("Nothing matches \"$q\".", color = Liquid.dim, fontSize = 14.sp, modifier = Modifier.padding(20.dp)) }
@@ -243,16 +248,10 @@ private fun LookPreview(name: String, s: LauncherSettings, selected: Boolean, ac
     }
 }
 
-/**
- * A look as a small phone screen drawn from its own parts. [scale] draws the same picture bigger or smaller (the whole subtree is laid out
- * at a scaled density, so text and shapes stay sharp and the layout size follows); [onClick] null makes it a plain picture.
- */
+/** The shared frame of the small phone pictures in settings: the look's background, a border, and a size that follows [scale] (see [LookThumb]). */
 @Composable
-internal fun LookThumb(s: LauncherSettings, selected: Boolean, accent: Color, name: String, scale: Float = 1f, onClick: (() -> Unit)? = null) {
+private fun ThumbFrame(s: LauncherSettings, selected: Boolean, accent: Color, description: String, scale: Float, onClick: (() -> Unit)?, content: @Composable androidx.compose.foundation.layout.BoxScope.(LookTokens) -> Unit) {
     val t = s.tokens()
-    val names = listOf("Mail", "Phone", "Maps")
-    // Icons "as they are" have no shape of their own; the preview draws them as softly rounded dots.
-    val dot = if (s.iconShape == IconShape.AsIs) RoundedCornerShape(3.dp) else t.iconShape
     val outer = androidx.compose.ui.platform.LocalDensity.current
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(outer.density * scale, outer.fontScale)) {
         Box(
@@ -260,33 +259,93 @@ internal fun LookThumb(s: LauncherSettings, selected: Boolean, accent: Color, na
                     // The wallpaper itself isn't known here; its picked colours stand in for it.
                     if (s.backdrop == Backdrop.Wallpaper) listOf(s.accent.a.copy(alpha = 0.55f).compositeOver(Color(0xFF0A0E14)), s.accent.b.copy(alpha = 0.45f).compositeOver(Color(0xFF0A0E14))) else s.backdrop.colors))
                 .border(if (selected) BorderStroke(3.dp, accent) else BorderStroke(1.dp, Color(0x33FFFFFF)), RoundedCornerShape(18.dp))
-                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).semantics { contentDescription = name + " look" + if (selected) ", selected" else "" },
-        ) {
-            Column(Modifier.padding(start = 10.dp, top = 12.dp, end = 24.dp)) {
-                when (s.clockLayout) {
-                    ClockLayout.Day -> Text("THU", style = TextStyle(brush = Brush.linearGradient(listOf(t.fg, s.accent.a, s.accent.b)), fontSize = 24.sp, fontWeight = FontWeight.Thin, letterSpacing = 3.sp, fontFamily = t.face))
-                    ClockLayout.Digital -> Text("14:05", color = t.fg, fontSize = 26.sp, fontWeight = FontWeight.ExtraLight, fontFamily = t.face)
-                    ClockLayout.Terminal -> { Text("\$ date", color = s.accent.a, fontSize = 8.sp, fontFamily = t.face); Text("14:05", color = t.fg, fontSize = 14.sp, fontFamily = t.face) }
-                    ClockLayout.Editorial -> { Text("THURSDAY", color = t.dim, fontSize = 6.sp, letterSpacing = 1.5.sp, fontFamily = t.face); Text("27", color = t.fg, fontSize = 32.sp, fontWeight = FontWeight.Light, fontFamily = t.face) }
-                    ClockLayout.Hidden -> Unit
-                }
-                Spacer(Modifier.height(10.dp))
-                if (s.homeStyle != HomeStyle.Lists) MiniStyle(s) else when (s.favLayout) {
-                    FavLayout.List -> names.forEach { n ->
-                        Row(Modifier.padding(bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(9.dp).clip(dot).background(s.accent.a.copy(alpha = 0.75f))); Spacer(Modifier.width(5.dp))
-                            Text(n, color = t.fg, fontSize = 10.sp, fontFamily = t.face)
-                        }
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).semantics { contentDescription = description + if (selected) ", selected" else "" },
+        ) { content(t) }
+    }
+}
+
+/**
+ * A look as a small phone screen drawn from its own parts, and from the home screen's other choices too: how many favourites show, their
+ * size and names, the clock's format and date, the suggestions and the cards. [scale] draws the same picture bigger or smaller (the whole
+ * subtree is laid out at a scaled density, so text and shapes stay sharp and the layout size follows); [onClick] null makes it a plain picture.
+ */
+@Composable
+internal fun LookThumb(s: LauncherSettings, selected: Boolean, accent: Color, name: String, scale: Float = 1f, onClick: (() -> Unit)? = null) =
+    ThumbFrame(s, selected, accent, "$name look", scale, onClick) { t ->
+        val sample = listOf("Mail", "Phone", "Maps", "Music", "Notes", "Photos", "Clock", "Camera")
+        val count = if (s.cards.isEmpty()) s.favouritesShown.coerceIn(2, 6) else minOf(s.favouritesShown, maxOf(1, 4 - s.cards.size))
+        val names = sample.take(count)
+        // Icons "as they are" have no shape of their own; the preview draws them as softly rounded dots.
+        val dot = if (s.iconShape == IconShape.AsIs) RoundedCornerShape(3.dp) else t.iconShape
+        val dotSize = (9 * s.dockIcons.scale).dp
+        val time = if (s.clock == ClockStyle.H12) "2:05" else "14:05"
+        Column(Modifier.padding(start = 10.dp, top = 12.dp, end = 24.dp)) {
+            when (s.clockLayout) {
+                ClockLayout.Day -> Text("THU", style = TextStyle(brush = Brush.linearGradient(listOf(t.fg, s.accent.a, s.accent.b)), fontSize = 24.sp, fontWeight = FontWeight.Thin, letterSpacing = 3.sp, fontFamily = t.face))
+                ClockLayout.Digital -> { Text(time, color = t.fg, fontSize = 26.sp, fontWeight = FontWeight.ExtraLight, fontFamily = t.face); if (s.showDate) Text("Thu 27 Nov", color = t.dim, fontSize = 7.sp, fontFamily = t.face) }
+                ClockLayout.Terminal -> { Text("\$ date", color = s.accent.a, fontSize = 8.sp, fontFamily = t.face); Text(time, color = t.fg, fontSize = 14.sp, fontFamily = t.face) }
+                ClockLayout.Editorial -> { Text("THURSDAY", color = t.dim, fontSize = 6.sp, letterSpacing = 1.5.sp, fontFamily = t.face); Text("27", color = t.fg, fontSize = 32.sp, fontWeight = FontWeight.Light, fontFamily = t.face) }
+                ClockLayout.Hidden -> Unit
+            }
+            if (s.clockLayout == ClockLayout.Day && s.showDate) Text("27 Nov", color = t.dim, fontSize = 7.sp, fontFamily = t.face)
+            Spacer(Modifier.height(6.dp))
+            // The cards you switched on, under the clock.
+            s.cards.forEach { _ -> Box(Modifier.padding(bottom = 3.dp).fillMaxWidth().height(11.dp).clip(RoundedCornerShape(4.dp)).background(t.fg.copy(alpha = 0.10f)).border(BorderStroke(0.5.dp, s.accent.a.copy(alpha = 0.45f)), RoundedCornerShape(4.dp))) }
+            // The "Now" suggestions.
+            if (s.suggestions) Row(Modifier.padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) { repeat(2) { Box(Modifier.size(width = 22.dp, height = 7.dp).clip(RoundedCornerShape(50)).background(s.accent.a.copy(alpha = 0.35f))) } }
+            if (s.homeStyle != HomeStyle.Lists) MiniStyle(s) else when (s.favLayout) {
+                FavLayout.List -> if (s.dockLabels) names.forEach { n ->
+                    Row(Modifier.padding(bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(dotSize).clip(dot).background(s.accent.a.copy(alpha = 0.75f))); Spacer(Modifier.width(5.dp))
+                        Text(n, color = t.fg, fontSize = 10.sp, fontFamily = t.face)
                     }
-                    FavLayout.Numbered -> names.forEachIndexed { i, n -> Text("[${i + 1}] $n", color = t.fg, fontSize = 10.sp, fontFamily = t.face) }
-                    FavLayout.Grid -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { repeat(2) { Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { repeat(3) { Box(Modifier.size(20.dp).clip(dot).background(s.accent.a.copy(alpha = 0.6f))) } } } }
-                    FavLayout.Pills -> names.forEach { n -> Text(n, color = t.fg, fontSize = 9.sp, fontFamily = t.face, modifier = Modifier.padding(bottom = 4.dp).clip(RoundedCornerShape(50)).background(s.accent.a.copy(alpha = 0.28f)).padding(horizontal = 9.dp, vertical = 2.dp)) }
-                    FavLayout.Centered -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) { names.forEach { n -> Text(n, color = t.fg, fontSize = 11.sp, fontWeight = FontWeight.Light, fontFamily = t.face) } }
-                }
+                } else Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) { names.take(4).forEach { _ -> Box(Modifier.size(dotSize + 2.dp).clip(dot).background(s.accent.a.copy(alpha = 0.75f))) } }
+                FavLayout.Numbered -> names.forEachIndexed { i, n -> Text("[${i + 1}] $n", color = t.fg, fontSize = 10.sp, fontFamily = t.face) }
+                FavLayout.Grid -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { names.chunked(3).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { row.forEach { _ -> Box(Modifier.size(dotSize + 11.dp).clip(dot).background(s.accent.a.copy(alpha = 0.6f))) } } } }
+                FavLayout.Pills -> names.forEach { n -> Text(n, color = t.fg, fontSize = 9.sp, fontFamily = t.face, modifier = Modifier.padding(bottom = 4.dp).clip(RoundedCornerShape(50)).background(s.accent.a.copy(alpha = 0.28f)).padding(horizontal = 9.dp, vertical = 2.dp)) }
+                FavLayout.Centered -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) { names.forEach { n -> Text(n, color = t.fg, fontSize = 11.sp, fontWeight = FontWeight.Light, fontFamily = t.face) } }
             }
-            if (s.rail != RailStyle.Hidden) Column(Modifier.align(Alignment.CenterEnd).padding(end = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                listOf("A", "B", "C", "D", "E", "F").forEach { l -> Text(l, color = t.fg.copy(alpha = 0.5f), fontSize = 7.sp, fontFamily = t.face) }
+        }
+        if (s.rail != RailStyle.Hidden && s.homeStyle == HomeStyle.Lists) Column(Modifier.align(Alignment.CenterEnd).padding(end = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            listOf("A", "B", "C", "D", "E", "F").forEach { l -> Text(l, color = t.fg.copy(alpha = 0.5f), fontSize = 7.sp, fontFamily = t.face) }
+        }
+    }
+
+/** The app list as a small picture: the order, whether icons show and how big, in the look's type. */
+@Composable
+internal fun AppListThumb(s: LauncherSettings, scale: Float = 1f) = ThumbFrame(s, false, s.ink, "App list", scale, null) { t ->
+    // Name and how recently it was installed (a bigger number is newer).
+    val sample = listOf("Camera" to 4, "Maps" to 1, "Mail" to 3, "Music" to 2, "Notes" to 5, "Phone" to 0)
+    val sorted = when (s.drawerSort) { AppSort.AZ -> sample.sortedBy { it.first }; AppSort.ZA -> sample.sortedByDescending { it.first }; AppSort.Newest -> sample.sortedByDescending { it.second } }
+    val dot = if (s.iconShape == IconShape.AsIs) RoundedCornerShape(3.dp) else t.iconShape
+    val icon = (10 * s.drawerIcons.scale).dp
+    Column(Modifier.padding(start = 10.dp, top = 12.dp, end = 10.dp)) {
+        Text(s.drawerSort.label.uppercase(), color = t.dim, fontSize = 6.sp, letterSpacing = 1.5.sp, fontFamily = t.face, modifier = Modifier.padding(bottom = 5.dp))
+        sorted.take(6).forEachIndexed { i, (n, _) ->
+            Row(Modifier.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (s.drawerShowIcons) { Box(Modifier.size(icon).clip(dot).background((if (i % 2 == 0) s.accent.a else s.accent.b).copy(alpha = 0.7f))); Spacer(Modifier.width(6.dp)) }
+                Text(n, color = t.fg, fontSize = 10.sp, fontFamily = t.face)
             }
+        }
+    }
+}
+
+/** Search as a small picture: the box, the list before you type (or a hint), and the web row with the engine it would use. */
+@Composable
+internal fun SearchThumb(s: LauncherSettings, scale: Float = 1f) = ThumbFrame(s, false, s.ink, "Search", scale, null) { t ->
+    Column(Modifier.padding(start = 10.dp, top = 12.dp, end = 10.dp)) {
+        Box(Modifier.fillMaxWidth().height(16.dp).clip(RoundedCornerShape(50)).background(t.fg.copy(alpha = 0.12f)).padding(horizontal = 8.dp), contentAlignment = Alignment.CenterStart) { Text("Search apps", color = t.dim, fontSize = 7.sp, fontFamily = t.face) }
+        Spacer(Modifier.height(8.dp))
+        if (s.searchShowsAll) listOf("Calendar", "Camera", "Chrome", "Clock", "Contacts").forEach { n ->
+            Row(Modifier.padding(bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (s.drawerShowIcons) { Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(s.accent.a.copy(alpha = 0.6f))); Spacer(Modifier.width(5.dp)) }
+                Text(n, color = t.fg, fontSize = 9.sp, fontFamily = t.face)
+            }
+        } else Text("Start typing to find an app", color = t.dim, fontSize = 8.sp, fontFamily = t.face)
+        if (s.searchWeb) {
+            Spacer(Modifier.height(4.dp))
+            Text("Web: ${s.searchEngine.label}", color = Color(0xFF0A0E14), fontSize = 7.sp, fontFamily = t.face, maxLines = 1,
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(s.accent.a).padding(horizontal = 7.dp, vertical = 3.dp))
         }
     }
 }
@@ -303,18 +362,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.wallpaperItems(repo: 
 }
 
 @OptIn(ExperimentalLayoutApi::class)
-private fun androidx.compose.foundation.lazy.LazyListScope.homeItems(repo: LauncherRepo, s: LauncherSettings) {
+private fun androidx.compose.foundation.lazy.LazyListScope.homeItems(repo: LauncherRepo, s: LauncherSettings, edit: ((LauncherSettings) -> LauncherSettings) -> Unit) {
     item {
         GlassCard(title = "Clock", accent = s.inkB) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ClockStyle.values().forEach { c -> Chip(c.label, c == s.clock, s.ink) { repo.update { it.copy(clock = c) } } }
+                ClockStyle.values().forEach { c -> Chip(c.label, c == s.clock, s.ink) { edit { it.copy(clock = c) } } }
             }
-            Toggle("Show the date", null, s.showDate) { v -> repo.update { it.copy(showDate = v) } }
+            Toggle("Show the date", null, s.showDate) { v -> edit { it.copy(showDate = v) } }
         }
     }
     item {
         GlassCard(title = "Cards", accent = s.ink) {
-            HomeCard.entries.forEach { c -> Toggle(c.label, c.sub, c in s.cards) { on -> repo.update { it.copy(cards = if (on) it.cards + c else it.cards - c) } } }
+            HomeCard.entries.forEach { c -> Toggle(c.label, c.sub, c in s.cards) { on -> edit { it.copy(cards = if (on) it.cards + c else it.cards - c) } } }
             Text("Cards sit under the clock in the look you are wearing, and a tap opens the matching page of Ultimate. Heart and Activity read only what Ultimate already may read from Health Connect: the launcher never asks. The cameras card lists only your own devices that chose to share a camera and never shows video.", color = Liquid.dim, fontSize = 12.sp)
         }
     }
@@ -322,8 +381,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.homeItems(repo: Launc
         var reset by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
         GlassCard(title = "Home screen", accent = s.ink) {
-            Toggle("Suggestions", "Apps and actions offered for this moment, above your favourites.", s.suggestions) { v -> repo.update { it.copy(suggestions = v) } }
-            Toggle("Tick on each letter", "A light tick under your thumb while you slide the letters.", s.railTicks) { v -> repo.update { it.copy(railTicks = v) } }
+            Toggle("Suggestions", "Apps and actions offered for this moment, above your favourites.", s.suggestions) { v -> edit { it.copy(suggestions = v) } }
+            Toggle("Tick on each letter", "A light tick under your thumb while you slide the letters.", s.railTicks) { v -> edit { it.copy(railTicks = v) } }
             Text("Press and hold any app to add it to your favourites or remove it.", color = Liquid.dim, fontSize = 12.sp)
             LiquidButton(if (reset) "Start over? Tap again" else "Start favourites over", {
                 if (!reset) reset = true else { reset = false; scope.launch { repo.resetFavourites() } }
@@ -333,35 +392,29 @@ private fun androidx.compose.foundation.lazy.LazyListScope.homeItems(repo: Launc
 }
 
 @OptIn(ExperimentalLayoutApi::class)
-private fun androidx.compose.foundation.lazy.LazyListScope.dockItems(repo: LauncherRepo, s: LauncherSettings) {
+private fun androidx.compose.foundation.lazy.LazyListScope.dockItems(s: LauncherSettings, edit: ((LauncherSettings) -> LauncherSettings) -> Unit) {
     item {
         GlassCard(title = "Favourites", accent = s.ink) {
-            Text("How many show", color = Color.White, fontSize = 15.sp)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(3, 4, 5, 6, 8).forEach { n -> Chip("$n", n == s.favouritesShown, s.ink) { repo.update { it.copy(favouritesShown = n) } } }
-            }
-            Text("Icon size", color = Color.White, fontSize = 15.sp)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IconSize.values().forEach { z -> Chip(z.label, z == s.dockIcons, s.ink) { repo.update { it.copy(dockIcons = z) } } }
-            }
-            Toggle("Show names", "Off gives a row of icons only.", s.dockLabels) { v -> repo.update { it.copy(dockLabels = v) } }
+            PartTiles("How many show", listOf(3, 4, 5, 6, 8), s, { l, v -> l.copy(favouritesShown = v) }, { it.favouritesShown }, { it.toString() }, edit)
+            PartTiles("Icon size", IconSize.entries, s, { l, v -> l.copy(dockIcons = v) }, { it.dockIcons }, { it.label }, edit)
+            Toggle("Show names", "Off gives a row of icons only.", s.dockLabels) { v -> edit { it.copy(dockLabels = v) } }
         }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
-private fun androidx.compose.foundation.lazy.LazyListScope.drawerItems(repo: LauncherRepo, allApps: List<HomeApp>, s: LauncherSettings) {
+private fun androidx.compose.foundation.lazy.LazyListScope.drawerItems(allApps: List<HomeApp>, s: LauncherSettings, edit: ((LauncherSettings) -> LauncherSettings) -> Unit) {
     item {
         GlassCard(title = "App list", accent = s.inkB) {
             Text("Order inside each letter", color = Color.White, fontSize = 15.sp)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppSort.values().forEach { o -> Chip(o.label, o == s.drawerSort, s.ink) { repo.update { it.copy(drawerSort = o) } } }
+                AppSort.values().forEach { o -> Chip(o.label, o == s.drawerSort, s.ink) { edit { it.copy(drawerSort = o) } } }
             }
-            Toggle("Show icons", null, s.drawerShowIcons) { v -> repo.update { it.copy(drawerShowIcons = v) } }
+            Toggle("Show icons", null, s.drawerShowIcons) { v -> edit { it.copy(drawerShowIcons = v) } }
             if (s.drawerShowIcons) {
                 Text("Icon size", color = Color.White, fontSize = 15.sp)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconSize.values().forEach { z -> Chip(z.label, z == s.drawerIcons, s.ink) { repo.update { it.copy(drawerIcons = z) } } }
+                    IconSize.values().forEach { z -> Chip(z.label, z == s.drawerIcons, s.ink) { edit { it.copy(drawerIcons = z) } } }
                 }
             }
         }
@@ -374,31 +427,31 @@ private fun androidx.compose.foundation.lazy.LazyListScope.drawerItems(repo: Lau
             if (hiding) allApps.forEach { a ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(a.label, color = Color.White, fontSize = 16.sp, maxLines = 1, modifier = Modifier.weight(1f))
-                    GooeySwitch(a.pkg in s.hidden, { v -> repo.update { it.copy(hidden = if (v) it.hidden + a.pkg else it.hidden - a.pkg) } })
+                    GooeySwitch(a.pkg in s.hidden, { v -> edit { it.copy(hidden = if (v) it.hidden + a.pkg else it.hidden - a.pkg) } })
                 }
             }
         }
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.gestureItems(repo: LauncherRepo, s: LauncherSettings) {
+private fun androidx.compose.foundation.lazy.LazyListScope.gestureItems(s: LauncherSettings, edit: ((LauncherSettings) -> LauncherSettings) -> Unit) {
     item {
         GlassCard(title = "On an empty part of the home screen", accent = s.ink) {
-            GesturePicker("Swipe up", s.swipeUp, s.ink) { g -> repo.update { it.copy(swipeUp = g) } }
-            GesturePicker("Swipe down", s.swipeDown, s.ink) { g -> repo.update { it.copy(swipeDown = g) } }
-            GesturePicker("Double tap", s.doubleTap, s.ink) { g -> repo.update { it.copy(doubleTap = g) } }
-            GesturePicker("Press and hold", s.longPress, s.ink) { g -> repo.update { it.copy(longPress = g) } }
+            GesturePicker("Swipe up", s.swipeUp, s.ink) { g -> edit { it.copy(swipeUp = g) } }
+            GesturePicker("Swipe down", s.swipeDown, s.ink) { g -> edit { it.copy(swipeDown = g) } }
+            GesturePicker("Double tap", s.doubleTap, s.ink) { g -> edit { it.copy(doubleTap = g) } }
+            GesturePicker("Press and hold", s.longPress, s.ink) { g -> edit { it.copy(longPress = g) } }
             Text("The letter rail, the apps and the buttons keep their own touches.", color = Liquid.dim, fontSize = 12.sp)
         }
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.searchItems(repo: LauncherRepo, s: LauncherSettings) {
+private fun androidx.compose.foundation.lazy.LazyListScope.searchItems(s: LauncherSettings, edit: ((LauncherSettings) -> LauncherSettings) -> Unit) {
     item {
         GlassCard(title = "Search", accent = s.inkB) {
-            Toggle("List every app first", "Off shows an empty list until you start typing.", s.searchShowsAll) { v -> repo.update { it.copy(searchShowsAll = v) } }
-            Toggle("Offer a web search", "A row under the results sends what you typed to the web, and Enter does the same when no app matches.", s.searchWeb) { v -> repo.update { it.copy(searchWeb = v) } }
-            if (s.searchWeb) PartRow("Search with", SearchEngine.entries, s.searchEngine, { it.label }, s.ink) { v -> repo.update { it.copy(searchEngine = v) } }
+            Toggle("List every app first", "Off shows an empty list until you start typing.", s.searchShowsAll) { v -> edit { it.copy(searchShowsAll = v) } }
+            Toggle("Offer a web search", "A row under the results sends what you typed to the web, and Enter does the same when no app matches.", s.searchWeb) { v -> edit { it.copy(searchWeb = v) } }
+            if (s.searchWeb) PartRow("Search with", SearchEngine.entries, s.searchEngine, { it.label }, s.ink) { v -> edit { it.copy(searchEngine = v) } }
         }
     }
 }
@@ -634,37 +687,93 @@ private fun MiniStyle(s: LauncherSettings) {
 // ---- The look studio: a live picture of the look you are building, and tiles that preview every choice before you apply it.
 
 /**
- * The top of Themes and Wallpaper: your look as a phone-sized picture that changes at once as you tap (and cross-fades between looks),
- * with what it is called, whether it is only a preview, and Apply, Undo and Shuffle. The real home screen changes only on Apply.
+ * The top of every settings page: a live picture of the home screen (or of the list, search or gestures, for those pages) that changes the
+ * moment you tap anything below, with whether it is only a preview and Apply, Undo, Peek (the real home screen with your choices, then back)
+ * and, for looks, Shuffle. The real home screen changes only on Apply.
  */
 @Composable
-internal fun StudioHeader(shown: LauncherSettings, base: LauncherSettings, onApply: () -> Unit, onUndo: () -> Unit, onShuffle: () -> Unit) {
+internal fun StudioHeader(page: SettingsPage, shown: LauncherSettings, base: LauncherSettings, onApply: () -> Unit, onUndo: () -> Unit, onShuffle: () -> Unit, onPeek: () -> Unit, edit: ((LauncherSettings) -> LauncherSettings) -> Unit) {
     val pending = LookStudio.pending(shown, base)
     val accent = shown.ink
+    val looks = page == SettingsPage.Colours || page == SettingsPage.Wallpaper
+    val onHome = looks || page == SettingsPage.Home || page == SettingsPage.Dock
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        androidx.compose.animation.Crossfade(LookCode.encode(shown), animationSpec = androidx.compose.animation.core.tween(260), label = "studio") { code ->
-            LookThumb(LookCode.apply(code, shown) ?: shown, pending, accent, LookStudio.name(shown), 1.3f)
+        when (page) {
+            SettingsPage.Drawer -> AppListThumb(shown, 1.3f)
+            SettingsPage.Search -> SearchThumb(shown, 1.3f)
+            SettingsPage.Gestures -> GesturePad(shown, 1.3f)
+            else -> androidx.compose.animation.Crossfade(LookCode.encode(shown) + shown.favouritesShown + shown.clock + shown.showDate + shown.cards + shown.suggestions + shown.dockIcons + shown.dockLabels, animationSpec = androidx.compose.animation.core.tween(260), label = "studio") { _ ->
+                LookThumb(shown, pending, accent, LookStudio.name(shown), 1.3f)
+            }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(LookStudio.name(shown), color = Color.White, fontSize = 20.sp, maxLines = 1)
-            Text(if (pending) "A preview. Your home screen hasn't changed yet." else "This is what your home screen is wearing. Tap anything below to try it here first.", color = if (pending) accent else Liquid.dim, fontSize = 13.sp)
-            Text(if (pending) "Apply" else "Applied ✓", color = if (pending) Color(0xFF0A0E14) else Liquid.dim, fontSize = 15.sp, fontWeight = FontWeight.Medium,
+            Text(if (looks) LookStudio.name(shown) else page.title, color = Color.White, fontSize = 20.sp, maxLines = 1)
+            Text(when {
+                pending -> "A preview. Your home screen hasn't changed yet."
+                page == SettingsPage.Gestures -> "Try the swipes, double tap and hold on the picture. It says what each would do."
+                page == SettingsPage.Drawer || page == SettingsPage.Search -> "This is how it works now. Tap anything below to try it here first."
+                else -> "This is what your home screen is wearing. Tap anything below to try it here first."
+            }, color = if (pending) accent else Liquid.dim, fontSize = 13.sp)
+            Text(if (pending) "Apply" else "Applied \u2713", color = if (pending) Color(0xFF0A0E14) else Liquid.dim, fontSize = 15.sp, fontWeight = FontWeight.Medium,
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(if (pending) accent else Color(0x14FFFFFF)).clickable(enabled = pending, onClick = onApply).padding(horizontal = 16.dp, vertical = 11.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip("Shuffle", false, accent, onShuffle)
+                if (onHome) Chip("Peek", false, accent, onPeek)
+                if (looks) Chip("Shuffle", false, accent, onShuffle)
                 if (pending) Chip("Undo", false, accent, onUndo)
             }
         }
     }
 }
 
+/** On the settings list, when choices are waiting: apply them, undo them, or peek at the real home screen with them. */
+@Composable
+private fun PendingBar(accent: Color, onApply: () -> Unit, onUndo: () -> Unit, onPeek: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(18.dp)).background(accent.copy(alpha = 0.14f)).padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Changes waiting. Your home screen hasn't changed yet.", color = Color.White, fontSize = 13.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("Peek", false, accent, onPeek)
+            Chip("Undo", false, accent, onUndo)
+            Text("Apply", color = Color(0xFF0A0E14), fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.clip(RoundedCornerShape(50)).background(accent).clickable(onClick = onApply).padding(horizontal = 18.dp, vertical = 8.dp))
+        }
+    }
+}
+
+/**
+ * A small phone to try the gestures on: swipe up or down, double tap, or press and hold, and it says what that would do with the choices
+ * on this page, without doing it.
+ */
+@Composable
+internal fun GesturePad(s: LauncherSettings, scale: Float = 1f) {
+    var said by remember { mutableStateOf<String?>(null) }
+    val now by androidx.compose.runtime.rememberUpdatedState(s)
+    fun say(gesture: String, action: GestureAction) { said = if (action == GestureAction.None) "$gesture: nothing happens" else "$gesture: ${action.label}" }
+    ThumbFrame(s, false, s.ink, "Gesture pad. Try a swipe, double tap or hold", scale, null) { t ->
+        Box(Modifier.fillMaxSize()
+            .pointerInput(Unit) { detectTapGestures(onDoubleTap = { say("Double tap", now.doubleTap) }, onLongPress = { say("Press and hold", now.longPress) }) }
+            .pointerInput(Unit) {
+                var total = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { total = 0f },
+                    onDragEnd = { when (Gestures.swipe(total, 48f)) { Gestures.Swipe.Up -> say("Swipe up", now.swipeUp); Gestures.Swipe.Down -> say("Swipe down", now.swipeDown); null -> Unit } },
+                    onVerticalDrag = { _, d -> total += d },
+                )
+            }.padding(10.dp)) {
+            Column(Modifier.align(Alignment.TopStart)) {
+                Text("TRY IT HERE", color = t.dim, fontSize = 6.sp, letterSpacing = 1.5.sp, fontFamily = t.face)
+                Text("Swipe up, swipe down, double tap, or hold", color = t.fg.copy(alpha = 0.7f), fontSize = 8.sp, fontFamily = t.face, modifier = Modifier.padding(top = 4.dp))
+            }
+            Text(said ?: "\u2195  \u25CE", color = if (said == null) t.dim else s.accent.a, fontSize = if (said == null) 22.sp else 11.sp, fontFamily = t.face, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp))
+        }
+    }
+}
+
 /** The first thing on the settings list: the look you are wearing, as a picture, which opens Themes. */
 @Composable
-private fun LookHero(s: LauncherSettings, onClick: () -> Unit) {
+private fun LookHero(s: LauncherSettings, pending: Boolean, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
         LookThumb(s, false, s.ink, LookStudio.name(s), 0.7f)
         Column(Modifier.weight(1f)) {
-            Text("Your look", color = Liquid.dim, fontSize = 12.sp)
+            Text(if (pending) "Your look, as previewed" else "Your look", color = Liquid.dim, fontSize = 12.sp)
             Text(LookStudio.name(s), color = Color.White, fontSize = 20.sp)
             Text("Try other looks, colours and home styles, and see them before you apply", color = s.ink, fontSize = 13.sp)
         }

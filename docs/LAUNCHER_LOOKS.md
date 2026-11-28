@@ -210,3 +210,23 @@ your look with only that part changed (typefaces and icon shapes draw themselves
 letter rail rows appear only for the Lists style. The first page of settings shows the look you are wearing.
 
 Checked: `LookStudioTest`, and renders of the hub, Themes (applied, pending, very tall) and Wallpaper (`StudioShotsTest`). Not tried on a phone.
+
+## Studio on every page, and Peek (2.36.0)
+
+Code: `LookStudio.kt` (`commit`, `pending`), `Gestures.kt` (`swipe`), the draft, `PeekBar` and the close confirmation in `LauncherScreen.kt`, and the headers,
+`ThumbFrame`/`LookThumb`/`AppListThumb`/`SearchThumb`/`GesturePad`/`PendingBar` in `LauncherSettingsSheet.kt`.
+
+The draft is a whole `LauncherSettings`, held by `LauncherHome` (not the sheet) so it survives moving between pages and peeking. `LookStudio.commit(draft, base)`
+is the draft with the real settings' rules and saved looks put back, because those two act at once (adding a rule, saving a look) and must not be overwritten by an
+older draft. Every page edits the draft through `edit { it.copy(...) }`; only actions (change wallpaper, start favourites over, open system settings, rules,
+saved looks) go straight to the repo.
+
+Each page's header is a picture of the thing it changes. The home thumbnail also draws the clock format and date, suggestions, cards, how many favourites show and
+their icon size and names; the app list thumbnail the order and icons; the search thumbnail the box, the list before typing and the web row with its engine; the
+gesture pad detects a double tap, hold and vertical swipe (`Gestures.swipe`, 48 px) and says what the current choice would do without doing it.
+
+**Peek** (`peeking`): `LauncherHome` draws with `commit(draft, own settings)` instead of the living settings, the sheet is not composed, and `PeekBar` covers
+the screen (a tap anywhere returns; Back too) with Apply and Keep editing. Leaving settings (Back from the list, or the close arrow) with a pending draft shows
+a dialog to Apply or Discard rather than dropping it; pressing Home drops the draft. `SettingsBack` itself is unchanged.
+
+Checked: `LookStudioTest`, `GesturesTest`, and renders of every page, the pending bar and the peek (`StudioShotsTest`). Not tried on a phone.

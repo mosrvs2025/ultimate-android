@@ -5,16 +5,16 @@ import androidx.compose.ui.graphics.luminance
 import kotlin.random.Random
 
 /**
- * The look studio's sums, apart from drawing. In the Themes and Wallpaper pages every choice goes into a draft that is shown in a live
- * preview; nothing on the real home screen changes until Apply. Only the look's own parts are in a draft (colours, type, clock,
- * favourites, rail, icons, home style), so applying never touches your apps, gestures or rules.
+ * The settings studio's sums, apart from drawing. Every settings page edits a draft that is shown in a live preview (and can be peeked at
+ * on the real home screen); nothing changes on the phone until Apply. A draft is a whole [LauncherSettings] but for two things that act at
+ * once and so always come from the real settings: the living-look rules and the saved looks.
  */
 object LookStudio {
-    /** Whether [draft] differs from what [base] is wearing, in the look's parts. */
-    fun pending(draft: LauncherSettings?, base: LauncherSettings): Boolean = draft != null && LookCode.encode(draft) != LookCode.encode(base)
+    /** [draft] as it would be worn on top of [base]: everything from the draft except the rules and saved looks, which stay [base]'s. */
+    fun commit(draft: LauncherSettings, base: LauncherSettings): LauncherSettings = draft.copy(rules = base.rules, slots = base.slots).clamped()
 
-    /** [base] wearing the look of [draft]. */
-    fun commit(draft: LauncherSettings, base: LauncherSettings): LauncherSettings = LookCode.apply(LookCode.encode(draft), base) ?: base
+    /** Whether [draft] would change anything on [base]. */
+    fun pending(draft: LauncherSettings?, base: LauncherSettings): Boolean = draft != null && commit(draft, base) != base
 
     /** What to call a look: a preset's name, or "Your own mix". */
     fun name(s: LauncherSettings): String = Looks.matching(s)?.name ?: "Your own mix"
