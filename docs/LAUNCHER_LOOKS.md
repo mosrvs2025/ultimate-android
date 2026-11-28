@@ -153,3 +153,12 @@ Code: `launcher/LookSlots.kt` (`LookSlot`, `LookSlots`, `LookQr`), the Your look
 Checked: `LookSlotsTest` (storage, damage, replace/full/delete, names, rule wearing a saved look, a look surviving being drawn and read back as a QR,
 a non-look QR and a blank picture refused, QR size small enough to scan from a screen) and a render of the QR. The Themes page with saved looks was
 also rendered on a CI runner. Not tried on a phone: scanning a real screenshot or photo.
+
+### Back, second attempt (2.33.1)
+
+The first fix (2.32.0) did not cure it on the owner's phone and the cause could not be reproduced. 2.33.1 adds a second route and a probe:
+`HomeActivity` registers an `OnBackInvokedCallback` at `PRIORITY_OVERLAY` (API 33+) that counts the press (`LauncherBack.presses`) and calls
+`onBackPressedDispatcher.onBackPressed()` itself, so the screen's handlers run even if the platform's registration of the activity's own callbacks
+was the thing failing; below API 33, and for a hardware Back key, `onBackPressed()` is overridden to count and call `super`. The foot of every
+launcher settings page shows "Back pressed N times since the launcher started": N rising with no page change means the launcher got Back and mishandled
+it; N not rising means Android never delivered Back to the launcher. Remove the counter once the cause is known.
