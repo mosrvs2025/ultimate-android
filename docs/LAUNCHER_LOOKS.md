@@ -133,3 +133,23 @@ Which page is open is now owned by `LauncherHome`, with a single `BackHandler` u
 `SettingsBackTest` covers those rules and reads `HomeActivity.kt` to check the old override is gone. A CI run of a Compose test that pressed
 Back through a dispatcher showed the handler does run and clears the page, but that test made `HostsScreenTest` (Robolectric, run after it)
 stall on "not idle" even when it passed (confirmed by a run without it: 1149 tests, 0 failures), so it was removed. Not tried on a phone.
+
+## Saved looks and QR (2.33.0)
+
+Code: `launcher/LookSlots.kt` (`LookSlot`, `LookSlots`, `LookQr`), the Your looks card and QR dialog in `LauncherSettingsSheet.kt`.
+
+- **Saved looks**: up to `LookSlots.MAX` (8), each a name (at most 24 characters, tabs/newlines cleaned so the stored lines can't break) and the
+  whole look as a `ULOOK1:` code. A saved look is a copy of the look's parts, never a pointer to a preset, so changing the presets in a later version
+  can't change it. Saving under a name already used (any case) replaces it; a full list refuses a new name but can still replace one. Stored as one
+  string, `x.slots`, one `name<TAB>code` per line; reading drops any line that isn't a name and a readable look.
+- **Wear / QR / delete** per saved look; the card also shows a small preview of the look being worn and suggests a name (the preset's name, or
+  "My look", numbered until free).
+- **Rules can wear a saved look**: the rule builder lists them next to the presets (the rule stores the look's code, so deleting or renaming the saved
+  look later doesn't break the rule); `LivingLook.lookName(code, slots)` shows the saved name.
+- **QR**: `LookQr.cells(code)` draws the code with zxing (already a dependency for Send), shown on white at 260 dp with a quiet border;
+  `LookQr.decode(pixels, w, h)` reads a QR out of a picture's pixels and accepts it only if it is a look code. Reading is from a picture the owner
+  picks (`GetContent`, decoded on the phone like the SSH key scan); there is no live camera scan yet. Only the look is in the code.
+
+Checked: `LookSlotsTest` (storage, damage, replace/full/delete, names, rule wearing a saved look, a look surviving being drawn and read back as a QR,
+a non-look QR and a blank picture refused, QR size small enough to scan from a screen) and a render of the QR. The Themes page with saved looks was
+also rendered on a CI runner. Not tried on a phone: scanning a real screenshot or photo.

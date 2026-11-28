@@ -8,7 +8,7 @@
 
 | | |
 | --- | --- |
-| Version | **2.32.0**, build (versionCode) **155** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
+| Version | **2.33.0**, build (versionCode) **156** (`app/build.gradle.kts`); 1.89.0 (build 103) was the version synced to `main` by PR #24 |
 | Watch app | **1.9.0**, versionCode **10** (`wear/build.gradle.kts`); it also ships inside the phone app, which installs it on the watch |
 | Source commit of this version | `76b5f27e68cb7c079f86087862b3ea84013e3dd2` (branch `claude/spatial`, pull request #24); the code is unchanged since. This file and the release tooling were added on top, and `main` contains all of it after the merge of #24. `git log -1 --format=%H -- app/build.gradle.kts` on `main` shows the exact commit |
 | Package | `app.ultimate.plus` (Ultimate+), `app.ultimate` (Ultimate, offline); other editions below |
@@ -52,7 +52,7 @@ Descriptions are each tool's own tagline.
 | # | id | Tool | In | What it says it does |
 | --- | --- | --- | --- | --- |
 | 1 | `watch` | Watch | Ultimate+ only | Control the phone from your watch: flick, twist and shake, tap its buttons, or use the watch face as a water trackpad for a liquid cursor (`WatchPad`, `vision/WatchPadControl`, `wear/PadActivity`) |
-| 2 | `launcher` | Home screen | Ultimate+ and Ultimate | Makes Ultimate your Android home screen: time, favourites, Now pods and a gooey letter rail, optionally over every app (`EdgeRailService`); long-press and pull an app to fling it to another device on the mesh (`launcher/`, `mesh/Fling*`); seven looks (Aurora, Terminal, Paper, Zen, Tiles, Dusk, Mirror) built from mixable parts, shareable as a line of text (2.30.0); living looks that change by time of day, focus or the step goal, and accent colours matched to the wallpaper (2.31.0); home cards for your activity rings, heart rate and shared cameras (2.32.0, `docs/LAUNCHER_LOOKS.md`). |
+| 2 | `launcher` | Home screen | Ultimate+ and Ultimate | Makes Ultimate your Android home screen: time, favourites, Now pods and a gooey letter rail, optionally over every app (`EdgeRailService`); long-press and pull an app to fling it to another device on the mesh (`launcher/`, `mesh/Fling*`); seven looks (Aurora, Terminal, Paper, Zen, Tiles, Dusk, Mirror) built from mixable parts, shareable as a line of text (2.30.0); living looks that change by time of day, focus or the step goal, and accent colours matched to the wallpaper (2.31.0); home cards for your activity rings, heart rate and shared cameras (2.32.0); saved looks and a QR for any look (2.33.0, `docs/LAUNCHER_LOOKS.md`). |
 | 2 | `hid` | Keyboard & mouse | Ultimate+ only | The phone as a Bluetooth HID keyboard, mouse and media keys for any computer, TV or headset; liquid trackpad; the watch trackpad can drive it (`hid/HidReports`, `hid/HidLink`) |
 | 2 | `spheres` | Step inside | Ultimate+ only | Capture a place as 360° spheres placed by ARCore orientation (`spheres/SphereStitch`, `SphereTour`, `SphereStore`, `SphereCapture`); walk between them on the phone or in a headset browser (`assets/spheres.html`, `/spheres/<place>/` on Send to computer) |
 | 2 | `friends` | Walk with friends | Ultimate+ only | Tells chosen chats (Discord webhook, Telegram bot, ntfy topic) when the watch says a walk started; opt-in, name and walk/run only (`social/`) |

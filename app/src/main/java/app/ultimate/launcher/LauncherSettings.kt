@@ -1,6 +1,8 @@
 package app.ultimate.launcher
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.runtime.staticCompositionLocalOf
 import app.ultimate.core.Liquid
 
@@ -99,6 +101,8 @@ data class LauncherSettings(
     val rules: List<LookRule> = emptyList(),
     /** Cards on the home screen that show something from Ultimate (see [HomeCards]). None until switched on. */
     val cards: Set<HomeCard> = emptySet(),
+    /** Looks saved under a name (see [LookSlots]). */
+    val slots: List<LookSlot> = emptyList(),
 ) {
     fun clamped() = copy(favouritesShown = favouritesShown.coerceIn(MIN_FAVS, MAX_FAVS))
 
@@ -121,7 +125,7 @@ object SettingsCodec {
 
     /** Keys of the settings added after the first ones. All are plain strings, so a missing or odd one just means the default. */
     private val EXTRA_KEYS = listOf("dockIcons", "dockLabels", "drawerIcons", "drawerShowIcons", "drawerSort", "swipeUp", "swipeDown", "doubleTap", "longPress", "searchShowsAll", "searchWeb",
-        "face", "clockLayout", "favLayout", "rail", "iconShape", "rules", "cards")
+        "face", "clockLayout", "favLayout", "rail", "iconShape", "rules", "cards", "slots")
 
     /** [base] with the newer settings filled in from [get] (a lookup of the stored strings). */
     fun withExtras(base: LauncherSettings, get: (String) -> String?): LauncherSettings {
@@ -137,6 +141,7 @@ object SettingsCodec {
             rail = enumOr(get("rail"), base.rail), iconShape = enumOr(get("iconShape"), base.iconShape),
             rules = get("rules")?.let { LivingLook.decode(it) } ?: base.rules,
             cards = get("cards")?.let { HomeCards.decode(it) } ?: base.cards,
+            slots = get("slots")?.let { LookSlots.decode(it) } ?: base.slots,
         )
     }
 
@@ -149,12 +154,13 @@ object SettingsCodec {
         "face" to s.face.name, "clockLayout" to s.clockLayout.name, "favLayout" to s.favLayout.name, "rail" to s.rail.name, "iconShape" to s.iconShape.name,
         "rules" to LivingLook.encode(s.rules),
         "cards" to HomeCards.encode(s.cards),
+        "slots" to LookSlots.encode(s.slots),
     ).also { check(it.keys.toList() == EXTRA_KEYS) }
 }
 
 /** The pages of the settings hub, in the order they are listed, with the words that find them when you type in the box on top. */
 enum class SettingsPage(val title: String, val subtitle: String, val words: String) {
-    Colours("Themes", "Whole looks, then colours, type, clock, favourites, rail and icons", "theme themes look looks living rule rules automatic time night day focus goal mirror style styles colour color accent aurora sunset ocean meadow rose ember terminal paper zen tiles dusk font type typeface clock layout favourites rail icons shape share code"),
+    Colours("Themes", "Whole looks, then colours, type, clock, favourites, rail and icons", "theme themes look looks living rule rules automatic time night day focus goal mirror saved save slots qr scan style styles colour color accent aurora sunset ocean meadow rose ember terminal paper zen tiles dusk font type typeface clock layout favourites rail icons shape share code"),
     Wallpaper("Wallpaper", "Background behind the home screen", "wallpaper background black graphite glow picture photo"),
     Home("Home screen", "Clock, suggestions and the letter rail", "home clock date time suggestions now tick rail letters haptic favourites reset cards activity rings heart rate camera cameras"),
     Dock("Favourites", "How many show, their size and names", "favourites favorites dock icons size labels names count"),
@@ -186,3 +192,12 @@ internal object SettingsBack {
         else -> s.copy(open = false)
     }
 }
+
+/**
+ * The accent as text and highlights on the dark settings sheet. A light look's accent is dark (Ink is a brown), which would vanish on that sheet,
+ * so a colour that isn't light enough is lightened until it reads (the look's own preview still draws its real colours).
+ */
+internal fun readableOnDark(c: Color): Color = if (c.luminance() >= 0.35f) c else lerp(c, Color.White, 0.62f)
+
+internal val LauncherSettings.ink get() = readableOnDark(accent.a)
+internal val LauncherSettings.inkB get() = readableOnDark(accent.b)

@@ -95,13 +95,14 @@ object LivingLook {
     }
 
     /** The name of a rule's look: a preset's name, "Your look" for a code. */
-    fun lookName(look: String): String = Looks.all.firstOrNull { it.id == look.trim() }?.name ?: "Your look"
+    fun lookName(look: String, slots: List<LookSlot> = emptyList()): String =
+        Looks.all.firstOrNull { it.id == look.trim() }?.name ?: slots.firstOrNull { it.code == look.trim() }?.name ?: "Your look"
 
     /** A line for the Themes page about what is wearing right now, and until when. */
     fun status(living: Living): String? {
         val r = living.rule ?: return null
         val until = when (val w = r.whenever) { is When.Between -> " until ${clock(w.toMin)}"; When.Focusing -> " while you focus"; When.GoalReached -> " for the rest of today" }
-        return "Right now: ${lookName(r.look)}$until."
+        return "Right now: ${lookName(r.look, living.settings.slots)}$until."
     }
 
     /** One-tap starting points. */
