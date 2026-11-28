@@ -160,8 +160,8 @@ The first fix (2.32.0) did not cure it on the owner's phone and the cause could 
 `HomeActivity` registers an `OnBackInvokedCallback` at `PRIORITY_OVERLAY` (API 33+) that counts the press (`LauncherBack.presses`) and calls
 `onBackPressedDispatcher.onBackPressed()` itself, so the screen's handlers run even if the platform's registration of the activity's own callbacks
 was the thing failing; below API 33, and for a hardware Back key, `onBackPressed()` is overridden to count and call `super`. The foot of every
-launcher settings page shows "Back pressed N times since the launcher started": N rising with no page change means the launcher got Back and mishandled
-it; N not rising means Android never delivered Back to the launcher. Remove the counter once the cause is known.
+launcher settings page showed "Back pressed N times since the launcher started" while the cause was unknown. The owner confirmed Back works with this
+route (2.33.1 and later), so 2.35.0 removes that line; the press counting itself stays in `HomeActivity` (it is how Back is routed).
 
 ## Home styles (2.34.0)
 

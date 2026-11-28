@@ -105,7 +105,6 @@ internal fun LauncherSettingsSheet(repo: LauncherRepo, allApps: List<HomeApp>, s
             }
             item {
                 Text("These settings are kept on this phone.", color = Liquid.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-                Text("Back pressed ${LauncherBack.presses} times since the launcher started.", color = Liquid.dim.copy(alpha = 0.7f), fontSize = 11.sp)
             }
         }
     }
