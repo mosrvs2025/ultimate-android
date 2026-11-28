@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -100,8 +101,13 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     val allApps by repo.apps.collectAsState()
     // What is drawn is the owner's look with any living-look rule's look on top; the settings sheet edits the owner's own (repo.settings).
     val living by repo.living.collectAsState()
-    val settings = living.settings
     val ownSettings by repo.settings.collectAsState()
+    // What the settings pages are previewing but have not applied yet. It lives here, not in the sheet, so it survives moving between pages
+    // and peeking: Peek draws the real home screen with the draft, and tapping anywhere brings the settings back.
+    var draft by remember { mutableStateOf<LauncherSettings?>(null) }
+    var peeking by remember { mutableStateOf(false) }
+    var confirmClose by remember { mutableStateOf(false) }
+    val settings = if (peeking) draft?.let { LookStudio.commit(it, ownSettings) } ?: living.settings else living.settings
     val favs by repo.favourites.collectAsState()
     // The rules look at the clock, a focus session and the step goal: check again every half minute and whenever you come home.
     LaunchedEffect(homePresses, settings.rules.size) { while (true) { repo.refreshSignals(); delay(30_000) } }
@@ -131,9 +137,15 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
     var searching by remember { mutableStateOf(false) }
     var sticky by remember { mutableStateOf<Char?>(null) }
     // Pressing Home while already home closes whatever is open, like every launcher.
-    LaunchedEffect(homePresses) { searching = false; sticky = null; settingsOpen = false; editing = false }
+    LaunchedEffect(homePresses) { searching = false; sticky = null; settingsOpen = false; editing = false; peeking = false; draft = null }
+    // Leaving settings with choices still waiting asks what to do with them instead of losing them.
+    fun leave(open: Boolean, page: SettingsPage?) {
+        if (!open && LookStudio.pending(draft, ownSettings)) { confirmClose = true; return }
+        settingsOpen = open; settingsPage = page; if (!open) draft = null
+    }
     // One Back handler for all of settings: a page goes back to the list, and the list closes settings.
-    BackHandler(enabled = settingsOpen) { val next = SettingsBack.next(SettingsBack.State(settingsOpen, settingsPage)); settingsOpen = next.open; settingsPage = next.page }
+    BackHandler(enabled = settingsOpen && !peeking) { val next = SettingsBack.next(SettingsBack.State(settingsOpen, settingsPage)); leave(next.open, next.page) }
+    BackHandler(enabled = peeking) { peeking = false }
     BackHandler(enabled = !settingsOpen && (searching || sticky != null)) { searching = false; sticky = null }
     fun openSettings(page: SettingsPage? = null) { editing = false; settingsPage = page; settingsOpen = true }
     // What a swipe, double tap or hold on an empty part of the screen does is the owner's choice (settings, Gestures).
@@ -299,7 +311,16 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
         if (searching) SearchSheet(repo, apps, settings, onClose = { searching = false })
         if (editing && !settingsOpen) EditHomePanel(settings.accent, onWallpaper = { editing = false; repo.changeWallpaper() }, onColours = { openSettings(SettingsPage.Colours) },
             onSettings = { openSettings() }, onClose = { editing = false })
-        if (settingsOpen) LauncherSettingsSheet(repo, allApps, ownSettings, settingsPage, onPage = { settingsPage = it }, onClose = { settingsOpen = false; settingsPage = null })
+        if (settingsOpen && !peeking) LauncherSettingsSheet(repo, allApps, ownSettings, settingsPage, onPage = { settingsPage = it }, onClose = { leave(false, null) },
+            draft = draft, onDraft = { draft = it }, onPeek = { peeking = true })
+        if (peeking) PeekBar(LookStudio.name(settings), settings.ink, onApply = { draft?.let { d -> repo.update { LookStudio.commit(d, it) } }; draft = null; peeking = false }, onKeepEditing = { peeking = false })
+        if (confirmClose) androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmClose = false },
+            title = { androidx.compose.material3.Text("Apply your changes?") },
+            text = { androidx.compose.material3.Text("You have choices in settings that your home screen doesn't have yet.") },
+            confirmButton = { androidx.compose.material3.TextButton({ draft?.let { d -> repo.update { LookStudio.commit(d, it) } }; draft = null; confirmClose = false; settingsOpen = false; settingsPage = null }) { androidx.compose.material3.Text("Apply") } },
+            dismissButton = { androidx.compose.material3.TextButton({ draft = null; confirmClose = false; settingsOpen = false; settingsPage = null }) { androidx.compose.material3.Text("Discard") } },
+        )
     }
     }
 }
@@ -605,3 +626,21 @@ private fun SearchSheet(repo: LauncherRepo, apps: List<HomeApp>, settings: Launc
     }
     }
 }
+
+/**
+ * While peeking, the real home screen is drawn with the choices from settings, and a bar at the bottom offers Apply or going back to
+ * editing. Everything else is covered so a stray touch cannot open an app: a tap anywhere goes back to the settings.
+ */
+@Composable
+internal fun PeekBar(name: String, accent: Color, onApply: () -> Unit, onKeepEditing: () -> Unit) {
+    Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { onKeepEditing() } }) {
+        Row(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp).clip(RoundedCornerShape(26.dp)).background(Color(0xE6101620)).padding(horizontal = 18.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            androidx.compose.material3.Text("Peeking: $name", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f, fill = false))
+            androidx.compose.material3.Text("Keep editing", color = Color.White, fontSize = 14.sp, modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0x22FFFFFF)).clickable(onClick = onKeepEditing).padding(horizontal = 14.dp, vertical = 8.dp))
+            androidx.compose.material3.Text("Apply", color = Color(0xFF0A0E14), fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(accent).clickable(onClick = onApply).padding(horizontal = 16.dp, vertical = 8.dp))
+        }
+    }
+}
+

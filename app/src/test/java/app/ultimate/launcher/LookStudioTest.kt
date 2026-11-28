@@ -14,21 +14,31 @@ import kotlin.random.Random
 class LookStudioTest {
     private fun contrast(a: Color, b: Color): Double { val l1 = maxOf(a.luminance(), b.luminance()).toDouble(); val l2 = minOf(a.luminance(), b.luminance()).toDouble(); return (l1 + 0.05) / (l2 + 0.05) }
 
-    @Test fun nothingIsPendingUntilTheDraftDiffersInTheLooksParts() {
+    @Test fun nothingIsPendingUntilTheDraftDiffersFromWhatIsWorn() {
         val base = LauncherSettings()
         assertFalse(LookStudio.pending(null, base))
-        assertFalse("the same look is not a change", LookStudio.pending(base.copy(), base))
-        assertFalse("things that aren't part of a look are not a pending look", LookStudio.pending(base.copy(hidden = setOf("x"), showDate = false), base))
+        assertFalse("the same settings are not a change", LookStudio.pending(base.copy(), base))
+        assertFalse("rules and saved looks act at once, so they are never a pending change", LookStudio.pending(base.copy(rules = listOf(LookRule(When.Focusing, "zen")), slots = listOf(LookSlot("Mine", LookCode.encode(base)))), base))
         assertTrue(LookStudio.pending(base.copy(face = Face.Mono), base))
         assertTrue(LookStudio.pending(base.copy(homeStyle = HomeStyle.Hive), base))
+        assertTrue("the other pages' choices count too", LookStudio.pending(base.copy(showDate = false), base))
+        assertTrue(LookStudio.pending(base.copy(hidden = setOf("x")), base))
+        assertTrue(LookStudio.pending(base.copy(swipeUp = GestureAction.Notifications), base))
+        assertTrue(LookStudio.pending(base.copy(searchWeb = true, searchEngine = SearchEngine.Brave), base))
     }
 
-    @Test fun applyingWearsTheLookAndLeavesEverythingPersonalAlone() {
+    @Test fun applyingTakesTheDraftButKeepsTheRulesAndSavedLooksOfTheRealSettings() {
         val base = LauncherSettings(hidden = setOf("com.secret"), swipeUp = GestureAction.Notifications, rules = listOf(LookRule(When.Focusing, "zen")), slots = listOf(LookSlot("Mine", LookCode.encode(LauncherSettings()))))
-        val applied = LookStudio.commit(Looks.terminal.apply(LauncherSettings()), base)
-        assertEquals(Looks.terminal, Looks.matching(applied))
-        assertEquals(setOf("com.secret"), applied.hidden); assertEquals(GestureAction.Notifications, applied.swipeUp)
-        assertEquals(base.rules, applied.rules); assertEquals(base.slots, applied.slots)
+        // The draft was taken before a rule was added and a look saved, so it holds the older ones.
+        val draft = Looks.terminal.apply(LauncherSettings(hidden = setOf("com.other"), swipeUp = GestureAction.Search, favouritesShown = 3))
+        val applied = LookStudio.commit(draft, base)
+        assertEquals("the look in the draft is the look worn", Looks.terminal, Looks.matching(applied))
+        assertEquals("choices from the draft are taken", setOf("com.other"), applied.hidden); assertEquals(GestureAction.Search, applied.swipeUp)
+        assertEquals("the real rules and saved looks are kept", base.rules, applied.rules); assertEquals(base.slots, applied.slots)
+    }
+
+    @Test fun aDraftIsClampedLikeAnySetting() {
+        assertEquals(LauncherSettings.MAX_FAVS, LookStudio.commit(LauncherSettings(favouritesShown = 50), LauncherSettings()).favouritesShown)
     }
 
     @Test fun aLookIsNamedOrCalledAMix() {

@@ -6,7 +6,9 @@ import androidx.test.core.app.ApplicationProvider
 import app.ultimate.UltimateApp
 import app.ultimate.core.UltimateTheme
 import app.ultimate.launcher.HomeApp
+import app.ultimate.launcher.LauncherHome
 import app.ultimate.launcher.LauncherRepo
+import app.ultimate.launcher.PeekBar
 import app.ultimate.launcher.LauncherSettings
 import app.ultimate.launcher.LauncherSettingsSheet
 import app.ultimate.launcher.Looks
@@ -36,7 +38,7 @@ class StudioShotsTest {
         val repo = LauncherRepo(ApplicationProvider.getApplicationContext())
         repo.seed(listOf("Mail", "Phone", "Maps").map { HomeApp(it.lowercase(), it) }, listOf("mail", "phone", "maps"))
         compose.mainClock.autoAdvance = false
-        compose.setContent { UltimateTheme { LauncherSettingsSheet(repo, emptyList(), LauncherSettings(), page, {}, {}, initialDraft = draft) } }
+        compose.setContent { UltimateTheme { val d = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(draft) }; LauncherSettingsSheet(repo, emptyList(), LauncherSettings(), page, {}, {}, draft = d.value, onDraft = { d.value = it }) } }
         compose.mainClock.advanceTimeBy(1_500)
         compose.onRoot().captureRoboImage(dir!!.apply { mkdirs() }.resolve("$name.png").path, roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record, recordOptions = RoborazziOptions.RecordOptions(resizeScale = 0.5)))
     }
@@ -45,6 +47,22 @@ class StudioShotsTest {
     @Test fun themesApplied() = shot("studio-themes", SettingsPage.Colours, null)
     @Test fun themesPending() = shot("studio-themes-pending", SettingsPage.Colours, Looks.terminal.apply(LauncherSettings()))
     @Test fun wallpaper() = shot("studio-wallpaper", SettingsPage.Wallpaper, null)
+    @Test fun home() = shot("studio-home", SettingsPage.Home, LauncherSettings(cards = setOf(app.ultimate.launcher.HomeCard.Activity, app.ultimate.launcher.HomeCard.Heart), showDate = false, clock = app.ultimate.launcher.ClockStyle.H12))
+    @Test fun favourites() = shot("studio-favourites", SettingsPage.Dock, LauncherSettings(favouritesShown = 3, dockLabels = false))
+    @Test fun appList() = shot("studio-applist", SettingsPage.Drawer, LauncherSettings(drawerSort = app.ultimate.launcher.AppSort.Newest, drawerIcons = app.ultimate.launcher.IconSize.Large))
+    @Test fun search() = shot("studio-search", SettingsPage.Search, LauncherSettings(searchWeb = true, searchEngine = app.ultimate.launcher.SearchEngine.DuckDuckGo, searchShowsAll = false))
+    @Test fun gestures() = shot("studio-gestures", SettingsPage.Gestures, LauncherSettings(swipeDown = app.ultimate.launcher.GestureAction.Notifications))
+    @Test fun peek() {
+        assumeTrue(dir != null)
+        val repo = LauncherRepo(ApplicationProvider.getApplicationContext())
+        repo.seed(listOf("Gmail", "Phone", "Photos", "Maps", "Spotify", "YouTube").map { HomeApp(it.lowercase(), it) }, listOf("gmail", "phone", "photos", "maps", "spotify"))
+        repo.update { Looks.dusk.apply(it).copy(cards = setOf(app.ultimate.launcher.HomeCard.Activity)) }
+        compose.mainClock.autoAdvance = false
+        compose.setContent { UltimateTheme { androidx.compose.foundation.layout.Box { LauncherHome(repo, 0, {}, autoLoad = false); PeekBar("Dusk", androidx.compose.ui.graphics.Color(0xFFFFB347), {}, {}) } } }
+        compose.mainClock.advanceTimeBy(2_000)
+        compose.onRoot().captureRoboImage(dir!!.apply { mkdirs() }.resolve("studio-peek.png").path, roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record, recordOptions = RoborazziOptions.RecordOptions(resizeScale = 0.5)))
+    }
+    @Test fun hubWithChanges() = shot("studio-hub-pending", null, LauncherSettings(face = app.ultimate.launcher.Face.Mono))
 }
 
 /** The whole Themes page on a very tall screen, so every tile row can be looked at at once. */
@@ -60,7 +78,7 @@ class StudioTallShotsTest {
         val repo = LauncherRepo(ApplicationProvider.getApplicationContext())
         repo.seed(listOf("Mail", "Phone", "Maps").map { HomeApp(it.lowercase(), it) }, listOf("mail", "phone", "maps"))
         compose.mainClock.autoAdvance = false
-        compose.setContent { UltimateTheme { LauncherSettingsSheet(repo, emptyList(), LauncherSettings(), page, {}, {}, initialDraft = draft) } }
+        compose.setContent { UltimateTheme { val d = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(draft) }; LauncherSettingsSheet(repo, emptyList(), LauncherSettings(), page, {}, {}, draft = d.value, onDraft = { d.value = it }) } }
         compose.mainClock.advanceTimeBy(1_500)
         compose.onRoot().captureRoboImage(dir!!.apply { mkdirs() }.resolve("$name.png").path, roborazziOptions = RoborazziOptions(taskType = RoborazziTaskType.Record, recordOptions = RoborazziOptions.RecordOptions(resizeScale = 0.5)))
     }
