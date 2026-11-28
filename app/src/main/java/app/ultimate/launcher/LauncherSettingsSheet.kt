@@ -78,18 +78,25 @@ import androidx.compose.ui.text.AnnotatedString
  * caller, which also handles the system Back button (page to list, list to home), so there is exactly one Back handler for all of settings.
  */
 @Composable
-internal fun LauncherSettingsSheet(repo: LauncherRepo, allApps: List<HomeApp>, s: LauncherSettings, page: SettingsPage?, onPage: (SettingsPage?) -> Unit, onClose: () -> Unit) {
+internal fun LauncherSettingsSheet(repo: LauncherRepo, allApps: List<HomeApp>, s: LauncherSettings, page: SettingsPage?, onPage: (SettingsPage?) -> Unit, onClose: () -> Unit, initialDraft: LauncherSettings? = null) {
+    // Themes and Wallpaper share one draft: choices change a picture first and the real home screen only when you tap Apply.
+    var draft by remember { mutableStateOf(initialDraft) }
+    val studio = page == SettingsPage.Colours || page == SettingsPage.Wallpaper
+    androidx.compose.runtime.LaunchedEffect(studio) { if (!studio) draft = null }
+    val shown = draft?.let { LookStudio.commit(it, s) } ?: s
+    val edit: ((LauncherSettings) -> LauncherSettings) -> Unit = { f -> draft = f(shown) }
     Column(Modifier.fillMaxSize().background(Color(0xFF080B10)).statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton({ if (page != null) onPage(null) else onClose() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (page != null) "Back to launcher settings" else "Close settings", tint = Color.White) }
             Text(page?.title ?: "Launcher settings", color = Color.White, fontSize = 20.sp)
         }
         val current = page
+        if (studio) StudioHeader(shown, s, onApply = { draft?.let { d -> repo.update { LookStudio.commit(d, it) } }; draft = null }, onUndo = { draft = null }, onShuffle = { draft = LookStudio.shuffle(shown, kotlin.random.Random.Default) })
         if (current == null) SettingsHub(repo, s) { onPage(it) }
         else LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 28.dp)) {
             when (current) {
-                SettingsPage.Colours -> colourItems(repo, s)
-                SettingsPage.Wallpaper -> wallpaperItems(repo, s)
+                SettingsPage.Colours -> colourItems(repo, s, shown, edit)
+                SettingsPage.Wallpaper -> wallpaperItems(repo, shown, edit)
                 SettingsPage.Home -> homeItems(repo, s)
                 SettingsPage.Dock -> dockItems(repo, s)
                 SettingsPage.Drawer -> drawerItems(repo, allApps, s)
@@ -121,6 +128,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.SettingsHub(repo: Lau
     val found = remember(q) { SettingsPage.matching(q) }
     Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { LiquidInput(q, { q = it }, "Search launcher settings", { found.firstOrNull()?.let(open) }, Modifier.fillMaxWidth(), sendLabel = "Open") }
     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 28.dp)) {
+        if (q.isBlank()) item { LookHero(s) { open(SettingsPage.Colours) } }
         if (q.isBlank()) item { HubRow(Icons.Rounded.Settings, "System settings", "Tap to open your device settings", s.ink) { repo.openSystemSettings() } }
         items(found, key = { it.name }) { p -> HubRow(pageIcon(p), p.title, p.subtitle, if (p.ordinal % 2 == 0) s.ink else s.inkB) { open(p) } }
         if (found.isEmpty()) item { Text("Nothing matches \"$q\".", color = Liquid.dim, fontSize = 14.sp, modifier = Modifier.padding(20.dp)) }
@@ -139,13 +147,14 @@ private fun HubRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title:
 }
 
 @OptIn(ExperimentalLayoutApi::class)
-private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: LauncherRepo, s: LauncherSettings) {
-    // Whole looks first: each is a set of parts, shown as a small picture of itself.
+private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: LauncherRepo, base: LauncherSettings, s: LauncherSettings, edit: ((LauncherSettings) -> LauncherSettings) -> Unit) {
+    // Whole looks first: each is a set of parts, shown as a small picture of itself. Tapping one puts it in the preview; Apply wears it.
     item {
         GlassCard(title = "Looks", accent = s.ink) {
             val current = Looks.matching(s)
+            val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Looks.all.forEach { p -> LookCard(p, current == p, s.ink) { repo.update { p.apply(it) } } }
+                Looks.all.forEach { p -> LookCard(p, current == p, s.ink) { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove); edit { p.apply(it) } } }
             }
             Text(if (current != null) "${current.name}: ${current.blurb}." else "Your own mix. Change any part below, or pick a look to start again from it.", color = Liquid.dim, fontSize = 12.sp)
         }
@@ -153,27 +162,33 @@ private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: Lau
     item {
         GlassCard(title = "Colours", accent = s.ink) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Accent.values().forEach { ac -> Swatch(ac, ac == s.accent) { repo.update { it.copy(accent = ac) } } }
+                Accent.values().forEach { ac -> Swatch(ac, ac == s.accent) { edit { it.copy(accent = ac) } } }
             }
             Text(if (s.accent == Accent.Wallpaper) "These two come from your wallpaper and change when it does." else "Used for the glow, the letter rail, the suggestion pods and highlights. \"From wallpaper\" picks its two out of your picture.", color = Liquid.dim, fontSize = 12.sp)
         }
     }
-    item { LivingLooksCard(repo, s) }
-    // Each part on its own, so the looks can be mixed.
+    // Each part on its own, so the looks can be mixed. Every option is a small picture of your look with just that part changed.
     item {
         GlassCard(title = "Make it yours", accent = s.ink) {
-            PartRow("Home style", HomeStyle.entries, s.homeStyle, { it.label }, s.ink) { v -> repo.update { it.copy(homeStyle = v) } }
+            PartTiles("Home style", HomeStyle.entries, s, { l, v -> l.copy(homeStyle = v) }, { it.homeStyle }, { it.label }, edit)
             Text(s.homeStyle.blurb + ".", color = Liquid.dim, fontSize = 12.sp)
-            PartRow("Background", Backdrop.entries, s.backdrop, { it.label }, s.ink) { v -> repo.update { it.copy(backdrop = v) } }
-            PartRow("Typeface", Face.entries, s.face, { it.label }, s.ink) { v -> repo.update { it.copy(face = v) } }
-            PartRow("Clock", ClockLayout.entries, s.clockLayout, { it.label }, s.ink) { v -> repo.update { it.copy(clockLayout = v) } }
-            PartRow("Favourites", FavLayout.entries, s.favLayout, { it.label }, s.ink) { v -> repo.update { it.copy(favLayout = v) } }
-            PartRow("Letter rail", RailStyle.entries, s.rail, { it.label }, s.ink) { v -> repo.update { it.copy(rail = v) } }
-            PartRow("Icon shape", IconShape.entries, s.iconShape, { it.label }, s.ink) { v -> repo.update { it.copy(iconShape = v) } }
-            Text("A hidden rail still works: put your thumb on the right edge and slide.", color = Liquid.dim, fontSize = 12.sp)
+            PartTiles("Background", Backdrop.entries, s, { l, v -> l.copy(backdrop = v) }, { it.backdrop }, { it.label }, edit)
+            PartTiles("Typeface", Face.entries, s, { l, v -> l.copy(face = v) }, { it.face }, { it.label }, edit) { o, on, ink -> Text("Aa", color = if (on) ink else Color.White, fontSize = 26.sp, fontFamily = o.family) }
+            PartTiles("Clock", ClockLayout.entries, s, { l, v -> l.copy(clockLayout = v) }, { it.clockLayout }, { it.label }, edit)
+            if (s.homeStyle == HomeStyle.Lists) {
+                PartTiles("Favourites", FavLayout.entries, s, { l, v -> l.copy(favLayout = v) }, { it.favLayout }, { it.label }, edit)
+                PartTiles("Letter rail", RailStyle.entries, s, { l, v -> l.copy(rail = v) }, { it.rail }, { it.label }, edit)
+                Text("A hidden rail still works: put your thumb on the right edge and slide.", color = Liquid.dim, fontSize = 12.sp)
+            } else Text("Favourites and the letter rail are part of the Lists style. In ${s.homeStyle.label} the apps are held the way the picture shows.", color = Liquid.dim, fontSize = 12.sp)
+            PartTiles("Icon shape", IconShape.entries, s, { l, v -> l.copy(iconShape = v) }, { it.iconShape }, { it.label }, edit) { o, on, ink ->
+                // A home style hides the shape in a tiny picture, so these tiles show the icons themselves.
+                val shape = if (o == IconShape.AsIs) RoundedCornerShape(3.dp) else o.shape
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) { repeat(2) { Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) { repeat(2) { Box(Modifier.size(20.dp).clip(shape).background(if (on) ink else Color(0xFFB8C2D0))) } } } }
+            }
         }
     }
-    item { YourLooksCard(repo, s) }
+    item { LivingLooksCard(repo, base) }
+    item { YourLooksCard(repo, s, edit) }
     // A look as a line of text: copy yours to share it, paste one to wear it.
     item {
         var pasted by remember { mutableStateOf("") }
@@ -185,7 +200,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: Lau
             Chip("Copy this look", false, s.ink) { clipboard.setText(AnnotatedString(code)); note = "Copied. Paste it to a friend, or into another phone's Share a look box." }
             LiquidInput(pasted, { pasted = it }, "Paste a look code", {
                 val applied = LookCode.apply(pasted, s)
-                if (applied == null) note = "That isn't a look code. It starts with ULOOK1:" else { repo.update { LookCode.apply(pasted, it) ?: it }; note = "Applied."; pasted = "" }
+                if (applied == null) note = "That isn't a look code. It starts with ULOOK1:" else { edit { LookCode.apply(pasted, it) ?: it }; note = "Showing it in the preview at the top. Tap Apply to wear it."; pasted = "" }
             }, sendLabel = "Use")
             val scope = rememberCoroutineScope()
             val context = androidx.compose.ui.platform.LocalContext.current
@@ -193,7 +208,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: Lau
             val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
                 if (uri != null) scope.launch {
                     val found = withContext(kotlinx.coroutines.Dispatchers.IO) { readLookFromPicture(context, uri) }
-                    if (found == null) note = "No look QR found in that picture." else { repo.update { LookCode.apply(found, it) ?: it }; note = "Applied the look from the picture." }
+                    if (found == null) note = "No look QR found in that picture." else { edit { LookCode.apply(found, it) ?: it }; note = "Showing the look from the picture in the preview at the top. Tap Apply to wear it." }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -223,17 +238,30 @@ internal fun LookCard(p: LookPreset, selected: Boolean, accent: Color, onClick: 
 /** Any look (a preset, one you saved, or the one you are wearing) drawn small from its own parts. */
 @Composable
 private fun LookPreview(name: String, s: LauncherSettings, selected: Boolean, accent: Color, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        LookThumb(s, selected, accent, name, 1f, onClick)
+        Text(name, color = if (selected) Color.White else Liquid.dim, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(top = 6.dp))
+    }
+}
+
+/**
+ * A look as a small phone screen drawn from its own parts. [scale] draws the same picture bigger or smaller (the whole subtree is laid out
+ * at a scaled density, so text and shapes stay sharp and the layout size follows); [onClick] null makes it a plain picture.
+ */
+@Composable
+internal fun LookThumb(s: LauncherSettings, selected: Boolean, accent: Color, name: String, scale: Float = 1f, onClick: (() -> Unit)? = null) {
     val t = s.tokens()
     val names = listOf("Mail", "Phone", "Maps")
     // Icons "as they are" have no shape of their own; the preview draws them as softly rounded dots.
     val dot = if (s.iconShape == IconShape.AsIs) RoundedCornerShape(3.dp) else t.iconShape
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    val outer = androidx.compose.ui.platform.LocalDensity.current
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(outer.density * scale, outer.fontScale)) {
         Box(
             Modifier.width(104.dp).height(164.dp).clip(RoundedCornerShape(18.dp)).background(Brush.verticalGradient(
                     // The wallpaper itself isn't known here; its picked colours stand in for it.
                     if (s.backdrop == Backdrop.Wallpaper) listOf(s.accent.a.copy(alpha = 0.55f).compositeOver(Color(0xFF0A0E14)), s.accent.b.copy(alpha = 0.45f).compositeOver(Color(0xFF0A0E14))) else s.backdrop.colors))
                 .border(if (selected) BorderStroke(3.dp, accent) else BorderStroke(1.dp, Color(0x33FFFFFF)), RoundedCornerShape(18.dp))
-                .clickable(onClick = onClick).semantics { contentDescription = name + " look" + if (selected) ", selected" else "" },
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).semantics { contentDescription = name + " look" + if (selected) ", selected" else "" },
         ) {
             Column(Modifier.padding(start = 10.dp, top = 12.dp, end = 24.dp)) {
                 when (s.clockLayout) {
@@ -261,18 +289,15 @@ private fun LookPreview(name: String, s: LauncherSettings, selected: Boolean, ac
                 listOf("A", "B", "C", "D", "E", "F").forEach { l -> Text(l, color = t.fg.copy(alpha = 0.5f), fontSize = 7.sp, fontFamily = t.face) }
             }
         }
-        Text(name, color = if (selected) Color.White else Liquid.dim, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
-private fun androidx.compose.foundation.lazy.LazyListScope.wallpaperItems(repo: LauncherRepo, s: LauncherSettings) {
+private fun androidx.compose.foundation.lazy.LazyListScope.wallpaperItems(repo: LauncherRepo, s: LauncherSettings, edit: ((LauncherSettings) -> LauncherSettings) -> Unit) {
     item {
         GlassCard(title = "Background", accent = s.inkB) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Backdrop.values().forEach { b -> Chip(b.label, b == s.backdrop, s.ink) { repo.update { it.copy(backdrop = b) } } }
-            }
-            Text(if (s.backdrop == Backdrop.Wallpaper) "Your phone's wallpaper shows through, under a dark veil so the text stays easy to read." else "Black saves battery on OLED screens. Pick Phone's wallpaper to see your own picture.", color = Liquid.dim, fontSize = 12.sp)
+            PartTiles("Pick one to see it in the preview", Backdrop.entries, s, { l, v -> l.copy(backdrop = v) }, { it.backdrop }, { it.label }, edit)
+            Text(if (s.backdrop == Backdrop.Wallpaper) "Your phone's wallpaper shows through, under a dark veil so the text stays easy to read. The picture above stands in for it with the colours picked out of it." else "Black saves battery on OLED screens. Pick Phone's wallpaper to see your own picture.", color = Liquid.dim, fontSize = 12.sp)
             LiquidButton("Change wallpaper", { repo.changeWallpaper() }, Modifier.fillMaxWidth())
         }
     }
@@ -502,7 +527,7 @@ private fun TimeStepper(label: String, minutes: Int, accent: Color, onChange: (I
 /** The looks you saved: wear one, show its QR, delete it, or save the one you are wearing under a name. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun YourLooksCard(repo: LauncherRepo, s: LauncherSettings) {
+private fun YourLooksCard(repo: LauncherRepo, s: LauncherSettings, edit: ((LauncherSettings) -> LauncherSettings) -> Unit) {
     var name by remember { mutableStateOf("") }
     var note by remember { mutableStateOf<String?>(null) }
     var qrFor by remember { mutableStateOf<LookSlot?>(null) }
@@ -510,7 +535,7 @@ private fun YourLooksCard(repo: LauncherRepo, s: LauncherSettings) {
     val suggestion = LookSlots.suggestName(s, s.slots)
     GlassCard(title = "Your looks", accent = accent) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
-            LookPreview("Right now", s, false, accent) {}
+            LookPreview(LookStudio.name(s), s, false, accent) {}
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Save what you are wearing so you can come back to it, give it to a rule, or share it.", color = Liquid.dim, fontSize = 12.sp)
                 LiquidInput(name, { name = it.take(LookSlots.MAX_NAME) }, suggestion, {
@@ -528,12 +553,12 @@ private fun YourLooksCard(repo: LauncherRepo, s: LauncherSettings) {
                     Text(slot.name, color = Color.White, fontSize = 15.sp, maxLines = 1)
                     Text(Looks.matching(look ?: LauncherSettings())?.name ?: "A mix of your own", color = Liquid.dim, fontSize = 12.sp)
                 }
-                RuleButton("Wear ${slot.name}", "\u2713", true) { repo.update { LookCode.apply(slot.code, it) ?: it }; note = "Wearing ${slot.name}." }
+                RuleButton("Preview ${slot.name}", "\u2713", true) { edit { LookCode.apply(slot.code, it) ?: it }; note = "Showing ${slot.name} in the preview at the top. Tap Apply to wear it." }
                 RuleButton("QR for ${slot.name}", "\u25A6", true) { qrFor = slot }
                 RuleButton("Delete ${slot.name}", "\u2715", true) { repo.update { it.copy(slots = LookSlots.delete(it.slots, i)) } }
             }
         }
-        Text("\u2713 wears it, \u25A6 shows its QR, \u2715 deletes it. Up to ${LookSlots.MAX} looks. A rule under Living looks can wear any of them.", color = Liquid.dim, fontSize = 12.sp)
+        Text("\u2713 previews it, \u25A6 shows its QR, \u2715 deletes it. Up to ${LookSlots.MAX} looks. A rule under Living looks can wear any of them.", color = Liquid.dim, fontSize = 12.sp)
     }
     qrFor?.let { LookQrDialog(it.name, it.code) { qrFor = null } }
 }
@@ -603,6 +628,71 @@ private fun MiniStyle(s: LauncherSettings) {
         HomeStyle.Prompt -> Column {
             listOf("[1] Mail", "[2] Phone").forEach { Text(it, color = t.fg, fontSize = 8.sp, fontFamily = t.face) }
             Text("> ma_", color = a, fontSize = 9.sp, fontFamily = t.face, modifier = Modifier.padding(top = 6.dp))
+        }
+    }
+}
+
+// ---- The look studio: a live picture of the look you are building, and tiles that preview every choice before you apply it.
+
+/**
+ * The top of Themes and Wallpaper: your look as a phone-sized picture that changes at once as you tap (and cross-fades between looks),
+ * with what it is called, whether it is only a preview, and Apply, Undo and Shuffle. The real home screen changes only on Apply.
+ */
+@Composable
+internal fun StudioHeader(shown: LauncherSettings, base: LauncherSettings, onApply: () -> Unit, onUndo: () -> Unit, onShuffle: () -> Unit) {
+    val pending = LookStudio.pending(shown, base)
+    val accent = shown.ink
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.animation.Crossfade(LookCode.encode(shown), animationSpec = androidx.compose.animation.core.tween(260), label = "studio") { code ->
+            LookThumb(LookCode.apply(code, shown) ?: shown, pending, accent, LookStudio.name(shown), 1.3f)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(LookStudio.name(shown), color = Color.White, fontSize = 20.sp, maxLines = 1)
+            Text(if (pending) "A preview. Your home screen hasn't changed yet." else "This is what your home screen is wearing. Tap anything below to try it here first.", color = if (pending) accent else Liquid.dim, fontSize = 13.sp)
+            Text(if (pending) "Apply" else "Applied ✓", color = if (pending) Color(0xFF0A0E14) else Liquid.dim, fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(if (pending) accent else Color(0x14FFFFFF)).clickable(enabled = pending, onClick = onApply).padding(horizontal = 16.dp, vertical = 11.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Chip("Shuffle", false, accent, onShuffle)
+                if (pending) Chip("Undo", false, accent, onUndo)
+            }
+        }
+    }
+}
+
+/** The first thing on the settings list: the look you are wearing, as a picture, which opens Themes. */
+@Composable
+private fun LookHero(s: LauncherSettings, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        LookThumb(s, false, s.ink, LookStudio.name(s), 0.7f)
+        Column(Modifier.weight(1f)) {
+            Text("Your look", color = Liquid.dim, fontSize = 12.sp)
+            Text(LookStudio.name(s), color = Color.White, fontSize = 20.sp)
+            Text("Try other looks, colours and home styles, and see them before you apply", color = s.ink, fontSize = 13.sp)
+        }
+    }
+}
+
+/**
+ * One part of a look as a row of small pictures. Each tile is your look with only that option changed, so you see what a choice does
+ * before you make it; tapping puts it in the studio's preview. [sample] draws a tile's own picture where a whole screen says little (the type itself for typefaces, the shapes for icons).
+ */
+@Composable
+private fun <T> PartTiles(title: String, options: List<T>, look: LauncherSettings, with: (LauncherSettings, T) -> LauncherSettings, get: (LauncherSettings) -> T, label: (T) -> String,
+                          edit: ((LauncherSettings) -> LauncherSettings) -> Unit, sample: (@Composable (T, Boolean, Color) -> Unit)? = null) {
+    val selected = get(look)
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Text(title, color = Liquid.dim, fontSize = 12.sp)
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        options.forEach { o ->
+            val on = o == selected
+            Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove); edit { l -> with(l, o) } }
+                .semantics(mergeDescendants = true) { contentDescription = "$title ${label(o)}" + if (on) ", selected" else "" }, horizontalAlignment = Alignment.CenterHorizontally) {
+                if (sample != null) Box(Modifier.size(width = 64.dp, height = 82.dp).clip(RoundedCornerShape(10.dp)).background(Color(0x22FFFFFF))
+                    .border(if (on) BorderStroke(2.dp, look.ink) else BorderStroke(1.dp, Color(0x33FFFFFF)), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                    sample(o, on, look.ink)
+                } else LookThumb(with(look, o), on, look.ink, label(o), 0.5f)
+                Text(label(o), color = if (on) Color.White else Liquid.dim, fontSize = 11.sp, maxLines = 2, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp).width(64.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
         }
     }
 }
