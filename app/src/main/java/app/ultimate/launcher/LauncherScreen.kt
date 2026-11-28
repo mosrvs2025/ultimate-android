@@ -215,7 +215,10 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
         // ---- left: clock, favourites, or the letter's apps
         // A look with centred favourites centres everything, with the same room either side (the rail is out of the way, or hidden).
         val centred = settings.favLayout == FavLayout.Centered
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(start = 28.dp, end = if (centred) 28.dp else 96.dp, top = 48.dp),
+        // A home style other than the original holds every app itself, so it has no letter rail and uses the room the rail would have had.
+        val styled = settings.homeStyle != HomeStyle.Lists
+        LaunchedEffect(styled) { if (styled) { sticky = null } }
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(start = if (styled) 20.dp else 28.dp, end = if (centred || styled) (if (styled) 20.dp else 28.dp) else 96.dp, top = 48.dp),
             horizontalAlignment = if (centred) Alignment.CenterHorizontally else Alignment.Start) {
             ClockBlock(onOpenUltimate, settings)
             Spacer(Modifier.height(if (settings.cards.isEmpty()) 36.dp else 24.dp))
@@ -227,7 +230,8 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 val favAlpha = (1f - (if (current != null) 1f else 0f)).coerceIn(0f, 1f)
                 val dock = favs.mapNotNull { pkg -> apps.firstOrNull { it.pkg == pkg } }.take(settings.favouritesShown)
-                FavouritesBlock(repo, dock, favs.isEmpty() && apps.isNotEmpty(), settings, Modifier.alpha(favAlpha))
+                if (styled) HomeStyleBlock(settings.homeStyle, repo, apps, dock, settings, onSearch = { searching = true }, Modifier.fillMaxSize())
+                else FavouritesBlock(repo, dock, favs.isEmpty() && apps.isNotEmpty(), settings, Modifier.alpha(favAlpha))
             }
         }
 
@@ -250,7 +254,7 @@ fun LauncherHome(repo: LauncherRepo, homePresses: Int, onOpenUltimate: () -> Uni
         }
 
         // ---- the liquid letter rail
-        Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight(0.74f).width(110.dp)
+        if (settings.homeStyle == HomeStyle.Lists) Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight(0.74f).width(110.dp)
             .onGloballyPositioned { val p = it.positionInRoot(); railTop = p.y; railLeft = p.x; railHeight = it.size.height.toFloat() }
             .semantics { contentDescription = "Letter rail: slide to find an app" }
             .pointerInput(Unit) {
@@ -405,7 +409,7 @@ internal enum class RowVariant { Plain, Numbered, Tile, Pill, Centered }
 
 /** An app's icon cut to the look's shape, or its first letter in a coloured disc until it has loaded. */
 @Composable
-private fun AppIcon(icon: androidx.compose.ui.graphics.ImageBitmap?, size: androidx.compose.ui.unit.Dp, shape: androidx.compose.ui.graphics.Shape, label: String, th: Palette) {
+internal fun AppIcon(icon: androidx.compose.ui.graphics.ImageBitmap?, size: androidx.compose.ui.unit.Dp, shape: androidx.compose.ui.graphics.Shape, label: String, th: Palette) {
     Box(Modifier.size(size).clip(shape), contentAlignment = Alignment.Center) {
         if (icon != null) Image(icon, null, Modifier.fillMaxSize())
         else Box(Modifier.fillMaxSize().clip(if (shape == androidx.compose.ui.graphics.RectangleShape) CircleShape else shape).background(Brush.linearGradient(listOf(th.a.copy(alpha = 0.5f), th.b.copy(alpha = 0.4f)))), contentAlignment = Alignment.Center) { Text(label.take(1), color = LocalLook.current.fg, fontSize = 15.sp) }

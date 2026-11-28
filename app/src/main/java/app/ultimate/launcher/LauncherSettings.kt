@@ -103,6 +103,8 @@ data class LauncherSettings(
     val cards: Set<HomeCard> = emptySet(),
     /** Looks saved under a name (see [LookSlots]). */
     val slots: List<LookSlot> = emptyList(),
+    /** How the home screen is arranged (see [HomeStyle]); the original is a list of favourites and a letter rail. */
+    val homeStyle: HomeStyle = HomeStyle.Lists,
 ) {
     fun clamped() = copy(favouritesShown = favouritesShown.coerceIn(MIN_FAVS, MAX_FAVS))
 
@@ -125,7 +127,7 @@ object SettingsCodec {
 
     /** Keys of the settings added after the first ones. All are plain strings, so a missing or odd one just means the default. */
     private val EXTRA_KEYS = listOf("dockIcons", "dockLabels", "drawerIcons", "drawerShowIcons", "drawerSort", "swipeUp", "swipeDown", "doubleTap", "longPress", "searchShowsAll", "searchWeb",
-        "face", "clockLayout", "favLayout", "rail", "iconShape", "rules", "cards", "slots")
+        "face", "clockLayout", "favLayout", "rail", "iconShape", "rules", "cards", "slots", "homeStyle")
 
     /** [base] with the newer settings filled in from [get] (a lookup of the stored strings). */
     fun withExtras(base: LauncherSettings, get: (String) -> String?): LauncherSettings {
@@ -142,6 +144,7 @@ object SettingsCodec {
             rules = get("rules")?.let { LivingLook.decode(it) } ?: base.rules,
             cards = get("cards")?.let { HomeCards.decode(it) } ?: base.cards,
             slots = get("slots")?.let { LookSlots.decode(it) } ?: base.slots,
+            homeStyle = enumOr(get("homeStyle"), base.homeStyle),
         )
     }
 
@@ -155,12 +158,13 @@ object SettingsCodec {
         "rules" to LivingLook.encode(s.rules),
         "cards" to HomeCards.encode(s.cards),
         "slots" to LookSlots.encode(s.slots),
+        "homeStyle" to s.homeStyle.name,
     ).also { check(it.keys.toList() == EXTRA_KEYS) }
 }
 
 /** The pages of the settings hub, in the order they are listed, with the words that find them when you type in the box on top. */
 enum class SettingsPage(val title: String, val subtitle: String, val words: String) {
-    Colours("Themes", "Whole looks, then colours, type, clock, favourites, rail and icons", "theme themes look looks living rule rules automatic time night day focus goal mirror saved save slots qr scan style styles colour color accent aurora sunset ocean meadow rose ember terminal paper zen tiles dusk font type typeface clock layout favourites rail icons shape share code"),
+    Colours("Themes", "Whole looks, then colours, type, clock, favourites, rail and icons", "theme themes look looks living rule rules automatic time night day focus goal mirror saved save slots qr scan home homestyle pages hive honeycomb dial tiles prompt grid command style styles colour color accent aurora sunset ocean meadow rose ember terminal paper zen tiles dusk font type typeface clock layout favourites rail icons shape share code"),
     Wallpaper("Wallpaper", "Background behind the home screen", "wallpaper background black graphite glow picture photo"),
     Home("Home screen", "Clock, suggestions and the letter rail", "home clock date time suggestions now tick rail letters haptic favourites reset cards activity rings heart rate camera cameras"),
     Dock("Favourites", "How many show, their size and names", "favourites favorites dock icons size labels names count"),

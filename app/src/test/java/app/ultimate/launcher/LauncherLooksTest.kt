@@ -27,7 +27,7 @@ class LauncherLooksTest {
 
     @Test fun everyPresetIsDifferentAndIsRecognisedOnceApplied() {
         val applied = Looks.all.map { it.apply(LauncherSettings()) }
-        assertEquals("no two looks share all their parts", Looks.all.size, applied.map { listOf(it.accent, it.backdrop, it.face, it.clockLayout, it.favLayout, it.rail, it.iconShape) }.toSet().size)
+        assertEquals("no two looks share all their parts", Looks.all.size, applied.map { listOf(it.accent, it.backdrop, it.face, it.clockLayout, it.favLayout, it.rail, it.iconShape, it.homeStyle) }.toSet().size)
         Looks.all.forEach { p -> assertEquals(p, Looks.matching(p.apply(LauncherSettings(accent = Accent.Rose, swipeUp = GestureAction.None)))) }
         assertEquals(Looks.all.map { it.id }.toSet().size, Looks.all.size)
         assertTrue(Looks.all.all { it.name.isNotBlank() && it.blurb.isNotBlank() })
