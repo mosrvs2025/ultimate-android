@@ -200,8 +200,10 @@ private fun DialStyle(repo: LauncherRepo, apps: List<HomeApp>, settings: Launche
     val density = LocalDensity.current
     BoxWithConstraints(modifier.fillMaxSize()) {
         val w = with(density) { maxWidth.toPx() }; val h = with(density) { maxHeight.toPx() }
-        val centre = Offset(w, h)
-        val radius = min(w, h) * 0.9f
+        // The ring's centre is half an icon in from the corner, so the icons at either end of the arc are whole, not cut by the screen's edge.
+        val half = with(density) { 28.dp.toPx() }
+        val centre = Offset(w - half, h - half)
+        val radius = min(w, h) * 0.86f
         var offset by remember { mutableFloatStateOf(0f) }
         var last by remember { mutableFloatStateOf(0f) }
         val selected = StyleMath.dialSelected(offset, apps.size)

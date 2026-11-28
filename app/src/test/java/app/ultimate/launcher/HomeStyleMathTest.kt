@@ -38,7 +38,7 @@ class HomeStyleMathTest {
 
     @Test fun theDialPutsAppsOnAnArcAndTurnsWithTheFinger() {
         assertEquals(180f, StyleMath.dialAngle(0, 0f)); assertEquals(192f, StyleMath.dialAngle(1, 0f)); assertEquals(180f, StyleMath.dialAngle(1, 12f))
-        assertTrue(StyleMath.dialVisible(225f)); assertFalse(StyleMath.dialVisible(100f)); assertFalse(StyleMath.dialVisible(300f))
+        assertTrue(StyleMath.dialVisible(225f)); assertTrue(StyleMath.dialVisible(180f)); assertTrue(StyleMath.dialVisible(270f)); assertFalse(StyleMath.dialVisible(100f)); assertFalse(StyleMath.dialVisible(276f)); assertFalse("only the arc itself shows, so nothing is cut at the ends", StyleMath.dialVisible(172f))
         // Turned all the way, the last app reaches the start of the arc; it can't be turned past either end.
         assertEquals(0f, StyleMath.dialClamp(-40f, 30)); assertEquals(29 * 12f, StyleMath.dialClamp(9_999f, 30)); assertEquals(0f, StyleMath.dialClamp(5f, 0))
         // The selected app is the one in the middle of the arc (45 degrees from the start is 3.75 steps).

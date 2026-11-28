@@ -54,7 +54,7 @@ object StyleMath {
     /** Where app [index] is on the ring when the ring has been turned by [offsetDeg]. */
     fun dialAngle(index: Int, offsetDeg: Float, stepDeg: Float = STEP): Float = START + index * stepDeg - offsetDeg
 
-    fun dialVisible(angle: Float): Boolean = angle >= START - 6f && angle <= END + 6f
+    fun dialVisible(angle: Float): Boolean = angle >= START - 0.01f && angle <= END + 0.01f
 
     /** The ring can't be turned past its first or last app. */
     fun dialClamp(offsetDeg: Float, count: Int, stepDeg: Float = STEP): Float = offsetDeg.coerceIn(0f, max(0, count - 1) * stepDeg)
