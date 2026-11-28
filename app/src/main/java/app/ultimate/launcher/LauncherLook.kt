@@ -55,8 +55,8 @@ internal val LocalLook = staticCompositionLocalOf { LookTokens.Default }
 class LookPreset(val id: String, val name: String, val blurb: String, val apply: (LauncherSettings) -> LauncherSettings)
 
 object Looks {
-    private fun LauncherSettings.parts(accent: Accent, backdrop: Backdrop, face: Face, clock: ClockLayout, fav: FavLayout, rail: RailStyle, icons: IconShape) =
-        copy(accent = accent, backdrop = backdrop, face = face, clockLayout = clock, favLayout = fav, rail = rail, iconShape = icons)
+    private fun LauncherSettings.parts(accent: Accent, backdrop: Backdrop, face: Face, clock: ClockLayout, fav: FavLayout, rail: RailStyle, icons: IconShape, style: HomeStyle = HomeStyle.Lists) =
+        copy(accent = accent, backdrop = backdrop, face = face, clockLayout = clock, favLayout = fav, rail = rail, iconShape = icons, homeStyle = style)
 
     val aurora = LookPreset("aurora", "Aurora", "The original: a soft glow and a liquid rail that swells round your thumb") {
         it.parts(Accent.Aurora, Backdrop.Aurora, Face.Default, ClockLayout.Day, FavLayout.List, RailStyle.Liquid, IconShape.AsIs).copy(drawerShowIcons = true, favouritesShown = 5)
@@ -81,26 +81,45 @@ object Looks {
         it.parts(Accent.Wallpaper, Backdrop.Wallpaper, Face.Clean, ClockLayout.Digital, FavLayout.List, RailStyle.Liquid, IconShape.Squircle).copy(drawerShowIcons = true, favouritesShown = 5)
     }
 
-    val all = listOf(aurora, terminal, paper, zen, tiles, dusk, mirror)
+    // Whole other arrangements of the home screen (see [HomeStyle]): the same parts, but the apps held in a different way.
+    val pages = LookPreset("pages", "Pages", "Every app on swipeable pages in a grid, with a dock of favourites: the classic phone") {
+        it.parts(Accent.Ocean, Backdrop.Midnight, Face.Clean, ClockLayout.Digital, FavLayout.Grid, RailStyle.Hidden, IconShape.Squircle, HomeStyle.Pages).copy(drawerShowIcons = true, favouritesShown = 4)
+    }
+    val hive = LookPreset("hive", "Hive", "Hexagon icons packed like a honeycomb on black, in amber") {
+        it.parts(Accent.Amber, Backdrop.Black, Face.Clean, ClockLayout.Day, FavLayout.Grid, RailStyle.Hidden, IconShape.Circle, HomeStyle.Hive).copy(drawerShowIcons = true, favouritesShown = 5)
+    }
+    val dial = LookPreset("dial", "Dial", "A ring of apps round the corner your thumb rests in; spin it to find one") {
+        it.parts(Accent.Aurora, Backdrop.Dusk, Face.Clean, ClockLayout.Digital, FavLayout.List, RailStyle.Hidden, IconShape.Circle, HomeStyle.Dial).copy(drawerShowIcons = true, favouritesShown = 5)
+    }
+    val metro = LookPreset("metro", "Metro", "A wall of big coloured tiles, wide and small, for the apps you use most") {
+        it.parts(Accent.Sunset, Backdrop.Graphite, Face.Clean, ClockLayout.Editorial, FavLayout.Grid, RailStyle.Hidden, IconShape.AsIs, HomeStyle.Tiles).copy(drawerShowIcons = true, favouritesShown = 8)
+    }
+    val prompt = LookPreset("prompt", "Prompt", "A command line for a home screen: type a few letters of an app, press Enter") {
+        it.parts(Accent.Phosphor, Backdrop.Terminal, Face.Mono, ClockLayout.Terminal, FavLayout.Numbered, RailStyle.Hidden, IconShape.AsIs, HomeStyle.Prompt).copy(drawerShowIcons = false, favouritesShown = 6)
+    }
+
+    val all = listOf(aurora, terminal, paper, zen, tiles, dusk, mirror, pages, hive, dial, metro, prompt)
 
     private fun LauncherSettings.sameLook(o: LauncherSettings) =
-        accent == o.accent && backdrop == o.backdrop && face == o.face && clockLayout == o.clockLayout && favLayout == o.favLayout && rail == o.rail && iconShape == o.iconShape
+        accent == o.accent && backdrop == o.backdrop && face == o.face && clockLayout == o.clockLayout && favLayout == o.favLayout && rail == o.rail && iconShape == o.iconShape && homeStyle == o.homeStyle
 
     /** The preset [s] is exactly set to (in its look parts), or null when it is a mix of your own. */
     fun matching(s: LauncherSettings): LookPreset? = all.firstOrNull { it.apply(s).sameLook(s) }
 }
 
 /**
- * A look as a short line of text, to paste to another phone or a friend: `ULOOK1:Phosphor|Terminal|Mono|Terminal|Numbered|Plain|AsIs|6|false`.
+ * A look as a short line of text, to paste to another phone or a friend: `ULOOK1:Phosphor|Terminal|Mono|Terminal|Numbered|Plain|AsIs|6|false|Lists`.
  * It carries only the look's parts (plus how many favourites show and whether the lists show icons), never apps or anything personal.
  * Reading is forgiving: a name a newer version added that this one doesn't know falls back to the default for that part.
  */
 object LookCode {
     private const val PREFIX = "ULOOK1:"
-    private const val PARTS = 9
+    /** Nine parts before home styles existed; the tenth is the home style. A code with nine still reads (it gets the original Lists style). */
+    private const val PARTS = 10
+    private const val OLD_PARTS = 9
 
     fun encode(s: LauncherSettings): String =
-        PREFIX + listOf(s.accent.name, s.backdrop.name, s.face.name, s.clockLayout.name, s.favLayout.name, s.rail.name, s.iconShape.name, s.favouritesShown.toString(), s.drawerShowIcons.toString()).joinToString("|")
+        PREFIX + listOf(s.accent.name, s.backdrop.name, s.face.name, s.clockLayout.name, s.favLayout.name, s.rail.name, s.iconShape.name, s.favouritesShown.toString(), s.drawerShowIcons.toString(), s.homeStyle.name).joinToString("|")
 
     private inline fun <reified E : Enum<E>> pick(name: String, default: E): E = enumValues<E>().firstOrNull { it.name == name } ?: default
 
@@ -109,12 +128,13 @@ object LookCode {
         val text = code.trim()
         if (!text.startsWith(PREFIX)) return null
         val p = text.removePrefix(PREFIX).split('|')
-        if (p.size != PARTS) return null
+        if (p.size != PARTS && p.size != OLD_PARTS) return null
         val favs = p[7].toIntOrNull() ?: return null
         return base.copy(
             accent = pick(p[0], base.accent), backdrop = pick(p[1], base.backdrop), face = pick(p[2], base.face), clockLayout = pick(p[3], base.clockLayout),
             favLayout = pick(p[4], base.favLayout), rail = pick(p[5], base.rail), iconShape = pick(p[6], base.iconShape),
             favouritesShown = favs, drawerShowIcons = p[8].toBooleanStrictOrNull() ?: base.drawerShowIcons,
+            homeStyle = if (p.size == PARTS) pick(p[9], base.homeStyle) else HomeStyle.Lists,
         ).clamped()
     }
 }

@@ -156,7 +156,16 @@ class LauncherRepo(context: Context) {
     fun openSystemSettings(): Boolean = start(Intent(android.provider.Settings.ACTION_SETTINGS))
 
     /** Hands [query] to the phone's browser or search app. */
-    fun webSearch(query: String): Boolean = start(Intent(Intent.ACTION_WEB_SEARCH).putExtra(android.app.SearchManager.QUERY, query))
+    fun webSearch(query: String, engine: SearchEngine = SearchEngine.Google): Boolean {
+        val q = query.trim()
+        if (q.isEmpty()) return false
+        // For Google, the phone's own web-search handler first (the Google app shows its own results); not every phone has one, so anything else, or
+        // that failing, opens the engine's results page in the browser, and if there is no browser either the owner is told rather than left wondering.
+        if (engine == SearchEngine.Google && start(Intent(Intent.ACTION_WEB_SEARCH).putExtra(android.app.SearchManager.QUERY, q))) return true
+        if (start(Intent(Intent.ACTION_VIEW, Uri.parse(engine.url(q))))) return true
+        runCatching { android.widget.Toast.makeText(app, "Couldn't find a browser to search for \"$q\"", android.widget.Toast.LENGTH_LONG).show() }
+        return false
+    }
 
     /**
      * Pulls down the notification shade or quick settings, the way other launchers do: there is no public call for it, so this asks the

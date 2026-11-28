@@ -162,6 +162,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.colourItems(repo: Lau
     // Each part on its own, so the looks can be mixed.
     item {
         GlassCard(title = "Make it yours", accent = s.ink) {
+            PartRow("Home style", HomeStyle.entries, s.homeStyle, { it.label }, s.ink) { v -> repo.update { it.copy(homeStyle = v) } }
+            Text(s.homeStyle.blurb + ".", color = Liquid.dim, fontSize = 12.sp)
             PartRow("Background", Backdrop.entries, s.backdrop, { it.label }, s.ink) { v -> repo.update { it.copy(backdrop = v) } }
             PartRow("Typeface", Face.entries, s.face, { it.label }, s.ink) { v -> repo.update { it.copy(face = v) } }
             PartRow("Clock", ClockLayout.entries, s.clockLayout, { it.label }, s.ink) { v -> repo.update { it.copy(clockLayout = v) } }
@@ -216,7 +218,7 @@ private fun <T> PartRow(title: String, options: List<T>, selected: T, label: (T)
 
 /** A look drawn small, from its own parts: the clock, three favourites and the rail, on its own background. */
 @Composable
-private fun LookCard(p: LookPreset, selected: Boolean, accent: Color, onClick: () -> Unit) = LookPreview(p.name, p.apply(LauncherSettings()), selected, accent, onClick)
+internal fun LookCard(p: LookPreset, selected: Boolean, accent: Color, onClick: () -> Unit) = LookPreview(p.name, p.apply(LauncherSettings()), selected, accent, onClick)
 
 /** Any look (a preset, one you saved, or the one you are wearing) drawn small from its own parts. */
 @Composable
@@ -242,7 +244,7 @@ private fun LookPreview(name: String, s: LauncherSettings, selected: Boolean, ac
                     ClockLayout.Hidden -> Unit
                 }
                 Spacer(Modifier.height(10.dp))
-                when (s.favLayout) {
+                if (s.homeStyle != HomeStyle.Lists) MiniStyle(s) else when (s.favLayout) {
                     FavLayout.List -> names.forEach { n ->
                         Row(Modifier.padding(bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(9.dp).clip(dot).background(s.accent.a.copy(alpha = 0.75f))); Spacer(Modifier.width(5.dp))
@@ -371,7 +373,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.searchItems(repo: Lau
     item {
         GlassCard(title = "Search", accent = s.inkB) {
             Toggle("List every app first", "Off shows an empty list until you start typing.", s.searchShowsAll) { v -> repo.update { it.copy(searchShowsAll = v) } }
-            Toggle("Offer a web search", "When you type something no app matches, a row sends it to your browser.", s.searchWeb) { v -> repo.update { it.copy(searchWeb = v) } }
+            Toggle("Offer a web search", "A row under the results sends what you typed to the web, and Enter does the same when no app matches.", s.searchWeb) { v -> repo.update { it.copy(searchWeb = v) } }
+            if (s.searchWeb) PartRow("Search with", SearchEngine.entries, s.searchEngine, { it.label }, s.ink) { v -> repo.update { it.copy(searchEngine = v) } }
         }
     }
 }
@@ -570,3 +573,36 @@ private fun readLookFromPicture(context: android.content.Context, uri: android.n
         LookQr.decode(pixels, bitmap.width, bitmap.height)
     } finally { bitmap.recycle() }
 }.getOrNull()
+
+/** A home style drawn tiny, for the look cards: pages of squares and a dock, a honeycomb, a ring of dots, a wall of tiles, a prompt. */
+@Composable
+private fun MiniStyle(s: LauncherSettings) {
+    val t = s.tokens()
+    val a = s.accent.a; val b = s.accent.b
+    when (s.homeStyle) {
+        HomeStyle.Lists -> Unit
+        HomeStyle.Pages -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            repeat(3) { Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { repeat(3) { Box(Modifier.size(18.dp).clip(RoundedCornerShape(5.dp)).background(a.copy(alpha = 0.6f))) } } }
+            Box(Modifier.padding(top = 4.dp).width(66.dp).height(14.dp).clip(RoundedCornerShape(7.dp)).background(t.fg.copy(alpha = 0.14f)))
+        }
+        HomeStyle.Hive -> Column(verticalArrangement = Arrangement.spacedBy((-3).dp)) {
+            repeat(4) { r -> Row(Modifier.padding(start = if (r % 2 == 1) 10.dp else 0.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) { repeat(3) { i -> Box(Modifier.size(width = 18.dp, height = 21.dp).clip(HexShape).background((if ((r + i) % 2 == 0) a else b).copy(alpha = 0.6f))) } } }
+        }
+        HomeStyle.Dial -> androidx.compose.foundation.Canvas(Modifier.width(72.dp).height(96.dp)) {
+            val c = androidx.compose.ui.geometry.Offset(size.width + 24.dp.toPx(), size.height)
+            repeat(6) { k ->
+                val ang = Math.toRadians((180.0 + k * 18.0))
+                drawCircle(if (k == 2) a else a.copy(alpha = 0.45f), if (k == 2) 6.dp.toPx() else 4.5.dp.toPx(), androidx.compose.ui.geometry.Offset(c.x + 84.dp.toPx() * kotlin.math.cos(ang).toFloat(), c.y + 84.dp.toPx() * kotlin.math.sin(ang).toFloat()))
+            }
+        }
+        HomeStyle.Tiles -> Column(Modifier.width(72.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Box(Modifier.fillMaxWidth().height(34.dp).clip(RoundedCornerShape(5.dp)).background(a.copy(alpha = 0.85f)))
+            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) { repeat(2) { Box(Modifier.weight(1f).height(18.dp).clip(RoundedCornerShape(4.dp)).background(b.copy(alpha = 0.7f))) } }
+            Box(Modifier.fillMaxWidth().height(18.dp).clip(RoundedCornerShape(4.dp)).background(a.copy(alpha = 0.6f)))
+        }
+        HomeStyle.Prompt -> Column {
+            listOf("[1] Mail", "[2] Phone").forEach { Text(it, color = t.fg, fontSize = 8.sp, fontFamily = t.face) }
+            Text("> ma_", color = a, fontSize = 9.sp, fontFamily = t.face, modifier = Modifier.padding(top = 6.dp))
+        }
+    }
+}
