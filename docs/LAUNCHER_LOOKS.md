@@ -160,8 +160,8 @@ The first fix (2.32.0) did not cure it on the owner's phone and the cause could 
 `HomeActivity` registers an `OnBackInvokedCallback` at `PRIORITY_OVERLAY` (API 33+) that counts the press (`LauncherBack.presses`) and calls
 `onBackPressedDispatcher.onBackPressed()` itself, so the screen's handlers run even if the platform's registration of the activity's own callbacks
 was the thing failing; below API 33, and for a hardware Back key, `onBackPressed()` is overridden to count and call `super`. The foot of every
-launcher settings page shows "Back pressed N times since the launcher started": N rising with no page change means the launcher got Back and mishandled
-it; N not rising means Android never delivered Back to the launcher. Remove the counter once the cause is known.
+launcher settings page showed "Back pressed N times since the launcher started" while the cause was unknown. The owner confirmed Back works with this
+route (2.33.1 and later), so 2.35.0 removes that line; the press counting itself stays in `HomeActivity` (it is how Back is routed).
 
 ## Home styles (2.34.0)
 
@@ -193,3 +193,20 @@ icons cut by the screen edge. Not tried on a phone.
 (`SearchEngine.url`, the query URL-escaped); other engines (DuckDuckGo, Bing, Brave) open their results page; with no browser a toast says so.
 Enter in the search box opens the best app match, or searches the web when there is none and web search is on (the button then reads Search).
 The engine is the setting `searchEngine` (Settings, Search). Before, the row's failure was silent and Enter on a miss did nothing.
+
+## Look studio (2.35.0)
+
+Code: `launcher/LookStudio.kt` (pending / commit / name / readable accents / shuffle, plain logic), and in `LauncherSettingsSheet.kt` the draft state,
+`StudioHeader`, `LookHero`, `PartTiles` and `LookThumb` (the look drawn small, now with a `scale`).
+
+Themes and Wallpaper share one **draft** held in the sheet: every choice edits it, the header shows it (cross-fading between looks) and the real
+launcher is untouched until **Apply** (`LookStudio.commit` = the look's code applied on top of the real settings, so apps, gestures, rules and saved
+looks are never overwritten). **Undo** drops the draft; leaving the two pages drops it too. **Shuffle** (`LookStudio.shuffle`) picks every part at
+random, only accents readable on the chosen background (3:1 for both colours; the wallpaper's own pair is always allowed), no hidden clock, no rail
+with a styled home, and never the look it started from. Saved looks, pasted codes and QR pictures go into the draft rather than being worn.
+
+`LookThumb` lays its subtree out at a scaled `Density`, so text and shapes stay sharp and the layout size follows. `PartTiles` draws each option as
+your look with only that part changed (typefaces and icon shapes draw themselves, since a whole tiny screen says little there). Favourites and the
+letter rail rows appear only for the Lists style. The first page of settings shows the look you are wearing.
+
+Checked: `LookStudioTest`, and renders of the hub, Themes (applied, pending, very tall) and Wallpaper (`StudioShotsTest`). Not tried on a phone.
